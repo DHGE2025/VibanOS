@@ -44,40 +44,46 @@ Neue Befehle einfach als weiteren `case` im `switch` ergänzen.
    ```sh
    git checkout development
    git pull
-   git checkout -b feature/mein-feature
+   git checkout -b feature/VIB-2-dateisystem
    ```
 2. Der Branchname muss mit einem dieser Präfixe beginnen, sonst greift das Ruleset nicht:
    - `feature/` für neue Funktionen
    - `fix/` für Fehlerbehebungen
    - `rework/` für Umbauten und Refactorings
+   Nach dem Präfix folgt die Kennung der Aufgabe aus Linear (z. B. `VIB-2`), siehe unten.
 3. Änderungen pushen und einen Pull Request gegen `development` öffnen.
 4. Der PR wird von @TheScoutSky reviewed und erst nach dessen Freigabe gemergt. Direkt auf `development` oder `main` wird nicht gepusht.
 
-## Issues erstellen
+## Aufgaben und Fehler in Linear
 
-Jede Aufgabe und jeder Fehler bekommt zuerst ein Issue. So bleibt nachvollziehbar, was wann und warum geändert wurde.
+Alle Aufgaben und Fehler werden im Linear-Projekt [VibanOS](https://linear.app/cxdex/project/vibanos-b87d853f1795) verwaltet, nicht als GitHub-Issues. Jede Aufgabe hat eine Kennung wie `VIB-2`.
 
-1. Auf GitHub unter **Issues → New issue** ein neues Issue anlegen.
-2. Einen kurzen, eindeutigen Titel wählen, z. B. `Shell stürzt bei leerer Eingabe ab`.
+### Aufgabe anlegen
+
+1. In Linear im Team **VibanOS** und Projekt VibanOS mit **C** (oder „New issue“) eine neue Aufgabe anlegen.
+2. Kurzen, eindeutigen Titel wählen, z. B. `Shell stürzt bei leerer Eingabe ab`.
 3. Im Text beschreiben:
-   - **Bei Fehlern:** Was wurde gemacht (Schritte zum Nachstellen)? Was sollte passieren? Was ist stattdessen passiert? Fehlermeldung oder Screenshot, VM (VMware/QEMU) und Commit/Branch.
+   - **Bei Fehlern:** Was wurde gemacht (Schritte zum Nachstellen)? Was sollte passieren? Was ist stattdessen passiert? Fehlermeldung oder Screenshot, VM (VMware/QEMU) und Branch.
    - **Bei neuen Funktionen:** Was soll das Feature können und warum wird es gebraucht?
-4. Ein passendes Label setzen (`bug`, `enhancement`, `documentation`) und sich selbst oder jemand anderen zuweisen.
+4. Label setzen: das Thema (z. B. `Speicherverwaltung`) und bei Fehlern zusätzlich `Bug`. Projekt `VibanOS` auswählen und die Aufgabe jemandem zuweisen.
 
-### Vom Issue zum Pull Request
+### Von der Aufgabe zum Pull Request
 
-1. Branch passend zum Issue von `development` erstellen, mit Issue-Nummer im Namen:
-   - Fehler → `fix/12-leere-eingabe`
-   - Feature → `feature/15-dateisystem`
-   - Umbau → `rework/20-shell-aufraeumen`
-2. Im PR-Text das Issue verlinken, z. B. `Closes #12`. Dann wird das Issue beim Merge automatisch geschlossen.
+1. Aufgabe auf „In Progress“ setzen.
+2. Branch von `development` erstellen, mit Präfix und Kennung im Namen:
+   - Fehler → `fix/VIB-23-leere-eingabe`
+   - Feature → `feature/VIB-2-dateisystem`
+   - Umbau → `rework/VIB-1-shell-befehle`
+
+   Der genaue Branchname und PR-Titel steht in jeder Aufgabe unter „Workflow“. Den von Linear über „Copy git branch name“ vorgeschlagenen Namen nicht verwenden, er hat nicht das nötige Präfix.
+3. PR gegen `development` öffnen. Linear erkennt die Kennung im Branchnamen und verknüpft Branch und PR automatisch mit der Aufgabe. Nach dem Merge wird die Aufgabe automatisch auf „Done“ gesetzt.
 
 ### Fehler, die erst nach dem Merge auffallen
 
 Ein bereits gemergter PR wird nicht wieder geöffnet oder weiterverwendet.
 
-1. Neues Issue anlegen und darin den PR verlinken, der den Fehler eingeführt hat (z. B. `Entstanden durch #8`).
-2. Einen neuen `fix/`-Branch vom aktuellen `development` erstellen, den Fehler beheben und einen neuen PR mit `Closes #<Issue>` öffnen.
+1. Neue Aufgabe mit Label `Bug` in Linear anlegen und darin den PR verlinken, der den Fehler eingeführt hat. Falls bekannt, die ursprüngliche Aufgabe unter „Related“ verknüpfen.
+2. Einen neuen `fix/`-Branch mit der neuen Kennung vom aktuellen `development` erstellen, den Fehler beheben und einen neuen PR öffnen.
 3. Ist der Fehler schwerwiegend und `development` dadurch unbenutzbar, kann der ursprüngliche PR auf GitHub über **Revert** zurückgenommen werden. Auch dieser Revert läuft als PR mit Review.
 4. Ist der Fehler schon auf `main`, wird der Fix zuerst nach `development` gemergt und danach wie gewohnt von `development` nach `main` übernommen.
 
