@@ -69,14 +69,19 @@ Alle Aufgaben und Fehler werden im Linear-Projekt [VibanOS](https://linear.app/c
 
 ### Von der Aufgabe zum Pull Request
 
-1. Aufgabe auf „In Progress“ setzen.
-2. Branch von `development` erstellen, mit Präfix und Kennung im Namen:
-   - Fehler → `fix/VIB-23-leere-eingabe`
-   - Feature → `feature/VIB-2-dateisystem`
-   - Umbau → `rework/VIB-1-shell-befehle`
+1. Aufgabe in Linear jemandem zuweisen. Spätestens nach ca. 10 Minuten legt eine GitHub Action den passenden Branch von `development` an und schreibt den Namen als Kommentar in die Aufgabe (siehe „Linear mit GitHub verbinden“).
+2. Branch holen und loslegen:
+   ```sh
+   git fetch origin
+   git checkout feature/VIB-2-dateisystem
+   ```
+   Der Branchname steht in jeder Aufgabe unter „Workflow“. Bei neuen Aufgaben ohne diesen Abschnitt wird er aus dem Titel gebildet:
+   - Label `Bug` → `fix/VIB-23-leere-eingabe`
+   - Label `Improvement` → `rework/VIB-24-shell-aufraeumen`
+   - sonst → `feature/VIB-25-neues-feature`
 
-   Der genaue Branchname und PR-Titel steht in jeder Aufgabe unter „Workflow“. Den von Linear über „Copy git branch name“ vorgeschlagenen Namen nicht verwenden, er hat nicht das nötige Präfix.
-3. PR gegen `development` öffnen. Linear erkennt die Kennung im Branchnamen und verknüpft Branch und PR automatisch mit der Aufgabe. Nach dem Merge wird die Aufgabe automatisch auf „Done“ gesetzt.
+   Branches können auch von Hand angelegt werden, solange Präfix und Kennung im Namen stehen. Den von Linear über „Copy git branch name“ vorgeschlagenen Namen nicht verwenden, er hat nicht das nötige Präfix.
+3. PR gegen `development` öffnen. Linear erkennt die Kennung im Branchnamen, verknüpft Branch und PR mit der Aufgabe und setzt den Status automatisch weiter. Nach dem Merge steht die Aufgabe auf „Done“.
 
 ### Fehler, die erst nach dem Merge auffallen
 
@@ -86,6 +91,13 @@ Ein bereits gemergter PR wird nicht wieder geöffnet oder weiterverwendet.
 2. Einen neuen `fix/`-Branch mit der neuen Kennung vom aktuellen `development` erstellen, den Fehler beheben und einen neuen PR öffnen.
 3. Ist der Fehler schwerwiegend und `development` dadurch unbenutzbar, kann der ursprüngliche PR auf GitHub über **Revert** zurückgenommen werden. Auch dieser Revert läuft als PR mit Review.
 4. Ist der Fehler schon auf `main`, wird der Fix zuerst nach `development` gemergt und danach wie gewohnt von `development` nach `main` übernommen.
+
+## Linear mit GitHub verbinden (einmalig)
+
+1. **GitHub-Integration:** In Linear unter *Settings → Integrations → GitHub* verbinden, die Linear-App für die Organisation `DHGE2025` installieren und das Repo `VibanOS` auswählen. Dafür braucht man Owner-Rechte in der GitHub-Organisation.
+2. **Persönliches Konto:** Jedes Teammitglied verbindet in Linear zusätzlich sein eigenes GitHub-Konto, damit PRs und Reviews der richtigen Person zugeordnet werden.
+3. **Status-Automatik:** Im Team VibanOS unter *Settings → Teams → VibanOS → Workflow* die Git-Automationen einstellen, z. B. PR geöffnet → „In Review“, PR gemergt → „Done“.
+4. **Automatische Branches:** In Linear unter *Settings → Account → Security & access* einen persönlichen API-Key erzeugen und im GitHub-Repo unter *Settings → Secrets and variables → Actions* als Secret `LINEAR_API_KEY` speichern. Die Action `.github/workflows/linear-branches.yml` prüft dann alle 10 Minuten, welche Aufgaben im Team VIB zugewiesen und offen sind, und legt fehlende Branches an. Sie läuft nur, wenn sie auf `main` liegt; manuell starten geht unter *Actions → Linear-Branches anlegen → Run workflow*.
 
 ## Weiterführend
 
