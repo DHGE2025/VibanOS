@@ -6,3 +6,4 @@ obj/
 *.iso
 *.vmdk
 *.log
+__pycache__/
