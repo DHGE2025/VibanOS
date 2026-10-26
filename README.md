@@ -44,23 +44,23 @@ Neue Befehle einfach als weiteren `case` im `switch` ergänzen.
    ```sh
    git checkout development
    git pull
-   git checkout -b feature/COD-6-dateisystem
+   git checkout -b feature/VIB-2-dateisystem
    ```
 2. Der Branchname muss mit einem dieser Präfixe beginnen, sonst greift das Ruleset nicht:
    - `feature/` für neue Funktionen
    - `fix/` für Fehlerbehebungen
    - `rework/` für Umbauten und Refactorings
-   Nach dem Präfix folgt die Kennung der Aufgabe aus Linear (z. B. `COD-6`), siehe unten.
+   Nach dem Präfix folgt die Kennung der Aufgabe aus Linear (z. B. `VIB-2`), siehe unten.
 3. Änderungen pushen und einen Pull Request gegen `development` öffnen.
 4. Der PR wird von @TheScoutSky reviewed und erst nach dessen Freigabe gemergt. Direkt auf `development` oder `main` wird nicht gepusht.
 
 ## Aufgaben und Fehler in Linear
 
-Alle Aufgaben und Fehler werden im Linear-Projekt [VibanOS](https://linear.app/cxdex/project/vibanos-b87d853f1795) verwaltet, nicht als GitHub-Issues. Jede Aufgabe hat eine Kennung wie `COD-6`.
+Alle Aufgaben und Fehler werden im Linear-Projekt [VibanOS](https://linear.app/cxdex/project/vibanos-b87d853f1795) verwaltet, nicht als GitHub-Issues. Jede Aufgabe hat eine Kennung wie `VIB-2`.
 
 ### Aufgabe anlegen
 
-1. In Linear im Projekt VibanOS mit **C** (oder „New issue“) eine neue Aufgabe anlegen.
+1. In Linear im Team **VibanOS** und Projekt VibanOS mit **C** (oder „New issue“) eine neue Aufgabe anlegen.
 2. Kurzen, eindeutigen Titel wählen, z. B. `Shell stürzt bei leerer Eingabe ab`.
 3. Im Text beschreiben:
    - **Bei Fehlern:** Was wurde gemacht (Schritte zum Nachstellen)? Was sollte passieren? Was ist stattdessen passiert? Fehlermeldung oder Screenshot, VM (VMware/QEMU) und Branch.
@@ -71,11 +71,11 @@ Alle Aufgaben und Fehler werden im Linear-Projekt [VibanOS](https://linear.app/c
 
 1. Aufgabe auf „In Progress“ setzen.
 2. Branch von `development` erstellen, mit Präfix und Kennung im Namen:
-   - Fehler → `fix/COD-23-leere-eingabe`
-   - Feature → `feature/COD-6-dateisystem`
-   - Umbau → `rework/COD-5-shell-befehle`
+   - Fehler → `fix/VIB-23-leere-eingabe`
+   - Feature → `feature/VIB-2-dateisystem`
+   - Umbau → `rework/VIB-1-shell-befehle`
 
-   Den von Linear vorgeschlagenen Branchnamen nicht direkt übernehmen, er hat nicht das nötige Präfix.
+   Der genaue Branchname und PR-Titel steht in jeder Aufgabe unter „Workflow“. Den von Linear über „Copy git branch name“ vorgeschlagenen Namen nicht verwenden, er hat nicht das nötige Präfix.
 3. PR gegen `development` öffnen. Linear erkennt die Kennung im Branchnamen und verknüpft Branch und PR automatisch mit der Aufgabe. Nach dem Merge wird die Aufgabe automatisch auf „Done“ gesetzt.
 
 ### Fehler, die erst nach dem Merge auffallen
