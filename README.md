@@ -38,6 +38,21 @@ VibanOS/
 `Kernel.cs` enthält eine kleine Shell mit den Befehlen `help`, `echo`, `clear`, `time`, `reboot`, `shutdown`.
 Neue Befehle einfach als weiteren `case` im `switch` ergänzen.
 
+## Branch-Workflow
+
+1. Neue Branches immer von `development` abzweigen:
+   ```sh
+   git checkout development
+   git pull
+   git checkout -b feature/mein-feature
+   ```
+2. Der Branchname muss mit einem dieser Präfixe beginnen, sonst greift das Ruleset nicht:
+   - `feature/` für neue Funktionen
+   - `fix/` für Fehlerbehebungen
+   - `rework/` für Umbauten und Refactorings
+3. Änderungen pushen und einen Pull Request gegen `development` öffnen.
+4. Der PR wird von @TheScoutSky reviewed und erst nach dessen Freigabe gemergt. Direkt auf `development` oder `main` wird nicht gepusht.
+
 ## Weiterführend
 
 - Doku: https://cosmosos.github.io/
