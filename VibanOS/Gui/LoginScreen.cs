@@ -149,7 +149,12 @@ namespace VibanOS.Gui
 
             string hint = setup ? "Erster Start: Das Passwort gilt für den Administrator root."
                 : users.All.Count > 1 ? "Eingabetaste meldet an, Tab wechselt den Nutzer." : "Eingabetaste meldet an.";
-            if (error != "") s.DrawTextCentered(Fonts.Body, error, cx, ty, T.Color.Danger);
+            if (users.LoadError != null)
+            {
+                s.DrawTextCentered(Fonts.Body, "Die Nutzerdatei ließ sich nicht lesen, deshalb kann sich niemand anmelden. Bitte neu starten.", cx, ty, T.Color.Danger);
+                s.DrawTextCentered(Fonts.Body, users.LoadError, cx, ty + Fonts.Body.LineHeight + T.Space.XS, T.Color.TextSecondary);
+            }
+            else if (error != "") s.DrawTextCentered(Fonts.Body, error, cx, ty, T.Color.Danger);
             else s.DrawTextCentered(Fonts.Body, hint, cx, ty, T.Color.TextSecondary);
         }
     }

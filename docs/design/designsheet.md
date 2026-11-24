@@ -120,7 +120,7 @@ Eingabefelder sind Pillen: Der Radius ist die halbe Höhe.
 | Fenster, inaktiv | 30 | 12 | 70 von 255 |
 | Dock | 20 | 6 | 80 von 255 |
 
-Der Schatten zeigt, was vorn liegt. Das aktive Fenster hat den kräftigsten.
+Der Schatten zeigt, was vorn liegt. Das aktive Fenster hat den kräftigsten. Gezeichnet wird er nur außerhalb der Form, durch das durchscheinende Dock scheint er also nicht hindurch.
 
 ## Bausteine
 

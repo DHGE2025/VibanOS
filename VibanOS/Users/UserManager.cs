@@ -25,9 +25,13 @@ namespace VibanOS.Users
         /// <summary>false: Die letzte Änderung steht nicht in der Nutzerdatei und gilt nur bis zum Neustart.</summary>
         public bool Saved = true;
 
-        // Die Nutzerdatei war da, ließ sich aber nicht lesen. Dann wird sie nicht überschrieben,
-        // sonst wären mit einem Lesefehler alle Nutzer verloren.
-        private bool unreadable;
+        /// <summary>
+        /// Nicht null: Die Nutzerdatei war da, ließ sich aber nicht lesen (hier steht die Fehlermeldung).
+        /// Dann wird sie nicht überschrieben, sonst wären mit einem Lesefehler alle Nutzer verloren.
+        /// Anmelden kann sich in diesem Zustand niemand: Ein Lesefehler darf nicht zur Ersteinrichtung
+        /// führen, bei der jeder das Passwort von root festlegen könnte.
+        /// </summary>
+        public string LoadError;
 
         public UserManager()
         {
@@ -48,7 +52,7 @@ namespace VibanOS.Users
         }
 
         /// <summary>true beim allerersten Start: root hat noch kein Passwort und muss eines vergeben.</summary>
-        public bool NeedsSetup { get { return Find(Root).PasswordHash == ""; } }
+        public bool NeedsSetup { get { return LoadError == null && Find(Root).PasswordHash == ""; } }
 
         private static string FilePath { get { return Vfs.SystemDirectory + Vfs.Separator + "users.txt"; } }
 
@@ -208,9 +212,9 @@ namespace VibanOS.Users
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception e)
             {
-                unreadable = true;
+                LoadError = e.Message ?? "";
             }
             if (Find(Root) == null) Add(Root, "", AdminGroup);
         }
@@ -219,7 +223,7 @@ namespace VibanOS.Users
         public bool Save()
         {
             Saved = false;
-            if (!Vfs.Available || unreadable) return false;
+            if (!Vfs.Available || LoadError != null) return false;
             string text = "";
             for (int i = 0; i < All.Count; i++)
             {

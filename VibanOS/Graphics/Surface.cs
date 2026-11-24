@@ -177,7 +177,8 @@ namespace VibanOS.Graphics
 
         /// <summary>
         /// Weicher Schatten um ein abgerundetes Rechteck. Gezeichnet wird nur außerhalb der Form,
-        /// die Form selbst kommt danach darüber.
+        /// die Form selbst kommt danach darüber. So scheint der Schatten auch nicht durch
+        /// durchscheinende Flächen wie das Dock.
         /// </summary>
         public void Shadow(int x, int y, int w, int h, int r, int blur, int offsetY, int alpha, uint color)
         {
@@ -187,10 +188,24 @@ namespace VibanOS.Graphics
             for (int py = sy - blur; py < sy + h + blur; py++)
             {
                 if (py < 0 || py >= Height) continue;
-                bool middle = py >= y + r && py < y + h - r; // hier verdeckt die Form die ganze Zeile
+                // Von coverFrom bis coverTo (ausschließlich) deckt die Form diese Zeile voll. In den Eckzeilen
+                // beginnt das dort, wo FillRoundRect die erste voll gedeckte Stelle zeichnet.
+                int coverFrom = 0, coverTo = 0, j = py - y;
+                if (j >= 0 && j < h)
+                {
+                    int inset = 0;
+                    if (j < r || j >= h - r)
+                    {
+                        float dy = j < r ? r - j - 0.5f : j - (h - r) + 0.5f;
+                        float reach = (r - 0.5f) * (r - 0.5f) - dy * dy;
+                        inset = reach <= 0 ? r : r - (int)((float)Math.Sqrt(reach) + 0.5f);
+                    }
+                    coverFrom = x + inset;
+                    coverTo = x + w - inset;
+                }
                 for (int px = x - blur; px < x + w + blur; px++)
                 {
-                    if (middle && px == x) px = x + w;
+                    if (px == coverFrom && coverTo > coverFrom) px = coverTo;
                     if (px < 0 || px >= Width) continue;
                     float qx = px + 0.5f - cx, qy = py + 0.5f - cy;
                     qx = (qx < 0 ? -qx : qx) - halfW;

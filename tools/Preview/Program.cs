@@ -232,6 +232,7 @@ namespace VibanOS.Preview
             Check(OS.Users.Find("bert") == null, "In einer Passwortabfrage gibt es keinen Verlauf");
             Type("useradd anna\ntopsecret\n");
             Check(OS.Users.Find("anna") != null, "useradd legt nach der Passwortabfrage einen Nutzer an");
+            Check(!Shown("topsecret"), "Ein eingetipptes Passwort steht weder im Terminal noch im Verlauf");
             UserManager reloaded = new UserManager();
             reloaded.Load();
             Check(reloaded.Find("anna") != null && reloaded.CheckPassword(reloaded.Find("anna"), "topsecret")
@@ -248,15 +249,29 @@ namespace VibanOS.Preview
             reloaded.Load();
             Check(!reloaded.NeedsSetup && reloaded.Find("anna") != null, "Ein unterbrochenes Speichern der Nutzerdatei führt nicht zur Ersteinrichtung");
             File.Move(userFile + ".new", userFile);
+            using (new FileStream(userFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) // gesperrt: Lesen scheitert
+            {
+                reloaded = new UserManager();
+                reloaded.Load();
+            }
+            Check(reloaded.LoadError != null && !reloaded.NeedsSetup && !reloaded.Save() && File.ReadAllText(userFile) == users,
+                "Eine unlesbare Nutzerdatei führt nicht zur Ersteinrichtung und wird nicht überschrieben");
+            Directory.CreateDirectory(userFile + ".new"); // ein Ordner im Weg: Schreiben scheitert
+            Check(!OS.Users.Save() && File.ReadAllText(userFile) == users, "Scheitert das Schreiben, bleibt die bisherige Nutzerdatei unversehrt");
+            Directory.Delete(userFile + ".new");
+            Check(OS.Users.Save() && File.ReadAllText(userFile) == users, "Danach lässt sich die Nutzerdatei wieder schreiben");
             Check(Tail(UserManager.Hash("a", "salz")) != Tail(UserManager.Hash("b", "salz")) || Tail(UserManager.Hash("b", "salz")) != Tail(UserManager.Hash("c", "salz")),
                 "Auch die letzten Stellen des Passwort-Hashs hängen vom Passwort ab");
+            Type("logout\n");
+            Check(OS.Users.Current == null, "logout sperrt den Schreibtisch");
+            Check(OS.Shell.Lines.Count == 0 && OS.Shell.History.Count == 0, "logout räumt Ausgaben und Verlauf für den nächsten Nutzer weg");
             LoginScreen login = new LoginScreen();
             for (int i = 0; i < 3; i++) { login.OnKey(Key.None, 'x'); login.OnKey(Key.Enter, '\n'); }
+            foreach (char ch in "geheim\n") login.OnKey(ch == '\n' ? Key.Enter : Key.None, ch);
+            Check(OS.Users.Current == null, "Während der Sperre nach drei Fehlversuchen hilft auch das richtige Passwort nicht");
             DateTime now = DateTime.Now;
             Check(!login.LockExpired(now) && login.LockExpired(now.AddSeconds(6)) && !login.LockExpired(now.AddSeconds(7)),
                 "Die Sperre nach drei Fehlversuchen läuft ab und meldet das genau einmal");
-            Type("logout\n");
-            Check(OS.Users.Current == null, "logout sperrt den Schreibtisch");
             Type("\tfalsch\n");
             Check(OS.Users.Current == null, "Falsches Passwort wird abgelehnt");
             Shot(output, "2-anmeldung-fehler");
@@ -264,6 +279,13 @@ namespace VibanOS.Preview
             Check(OS.Users.Current.Name == "anna", "Tab wechselt den Nutzer, anna meldet sich an");
             Type("shutdown\n");
             Check(Last().Style == LineStyle.Error && !Platform.Hardware.ShutdownCalled, "Normale Nutzer dürfen nicht herunterfahren");
+            Type("useradd eve\n");
+            Check(Last().Text.StartsWith("Keine Berechtigung") && !OS.Shell.Asking && OS.Users.Find("eve") == null, "Normale Nutzer legen keine Nutzer an");
+            Type("format\n");
+            Check(Last().Text.StartsWith("Keine Berechtigung") && !OS.Shell.Asking, "Normale Nutzer dürfen format nicht aufrufen");
+            Type("passwd\nfalsch\n");
+            Check(Last().Style == LineStyle.Error && !OS.Shell.Asking && OS.Users.CheckPassword(OS.Users.Current, "topsecret"),
+                "passwd ändert nichts ohne das alte Passwort");
             Type("kill 1\n");
             Check(OS.Processes.Get(1) != null, "Normale Nutzer dürfen fremde Prozesse nicht beenden");
             int pagesBefore = OS.Memory.TableOf(1).Pages.Count;
@@ -275,6 +297,8 @@ namespace VibanOS.Preview
             Check(Last().Text.StartsWith("Zugriff verweigert") && File.ReadAllText(userFile) == users, "Der Systemordner ist auch in anderer Schreibweise gesperrt");
             Type("cat /system~1/users.txt\n");
             Check(Last().Text.StartsWith("Zugriff verweigert"), "Der FAT-Kurzname des Systemordners (SYSTEM~1) ist normalen Nutzern gesperrt");
+            Type("rm /system/users.txt\n");
+            Check(Last().Text.StartsWith("Zugriff verweigert") && File.Exists(userFile), "Normale Nutzer löschen nichts im Systemordner");
             Type("logout\n\tgeheim\n");
             Check(OS.Users.Current.Name == "root", "root meldet sich wieder an");
             Type("cat /system/users.txt\n");
@@ -291,8 +315,28 @@ namespace VibanOS.Preview
             desktop.OnMouse(terminal.X + 240, terminal.Y + 10, true);
             desktop.OnMouse(0, 0, false);
             Check(terminal.X == oldX - 60, "Fenster lassen sich an der Titelleiste ziehen");
-            Click(T.Size.ScreenWidth / 2, T.Size.ScreenHeight - T.Space.S - T.Space.M - T.Size.DockIcon / 2);
+            int dockRow = T.Size.ScreenHeight - T.Space.S - T.Space.M - T.Size.DockIcon / 2, dockTop = dockRow - T.Size.DockIcon / 2 - T.Space.S;
+            desktop.OnMouse(terminal.X + terminal.Width - 5, terminal.Y + 10, true);
+            desktop.OnMouse(0, T.Size.ScreenHeight - 1, true);
+            desktop.OnMouse(0, 0, false);
+            Check(terminal.X + terminal.Width >= T.Size.DockIcon && terminal.Y + T.Size.TitleBar <= dockTop,
+                "Ein Fenster lässt sich nicht ganz aus dem Bildschirm oder unter das Dock ziehen");
+            Click(T.Size.ScreenWidth / 2, dockRow);
             Check(desktop.Active is ActivityWindow, "Klick im Dock öffnet die App");
+            terminal.X = oldX;
+            terminal.Y = T.Size.ScreenHeight / 2; // reicht jetzt bis unter das Dock
+            Click(T.Size.ScreenWidth / 2 + T.Size.DockIcon / 2 + T.Space.M / 2, dockRow);
+            Check(desktop.Active is ActivityWindow, "Ein Klick zwischen die Dock-Symbole trifft kein Fenster darunter");
+            Desktop small = new Desktop(800, 600);
+            small.Frame(new Surface(800, 600));
+            Check(small.Active != null && small.Active.X >= 0, "Auch bei 800x600 beginnt das Terminal auf dem Bildschirm");
+            Check(ActivityWindow.Fit(Fonts.Body, "root", 82) == "root" && Fonts.Body.Measure(ActivityWindow.Fit(Fonts.Body, "max_mustermann12", 82)) <= 82,
+                "Lange Nutzernamen werden für die Prozesstabelle gekürzt");
+            Surface plain = new Surface(200, 120);
+            plain.FillRect(0, 0, 200, 120, T.Color.TextOnAccent);
+            plain.Shadow(50, 30, 100, 60, T.Radius.L, T.Shadow.DockBlur, T.Shadow.DockOffset, T.Shadow.DockAlpha, T.Color.Shadow);
+            Check(plain.Pixels[32 * 200 + 100] == plain.Pixels[0] && plain.Pixels[60 * 200 + 100] == plain.Pixels[0] && plain.Pixels[95 * 200 + 100] != plain.Pixels[0],
+                "Der Schatten liegt nur außerhalb der Form, auch in den Zeilen der Ecken");
 
             // Bild für die Vorschau herrichten
             Type("");
@@ -345,6 +389,14 @@ namespace VibanOS.Preview
         }
 
         private static ShellLine Last() { return OS.Shell.Lines[OS.Shell.Lines.Count - 1]; }
+
+        // Steht der Text irgendwo im Terminal oder im Verlauf der Shell?
+        private static bool Shown(string text)
+        {
+            foreach (ShellLine line in OS.Shell.Lines)
+                if (line.Text.Contains(text)) return true;
+            return OS.Shell.History.Contains(text);
+        }
 
         // Die letzten drei Hex-Stellen eines Hashs, also seine unteren 12 Bit.
         private static string Tail(string hash) { return hash.Substring(hash.Length - 3); }

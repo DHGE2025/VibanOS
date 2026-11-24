@@ -50,7 +50,7 @@ Wer neue Hardware anspricht, ergänzt eine Methode in `Hardware` (und in der Att
 
 Zwei Eigenheiten von FAT prägen die Rechteprüfung in `Vfs.CanAccess`: Groß- und Kleinschreibung zählt nicht, und jeder lange Name hat einen zweiten, kurzen (aus `system` wird `SYSTEM~1`), unter dem dieselbe Datei erreichbar ist. Deshalb vergleicht die Prüfung ohne Rücksicht auf die Schreibweise, und Pfade mit `~` sind Administratoren vorbehalten. Wer die Prüfung für VIB-18 ausbaut, muss beides erhalten.
 
-Die Nutzerdatei wird nie an Ort und Stelle überschrieben. `UserManager.Save()` schreibt sie vollständig nach `users.txt.new` und benennt sie dann um. Scheitert das Schreiben, bleibt die bisherige Datei gültig. Eine leere Nutzerdatei hieße beim nächsten Start Ersteinrichtung, also `root` ohne Passwort.
+Die Nutzerdatei wird nie an Ort und Stelle überschrieben. `UserManager.Save()` schreibt sie vollständig nach `users.txt.new` und benennt sie dann um. Scheitert das Schreiben, bleibt die bisherige Datei gültig. Eine leere Nutzerdatei hieße beim nächsten Start Ersteinrichtung, also `root` ohne Passwort. Aus demselben Grund führt ein Lesefehler nicht zur Ersteinrichtung: `UserManager.LoadError` bleibt gesetzt, die Datei wird nicht überschrieben, und der Anmeldebildschirm lässt niemanden hinein.
 
 Eine neue, leere Platte hat weder Partitionstabelle noch Dateisystem. Der Befehl `format` ruft `Hardware.FormatDisk()` auf: MBR-Partitionstabelle, eine Partition, FAT (COSMOS wählt je nach Größe FAT12, FAT16 oder FAT32), einhängen. Er arbeitet nur, wenn das erste Megabyte der Platte leer ist, und überschreibt deshalb keine vorhandenen Daten. `shutdown` und `reboot` hängen die Platte vorher aus, erst das sichert alle Schreibvorgänge.
 

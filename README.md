@@ -51,6 +51,8 @@ Auf `disk.img` liegen Dateien und Nutzer. Fehlt die Datei, bricht `cosmos run --
 
 Beim ersten Start ist die Platte leer. Nach der Anmeldung als `root` richtet der Befehl `format` sie ein (Partitionstabelle und FAT-Dateisystem) und sichert die Nutzer darauf. `format` fasst nur eine Platte an, deren erstes Megabyte leer ist, und überschreibt deshalb keine vorhandenen Daten. Für einen Neuanfang löscht man `disk.img` und legt sie neu an.
 
+Lässt sich die Nutzerdatei beim Start nicht lesen, meldet der Anmeldebildschirm das und lässt niemanden hinein. Hilft ein Neustart nicht, startet man einmal ohne `--disk` oder legt `disk.img` neu an.
+
 Ohne `--disk` läuft das System trotzdem. Dateibefehle melden dann, dass kein Dateisystem da ist, und Nutzer gelten nur bis zum Ausschalten.
 
 ## Bedienung
@@ -104,17 +106,22 @@ Mehr dazu in [docs/architektur.md](docs/architektur.md). Für alles Sichtbare gi
 1. In `VibanOS/Shell/Commands/` eine Klasse anlegen, die von `Command` ableitet:
 
    ```csharp
-   public class HalloCommand : Command
+   namespace VibanOS.Cli.Commands
    {
-       public override string Name { get { return "hallo"; } }
-       public override string Description { get { return "Sagt Hallo"; } }
-
-       public override void Execute(string[] args, Shell shell)
+       public class HalloCommand : Command
        {
-           shell.WriteLine("Hallo " + Shell.Join(args, 0));
+           public override string Name { get { return "hallo"; } }
+           public override string Description { get { return "Sagt Hallo"; } }
+
+           public override void Execute(string[] args, Shell shell)
+           {
+               shell.WriteLine("Hallo " + Shell.Join(args, 0));
+           }
        }
    }
    ```
+
+   Der Namespace heißt `VibanOS.Cli.Commands`, obwohl der Ordner `Shell` heißt: Ein Namespace `VibanOS.Shell` käme der Klasse `Shell` in die Quere.
 2. In `VibanOS/Shell/CommandList.cs` eine Zeile ergänzen: `shell.Register(new HalloCommand());`
 
 `help` zeigt den Befehl dann von selbst. Ausgaben laufen über `shell.WriteLine` und `shell.Error`, nicht über `Console`, weil das Terminal ein Fenster ist. Befehle dürfen nicht auf Eingaben warten. Für Rückfragen gibt es `shell.Ask(...)`, ein Beispiel steht in `UserCommands.cs`.

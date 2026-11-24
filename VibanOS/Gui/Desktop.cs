@@ -78,16 +78,22 @@ namespace VibanOS.Gui
             if (!down) dragging = null;
             if (dragging != null)
             {
-                int ny = y - dragY;
-                if (ny < T.Size.MenuBar) ny = T.Size.MenuBar; // Titelleiste bleibt unter der Menüleiste erreichbar
-                if (dragging.X != x - dragX || dragging.Y != ny) OS.Changed = true;
-                dragging.X = x - dragX;
+                // Ein Stück der Titelleiste bleibt immer erreichbar: seitlich, über dem Dock und unter der Menüleiste.
+                int nx = x - dragX, ny = y - dragY, keep = T.Size.DockIcon;
+                if (nx < keep - dragging.Width) nx = keep - dragging.Width;
+                if (nx > scene.Width - keep) nx = scene.Width - keep;
+                if (ny > DockY - T.Size.TitleBar) ny = DockY - T.Size.TitleBar;
+                if (ny < T.Size.MenuBar) ny = T.Size.MenuBar;
+                if (dragging.X != nx || dragging.Y != ny) OS.Changed = true;
+                dragging.X = nx;
                 dragging.Y = ny;
             }
             if (!pressed) return;
 
             int icon = DockIconAt(x, y);
             if (icon >= 0) { Open(icon); return; }
+            // Ein Klick auf den Rand des Docks trifft kein Fenster darunter.
+            if (x >= DockX && x < DockX + DockWidth && y >= DockY && y < DockY + DockHeight) return;
             for (int i = windows.Count - 1; i >= 0; i--)
             {
                 Window w = windows[i];
@@ -115,6 +121,8 @@ namespace VibanOS.Gui
             // Neue Fenster leicht versetzt, damit sie sich nicht genau überdecken
             w.X = (scene.Width - w.Width) / 2 + (icon - 1) * T.Space.XXL * 3;
             w.Y = T.Size.MenuBar + T.Space.XL + icon * T.Space.XXL;
+            // Auf einem kleinen Bildschirm bleiben Fensterknöpfe und Zeilenanfänge sichtbar.
+            if (w.X < T.Space.M) w.X = T.Space.M;
             apps[icon] = w;
             windows.Add(w);
             OS.Changed = true;

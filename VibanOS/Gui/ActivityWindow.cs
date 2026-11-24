@@ -67,7 +67,7 @@ namespace VibanOS.Gui
                     s.DrawText(Fonts.Strong, p.Name, left + col[1], ty + textY, T.Color.TextPrimary);
                     s.FillCircle(left + col[2] + 4, ty + T.Size.Row / 2, 8, dot);
                     s.DrawText(Fonts.Body, p.StateText, left + col[2] + 14, ty + textY, T.Color.TextPrimary);
-                    s.DrawText(Fonts.Body, p.Owner, left + col[3], ty + textY, T.Color.TextSecondary);
+                    s.DrawText(Fonts.Body, Fit(Fonts.Body, p.Owner, col[4] - col[3] - T.Space.S), left + col[3], ty + textY, T.Color.TextSecondary);
                     s.DrawText(Fonts.Body, p.Steps.ToString(), left + col[4], ty + textY, T.Color.TextSecondary);
                     s.DrawText(Fonts.Body, p.Output, left + col[5], ty + textY, T.Color.TextPrimary);
                 }
@@ -88,6 +88,14 @@ namespace VibanOS.Gui
                 uint color = owner[i] == FrameTable.Free ? T.Color.Raised : OwnerColors[owner[i] % OwnerColors.Length];
                 s.FillRoundRect(left + i % Columns * (CellSize + CellGap), ty + i / Columns * (CellSize + CellGap), CellSize, CellSize, T.Radius.XS, color);
             }
+        }
+
+        // Kürzt Text, bis er in eine Spalte passt. Nutzernamen dürfen länger sein als ihre Spalte breit ist.
+        internal static string Fit(Font font, string text, int width)
+        {
+            if (font.Measure(text) <= width) return text;
+            while (text.Length > 0 && font.Measure(text + "..") > width) text = text.Substring(0, text.Length - 1);
+            return text + "..";
         }
 
         private static void Tile(Surface s, int x, int y, int w, string label, string value)
