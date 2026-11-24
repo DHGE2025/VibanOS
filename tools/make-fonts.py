@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Erzeugt die Schrift-Atlanten (VibanOS/Resources/*.vfont) aus Inter und JetBrains Mono (beide SIL OFL).
+"""Erzeugt die Schrift-Atlanten (VibanOS/Graphics/FontData.cs) aus Inter und JetBrains Mono (beide SIL OFL).
 
 Aufruf:  python3 tools/make-fonts.py [schriftordner]
 Braucht Pillow. Nur noetig, wenn eine Schriftgroesse im Designsheet geaendert wird.
 
-Format: [Zeilenhoehe][Ascent][erstes Zeichen][Anzahl], dann je Zeichen
+Die Atlanten stehen als Byte-Felder im Quelltext. So braucht der Kernel beim Start weder ein
+Dateisystem noch eingebettete Ressourcen, um Text zeichnen zu koennen.
+
+Format je Rolle: [Zeilenhoehe][Ascent][erstes Zeichen][Anzahl], dann je Zeichen
 [Vorschub in 1/4 px][Breite][Hoehe][x-Versatz sbyte][y-Versatz sbyte] + Breite*Hoehe Alphawerte.
 """
 import glob, struct, sys
@@ -15,13 +18,21 @@ FIRST, COUNT = 32, 224  # Latin-1, deckt deutsche Umlaute ab
 
 # Rolle -> (Schriftdatei, Groesse in px). Muss zu docs/design/designsheet.md passen.
 ROLES = {
-    "body":    ("Inter-Regular.otf", 13),
-    "strong":  ("Inter-SemiBold.otf", 13),
-    "caption": ("Inter-Medium.otf", 11),
-    "display": ("InterDisplay-SemiBold.otf", 26),
-    "mono":    ("JetBrainsMono-Regular.ttf", 13),
+    "Body":    ("Inter-Regular.otf", 13),
+    "Strong":  ("Inter-SemiBold.otf", 13),
+    "Caption": ("Inter-Medium.otf", 11),
+    "Display": ("InterDisplay-SemiBold.otf", 26),
+    "Mono":    ("JetBrainsMono-Regular.ttf", 13),
 }
 
+lines = [
+    "// Erzeugt von tools/make-fonts.py. Nicht von Hand ändern.",
+    "namespace VibanOS.Graphics",
+    "{",
+    "    /// <summary>Die Schrift-Atlanten als Bytes. Aufbau siehe tools/make-fonts.py.</summary>",
+    "    internal static class FontData",
+    "    {",
+]
 for role, (file, size) in ROLES.items():
     path = glob.glob(f"{ROOT}/**/{file}", recursive=True)[0]
     font = ImageFont.truetype(path, size, layout_engine=ImageFont.Layout.BASIC)
@@ -38,5 +49,12 @@ for role, (file, size) in ROLES.items():
         img = Image.new("L", (w, h), 0)
         ImageDraw.Draw(img).text((-l, -t), ch, font=font, fill=255)
         out += struct.pack("BBBbb", adv, w, h, l, t) + img.tobytes()
-    open(f"VibanOS/Resources/{role}.vfont", "wb").write(out)
+    lines.append(f"        // {file}, {size} px")
+    lines.append(f"        internal static readonly byte[] {role} =")
+    lines.append("        {")
+    for i in range(0, len(out), 32):
+        lines.append("            " + ",".join(str(v) for v in out[i:i + 32]) + ",")
+    lines.append("        };")
     print(f"{role}: {file} {size}px -> {len(out)} Bytes")
+lines += ["    }", "}", ""]
+open("VibanOS/Graphics/FontData.cs", "w", encoding="utf-8").write("\n".join(lines))

@@ -1,40 +1,62 @@
 # VibanOS
 
-Ein Betriebssystem in C#, gebaut mit [COSMOS](https://www.gocosmos.org/) (C# Open Source Managed Operating System).
+Ein Betriebssystem in C#, gebaut mit [COSMOS](https://github.com/CosmosOS/Cosmos) 3.0 (C# Open Source Managed Operating System, Generation 3).
 
-## Voraussetzungen (Windows)
+## Voraussetzungen
 
-1. **Visual Studio 2022** mit dem Workload **".NET-Desktopentwicklung"**
-2. **.NET 6 SDK** (das Kernel-Projekt nutzt `net6.0`)
-3. **COSMOS User Kit** – neueste Version von https://github.com/CosmosOS/Cosmos/releases installieren.
-   Das Kit bringt die NuGet-Pakete (`Cosmos.Build`, `Cosmos.System2`, …) und die Visual-Studio-Integration mit.
-4. Eine VM zum Testen: **VMware Workstation Player** (Standard) oder **QEMU**
+1. **.NET SDK 10.0** oder neuer
+2. **COSMOS 3.0** mit dem Befehl `cosmos`:
+   - Windows: `CosmosSetup-<version>-windows.exe` von https://github.com/CosmosOS/Cosmos/releases ausführen.
+   - Linux und macOS:
+     ```sh
+     dotnet tool install -g Cosmos.Tools
+     cosmos install
+     ```
+   Danach prüft `cosmos check` in einem neuen Terminal, ob alles da ist (Compiler, QEMU und die übrigen Werkzeuge bringt COSMOS mit).
+3. Wer mag, eine IDE mit der Cosmos-Erweiterung: Visual Studio Code, Visual Studio 2026 (oder 2022 ab 17.14) oder JetBrains Rider ab 2025.3. Die Erweiterung baut und startet den Kernel aus der IDE.
+
+Das Projekt ist auf COSMOS **3.0.99** festgelegt (`VibanOS/VibanOS.csproj`). Wer ein anderes Kit installiert hat, bringt seine Werkzeuge mit `cosmos update --version 3.0.99` auf denselben Stand. Auf eine neuere Version hebt das Projekt ein eigener Pull Request an (`cosmos update` im Ordner `VibanOS/`).
+
+Besonderheiten für Windows auf ARM und für Macs mit Apple-Chip stehen in der [Installationsanleitung von COSMOS](https://cosmosos.github.io/articles/user/install.html).
 
 ## Bauen und starten
 
-1. `VibanOS.sln` in Visual Studio öffnen.
-2. **F5** drücken. COSMOS kompiliert den Kernel, erzeugt eine bootfähige ISO
-   (`VibanOS/bin/Debug/net6.0/VibanOS.iso`) und startet sie in VMware.
-
-### Mit QEMU statt VMware
-
-ISO wie oben bauen (oder `dotnet build`), dann:
+Im Ordner `VibanOS/` (dort liegt `VibanOS.csproj`):
 
 ```sh
-qemu-system-x86_64 -cdrom VibanOS/bin/Debug/net6.0/VibanOS.iso -m 512M
+cosmos build
+cosmos run --disk disk.img
 ```
 
-Um F5 dauerhaft auf ein anderes Ziel zu stellen, in `VibanOS/VibanOS.csproj` die Werte `<Launch>` und `<Profile>` ändern (z. B. `ISO`, `Bochs`, `HyperV`).
+`cosmos build` übersetzt den Kernel und legt `VibanOS.iso` und `VibanOS.elf` in `output-x64/` ab. `cosmos run` startet die ISO in QEMU und zeigt im Terminal die serielle Ausgabe des Kernels. Dort stehen auch Fehlermeldungen, wenn das System nicht hochkommt.
+
+VibanOS ist für x64 gedacht. Die I/O-Ports für den Treiber `com1` gibt es nur dort.
+
+### Die Festplatte
+
+`disk.img` ist die virtuelle Festplatte, auf der Dateien und Nutzer liegen. Sie wird einmal als leere Datei angelegt, ebenfalls im Ordner `VibanOS/`:
+
+```sh
+qemu-img create disk.img 64M
+```
+
+Ohne `qemu-img` tut es jede leere Datei dieser Größe: `truncate -s 64M disk.img` unter Linux und macOS, `fsutil file createnew disk.img 67108864` unter Windows.
+
+Beim ersten Start ist die Platte leer. Nach der Anmeldung als `root` richtet der Befehl `format` sie ein (Partitionstabelle und FAT-Dateisystem) und sichert die Nutzer darauf. `format` fasst nur eine völlig leere Platte an. Für einen Neuanfang löscht man `disk.img` und legt sie neu an.
+
+Ohne `--disk` läuft das System trotzdem. Dateibefehle melden dann, dass kein Dateisystem da ist, und Nutzer gelten nur bis zum Ausschalten.
 
 ## Bedienung
 
-Nach dem Start erscheint der Anmeldebildschirm. Beim allerersten Start legt man dort das Passwort für `root` fest.
+Nach dem Start erscheint der Anmeldebildschirm. Beim allerersten Start legt man dort das Passwort für `root` fest und tippt es zur Sicherheit zweimal ein.
 Danach öffnet sich der Schreibtisch mit Menüleiste, Dock und einem Terminal. `help` zeigt alle Befehle.
 
 - Fenster zieht man an der Titelleiste, der rote Knopf schließt sie.
 - Das Dock öffnet Terminal, Aktivitätsanzeige (Prozesse und Speicher) und „Über VibanOS“.
-- Ohne angehängte FAT32-Festplatte läuft das System trotzdem. Dateibefehle melden dann, dass kein Dateisystem da ist, und Nutzer werden nicht gespeichert (das Passwort für `root` wird bei jedem Start neu vergeben).
-- Die Tastatur ist auf das US-Layout eingestellt, bis jemand in `Kernel.BeforeRun()` ein deutsches Layout setzt.
+- Im Terminal blättern Bild auf und Bild ab, Pfeil auf und ab holen frühere Eingaben zurück.
+- `shutdown` und `reboot` hängen die Festplatte vorher sauber aus. Am besten so beenden, statt das QEMU-Fenster zu schließen.
+- Die Tastatur ist auf das deutsche Layout eingestellt. Ein anderes setzt man in `Kernel.BeforeRun()`.
+- Die Uhr zeigt die Zeit der virtuellen Maschine. QEMU stellt sie auf Weltzeit (UTC), sie geht also gegenüber der deutschen Zeit ein bis zwei Stunden nach.
 
 ![Schreibtisch](docs/design/schreibtisch.png)
 
@@ -44,11 +66,12 @@ Danach öffnet sich der Schreibtisch mit Menüleiste, Dock und einem Terminal. `
 VibanOS.sln
 VibanOS/
   VibanOS.csproj   COSMOS-Kernelprojekt
+  Bootloader/      limine.conf: Starteintrag und Wunschauflösung
   Kernel.cs        Einstiegspunkt: Hardware einrichten, Eingaben weiterreichen, Bild anzeigen
-  Platform/        Einzige weitere Stelle mit COSMOS-Aufrufen (Ports, Ein/Aus)
+  Platform/        Einzige weitere Stelle mit COSMOS-Aufrufen (Festplatte, Ports, Ein/Aus)
   Core/            OS (hält alle Teilsysteme), Texthelfer
   Design/          Tokens.cs: Farben, Abstände, Radien, Maße
-  Graphics/        Zeichenfläche und Schrift
+  Graphics/        Zeichenfläche und Schrift (FontData.cs enthält die Schrift-Atlanten)
   Gui/             Schreibtisch, Fenster, Terminal, Aktivitätsanzeige, Anmeldung
   Shell/           Shell und Befehle, ein Thema pro Datei in Shell/Commands/
   FileSystem/      Pfade und Rechteprüfung für Dateien
@@ -59,13 +82,12 @@ VibanOS/
   Drivers/         Treiberverwaltung, COM1
   Ipc/, Sync/      Mailbox, Mutex, Semaphore
   Interrupts/      Interrupt-Verzeichnis, Signale
-  Resources/       Schrift-Atlanten
 docs/
   architektur.md   Aufbau, Zuordnung der Aufgaben, Regeln für COSMOS
   design/          Designsheet mit allen Tokens
 tools/
   Preview/         Selbsttest und Bildschirmfotos ohne VM
-  make-fonts.py    Erzeugt die Schrift-Atlanten
+  make-fonts.py    Erzeugt die Schrift-Atlanten (Graphics/FontData.cs)
 ```
 
 Mehr dazu in [docs/architektur.md](docs/architektur.md). Für alles Sichtbare gilt das [Designsheet](docs/design/designsheet.md).
@@ -96,7 +118,7 @@ Mehr dazu in [docs/architektur.md](docs/architektur.md). Für alles Sichtbare gi
 dotnet run --project tools/Preview
 ```
 
-Fährt den Kern und die Oberfläche ohne COSMOS hoch, prüft die Grundfunktionen und legt Bildschirmfotos in `preview/` ab. Das geht schnell und fängt Logikfehler ab. Vor einem Pull Request trotzdem in VMware oder QEMU starten.
+Fährt den Kern und die Oberfläche ohne COSMOS hoch, prüft die Grundfunktionen und legt Bildschirmfotos in `preview/` ab. Das geht schnell und fängt Logikfehler ab. Vor einem Pull Request trotzdem mit `cosmos build` und `cosmos run` starten: Ob COSMOS den Code übersetzt und die Hardware mitspielt, zeigt nur die VM.
 
 ## Branch-Workflow
 
@@ -149,5 +171,5 @@ Ein bereits gemergter PR wird nicht wieder geöffnet oder weiterverwendet.
 
 ## Weiterführend
 
-- Doku: https://cosmosos.github.io/
-- Dateisystem (`Sys.FileSystem.CosmosVFS`), Grafik (`Cosmos.System.Graphics`) und Netzwerk sind in `Cosmos.System2` enthalten.
+- Doku von COSMOS 3.0: https://cosmosos.github.io/ (für VibanOS wichtig: Kernel Startup, Graphics, Keyboard, Mouse, Filesystem)
+- Dateisystem, Grafik, Eingabe und Netzwerk stecken im Paket `Cosmos.Kernel.System`. Anleitungen im Netz zu `Cosmos.System2` oder IL2CPU beschreiben die ältere Generation und passen nicht mehr.

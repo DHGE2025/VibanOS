@@ -16,12 +16,15 @@ namespace VibanOS.Processes
         private readonly List<Process> ready = new List<Process>();
         private int nextId = 1;
 
+        /// <summary>Nimmt einen Prozess auf und gibt ihm eine erste Speicherseite. null: Der Speicher ist voll.</summary>
         public Process Start(Process process)
         {
             process.Id = nextId++;
+            if (OS.Memory.AllocatePage(process.Id) < 0) return null;
             process.StartTime = DateTime.Now;
-            if (OS.Users.Current != null) process.Owner = OS.Users.Current.Name;
-            OS.Memory.AllocatePage(process.Id);
+            // Besitzer ist, wer den Prozess startet: der gerade laufende Prozess, sonst der angemeldete Nutzer.
+            if (Current != null) process.Owner = Current.Owner;
+            else if (OS.Users.Current != null) process.Owner = OS.Users.Current.Name;
             All.Add(process);
             OS.Changed = true;
             return process;
@@ -33,7 +36,6 @@ namespace VibanOS.Processes
             return i < 0 ? null : All[i];
         }
 
-        // Von Hand statt List.Remove/Contains: deren Vergleichslogik läuft unter COSMOS nicht zuverlässig.
         private int IndexOf(int id)
         {
             for (int i = 0; i < All.Count; i++)
@@ -58,7 +60,7 @@ namespace VibanOS.Processes
         {
             ready.Clear();
             for (int i = 0; i < All.Count; i++)
-                if (All[i].State == ProcessState.Ready) ready.Add(All[i]);
+                if (All[i].State == ProcessState.Ready && !All[i].Stopped) ready.Add(All[i]);
             if (ready.Count == 0) return;
 
             Process next = Scheduler.PickNext(ready);

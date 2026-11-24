@@ -1,5 +1,6 @@
 using VibanOS.Cli;
 using VibanOS.Drivers;
+using VibanOS.FileSystem;
 using VibanOS.Interrupts;
 using VibanOS.Memory;
 using VibanOS.Processes;
@@ -38,13 +39,15 @@ namespace VibanOS.Core
             Processes = new ProcessManager();
             Users = new UserManager();
             Users.Load();
-            Drivers = new DriverManager();
-            Drivers.Register(new SerialDriver());
-            Drivers.Start("com1");
             SyscallTable.RegisterDefaults();
             Shell = new Shell();
             CommandList.RegisterAll(Shell);
             Shell.WriteLine(Name + " " + Version + " bereit. 'help' zeigt alle Befehle.", LineStyle.Muted);
+            if (!Vfs.Available)
+                Shell.WriteLine("Kein Dateisystem: Nutzer und Dateien gelten nur bis zum Ausschalten. 'format' richtet eine leere Festplatte ein.", LineStyle.Muted);
+            Drivers = new DriverManager();
+            Drivers.Register(new SerialDriver());
+            if (!Drivers.Start("com1")) Shell.Error("Der Treiber com1 ließ sich nicht starten, 'send' geht deshalb nicht.");
         }
 
         /// <summary>Ein Durchlauf der Kernel-Schleife: Timer-Tick und ein Schritt des Schedulers.</summary>

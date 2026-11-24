@@ -28,7 +28,17 @@ namespace VibanOS.Cli.Commands
         }
     }
 
-    public class UseraddCommand : Command
+    /// <summary>Basis der Befehle, die Nutzer ändern: meldet, wenn die Änderung nicht gespeichert werden konnte.</summary>
+    public abstract class UserChangeCommand : Command
+    {
+        protected static void Done(Shell shell, string message)
+        {
+            shell.WriteLine(message);
+            if (!OS.Users.Saved) shell.Error("Achtung: Die Nutzerdatei ließ sich nicht schreiben. Die Änderung gilt nur bis zum Neustart.");
+        }
+    }
+
+    public class UseraddCommand : UserChangeCommand
     {
         public override string Name { get { return "useradd"; } }
         public override string Usage { get { return "useradd <name>"; } }
@@ -39,18 +49,19 @@ namespace VibanOS.Cli.Commands
         {
             if (args.Length == 0) { shell.Error("Aufruf: " + Usage); return; }
             string name = args[0];
+            // Erst prüfen, dann nach dem Passwort fragen: Sonst tippt man es für einen Namen ein, den es nie geben wird.
+            if (!UserManager.ValidName(name)) { shell.Error("Ungültiger Name. Erlaubt sind a-z, 0-9, - und _, höchstens 16 Zeichen."); return; }
+            if (OS.Users.Find(name) != null) { shell.Error("Den Nutzer " + name + " gibt es schon."); return; }
             shell.Ask("Passwort für " + name + ": ", true, password =>
             {
                 if (password == "") { shell.Error("Abgebrochen: Das Passwort darf nicht leer sein."); return; }
-                if (OS.Users.Add(name, password, UserManager.UserGroup) == null)
-                    shell.Error("Nutzer konnte nicht angelegt werden. Erlaubt sind a-z, 0-9, - und _, und der Name muss frei sein.");
-                else
-                    shell.WriteLine("Nutzer " + name + " angelegt.");
+                if (OS.Users.Add(name, password, UserManager.UserGroup) == null) shell.Error("Der Nutzer konnte nicht angelegt werden.");
+                else Done(shell, "Nutzer " + name + " angelegt.");
             });
         }
     }
 
-    public class PasswdCommand : Command
+    public class PasswdCommand : UserChangeCommand
     {
         public override string Name { get { return "passwd"; } }
         public override string Description { get { return "Eigenes Passwort ändern"; } }
@@ -65,7 +76,7 @@ namespace VibanOS.Cli.Commands
                 {
                     if (fresh == "") { shell.Error("Abgebrochen: Das Passwort darf nicht leer sein."); return; }
                     OS.Users.SetPassword(user, fresh);
-                    shell.WriteLine("Passwort geändert.");
+                    Done(shell, "Passwort geändert.");
                 });
             });
         }

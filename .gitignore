@@ -7,5 +7,12 @@ obj/
 *.vmdk
 *.log
 
+# Ausgabe von cosmos build
+output-x64/
+output-arm64/
+
+# Virtuelle Festplatte (siehe README)
+*.img
+
 # Ausgabe von tools/Preview
 preview/

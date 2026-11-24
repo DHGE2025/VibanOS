@@ -1,6 +1,6 @@
 namespace VibanOS.Graphics
 {
-    /// <summary>Geglättete Bitmap-Schrift aus einem .vfont-Atlas (siehe tools/make-fonts.py).</summary>
+    /// <summary>Geglättete Bitmap-Schrift aus einem Atlas in FontData.cs (siehe tools/make-fonts.py).</summary>
     public class Font
     {
         public readonly int LineHeight;
@@ -50,13 +50,13 @@ namespace VibanOS.Graphics
         public static Font Display;  // Inter Display SemiBold 26
         public static Font Mono;     // JetBrains Mono Regular 13
 
-        public static void Load(byte[] body, byte[] strong, byte[] caption, byte[] display, byte[] mono)
+        public static void Load()
         {
-            Body = new Font(body);
-            Strong = new Font(strong);
-            Caption = new Font(caption);
-            Display = new Font(display);
-            Mono = new Font(mono);
+            Body = new Font(FontData.Body);
+            Strong = new Font(FontData.Strong);
+            Caption = new Font(FontData.Caption);
+            Display = new Font(FontData.Display);
+            Mono = new Font(FontData.Mono);
         }
     }
 }

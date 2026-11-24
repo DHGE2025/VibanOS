@@ -3,8 +3,8 @@ using System;
 namespace VibanOS.Core
 {
     /// <summary>
-    /// Kleine Texthelfer. Bewusst von Hand geschrieben: Formatstrings, Enum.ToString() und
-    /// kulturabhängige String-Methoden funktionieren unter COSMOS nicht zuverlässig.
+    /// Kleine Texthelfer für feste Spaltenbreiten, Hex-Zahlen und deutsche Datumsangaben.
+    /// Bewusst ohne Formatstrings und Kultur-Einstellungen: Der COSMOS-Kernel läuft ohne Sprachdaten.
     /// </summary>
     public static class Text
     {

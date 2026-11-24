@@ -4,7 +4,9 @@ namespace VibanOS.Drivers
 {
     /// <summary>
     /// Serielle Schnittstelle COM1 über I/O-Ports (VIB-9) mit zeilenweisen Nachrichten (VIB-10).
-    /// Testen: QEMU mit -serial stdio starten, dann erscheint die Ausgabe im Terminal des Hosts.
+    /// Testen: 'cosmos run' zeigt die serielle Ausgabe im Terminal des Hosts, zwischen den Meldungen von COSMOS.
+    /// COSMOS schreibt sein eigenes Protokoll auf denselben Anschluss. Deshalb stellt Init genau die
+    /// Werte ein, die COSMOS selbst benutzt (115200 Baud 8N1), und verstellt so nichts.
     /// </summary>
     public class SerialDriver : Driver
     {
@@ -12,13 +14,13 @@ namespace VibanOS.Drivers
         private const int LineStatus = Base + 5;
 
         public override string Name { get { return "com1"; } }
-        public override string Description { get { return "Serielle Schnittstelle COM1, 38400 Baud 8N1"; } }
+        public override string Description { get { return "Serielle Schnittstelle COM1, 115200 Baud 8N1"; } }
 
         protected override void Init()
         {
             Hardware.Out(Base + 1, 0x00); // Interrupts aus
             Hardware.Out(Base + 3, 0x80); // DLAB an: Teiler einstellen
-            Hardware.Out(Base + 0, 0x03); // Teiler 3 = 38400 Baud
+            Hardware.Out(Base + 0, 0x01); // Teiler 1 = 115200 Baud
             Hardware.Out(Base + 1, 0x00);
             Hardware.Out(Base + 3, 0x03); // 8 Datenbits, keine Parität, 1 Stoppbit
             Hardware.Out(Base + 2, 0xC7); // FIFO an und leeren

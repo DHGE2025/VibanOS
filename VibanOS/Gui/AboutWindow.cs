@@ -28,8 +28,9 @@ namespace VibanOS.Gui
 
             s.FillRect(x + T.Space.XL, ty, w - 2 * T.Space.XL, 1, T.Color.Separator);
             ty += T.Space.M;
-            ty = Row(s, x, w, ty, "Kernel", "COSMOS (C#)");
-            ty = Row(s, x, w, ty, "Anzeige", T.Size.ScreenWidth + " × " + T.Size.ScreenHeight);
+            ty = Row(s, x, w, ty, "Kernel", "COSMOS 3 (C#)");
+            // Die Zeichenfläche ist so groß wie der Bildschirm, das ist die tatsächliche Auflösung.
+            ty = Row(s, x, w, ty, "Anzeige", s.Width + " × " + s.Height);
             ty = Row(s, x, w, ty, "Simulierter RAM", PhysicalMemory.FrameCount * PhysicalMemory.FrameSize / 1024 + " KB");
             ty = Row(s, x, w, ty, "Dateisystem", Vfs.Available ? "FAT auf " + Vfs.Root : "nicht eingebunden");
             Row(s, x, w, ty, "Angemeldet als", OS.Users.Current != null ? OS.Users.Current.Name : "");

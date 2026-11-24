@@ -29,8 +29,9 @@ namespace VibanOS.Cli.Commands
 
         public override void Execute(string[] args, Shell shell)
         {
-            SerialDriver serial = (SerialDriver)OS.Drivers.Find("com1");
-            if (!serial.SendMessage(Shell.Join(args, 0)))
+            if (args.Length == 0) { shell.Error("Aufruf: " + Usage); return; }
+            SerialDriver serial = OS.Drivers.Find("com1") as SerialDriver;
+            if (serial == null || !serial.SendMessage(Shell.Join(args, 0)))
                 shell.Error("Senden fehlgeschlagen: Der Treiber com1 läuft nicht oder die Leitung ist belegt.");
         }
     }

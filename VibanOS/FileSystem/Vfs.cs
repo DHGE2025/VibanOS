@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using VibanOS.Core;
@@ -16,14 +17,14 @@ namespace VibanOS.FileSystem
         /// <summary>false, wenn keine formatierte Festplatte gefunden wurde. Dateibefehle melden das dann.</summary>
         public static bool Available;
 
-        /// <summary>Wurzelpfad mit abschließendem Trenner, unter COSMOS "0:\".</summary>
+        /// <summary>Wurzelpfad mit abschließendem Trenner, unter COSMOS "/mnt/".</summary>
         public static string Root = "";
 
-        public static char Separator = '\\';
+        public static char Separator = '/';
 
         public static string SystemDirectory { get { return Root + "system"; } }
 
-        /// <summary>Nach dem Registrieren des COSMOS-VFS aufrufen (Kernel.BeforeRun).</summary>
+        /// <summary>Nach dem Einhängen der Festplatte aufrufen (Kernel.BeforeRun) und noch einmal nach 'format'.</summary>
         public static void Init(string root)
         {
             Root = root;
@@ -35,7 +36,7 @@ namespace VibanOS.FileSystem
                 if (!Directory.Exists(SystemDirectory)) Directory.CreateDirectory(SystemDirectory);
                 if (!Directory.Exists(Root + "home")) Directory.CreateDirectory(Root + "home");
             }
-            catch
+            catch (Exception)
             {
                 Available = false;
             }
@@ -49,10 +50,12 @@ namespace VibanOS.FileSystem
         {
             List<string> parts = new List<string>();
             bool absolute = path.Length > 0 && (path[0] == '/' || path[0] == '\\');
-            if (Text.HasPrefix(path, Root))
+            // Die Wurzel gilt mit und ohne abschließenden Trenner: "/mnt" ist dasselbe wie "/mnt/".
+            string root = Root.Substring(0, Root.Length - 1);
+            if (Text.HasPrefix(path, root) && (path.Length == root.Length || path[root.Length] == '/' || path[root.Length] == '\\'))
             {
                 absolute = true;
-                path = path.Substring(Root.Length);
+                path = path.Substring(root.Length);
             }
             if (!absolute && current.Length > Root.Length) AddParts(parts, current.Substring(Root.Length));
             AddParts(parts, path);
@@ -74,7 +77,13 @@ namespace VibanOS.FileSystem
                     continue;
                 }
                 if (part == "..") { if (parts.Count > 0) parts.RemoveAt(parts.Count - 1); }
-                else if (part != "" && part != ".") parts.Add(part);
+                else
+                {
+                    // FAT kennt keine Namen, die auf Punkt oder Leerzeichen enden. Ohne das Abschneiden
+                    // wäre "system." ein zweiter Name für den geschützten Ordner "system".
+                    part = part.TrimEnd('.', ' ');
+                    if (part != "") parts.Add(part);
+                }
                 part = "";
             }
         }
@@ -90,12 +99,17 @@ namespace VibanOS.FileSystem
 
         /// <summary>
         /// Zentrale Rechteprüfung für Dateien. Alle Dateibefehle fragen hier nach.
-        /// ponytail: erlaubt bisher alles. VIB-18 ergänzt Besitzer, Gruppe und rwx-Rechte
-        /// aus system\permissions.txt an genau dieser Stelle.
+        /// Der Systemordner mit der Nutzerdatei ist Administratoren vorbehalten, sonst könnte sich
+        /// jeder Nutzer dort selbst zum Administrator machen.
+        /// ponytail: Alles andere steht bisher jedem offen. VIB-18 ergänzt Besitzer, Gruppe und
+        /// rwx-Rechte aus system/permissions.txt an genau dieser Stelle.
         /// </summary>
         public static bool CanAccess(User user, string path, Access access)
         {
-            return true;
+            // FAT unterscheidet Groß- und Kleinschreibung nicht, deshalb hier auch nicht.
+            string wanted = path.ToLowerInvariant(), system = SystemDirectory.ToLowerInvariant();
+            bool inSystem = wanted == system || Text.HasPrefix(wanted, system + Separator);
+            return !inSystem || OS.Users.HasPermission(user, Permission.UserManage);
         }
     }
 }

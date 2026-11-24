@@ -1,6 +1,9 @@
+using System;
 using System.IO;
 using VibanOS.Core;
 using VibanOS.FileSystem;
+using VibanOS.Platform;
+using VibanOS.Users;
 
 namespace VibanOS.Cli.Commands
 {
@@ -15,7 +18,7 @@ namespace VibanOS.Cli.Commands
         {
             if (!Vfs.Available)
             {
-                shell.Error("Kein Dateisystem gefunden. Eine FAT32-Festplatte an die VM hängen (siehe README).");
+                shell.Error("Kein Dateisystem gefunden. VibanOS mit einer Festplatte starten und einmal 'format' ausführen (siehe README).");
                 return null;
             }
             if (args.Length == 0 && Usage != Name)
@@ -119,6 +122,8 @@ namespace VibanOS.Cli.Commands
 
         public override void Execute(string[] args, Shell shell)
         {
+            // Ohne Text bliebe eine leere Datei zurück. Wer das will, schreibt ausdrücklich "".
+            if (args.Length < 2) { shell.Error("Aufruf: " + Usage); return; }
             string path = Target(args, shell, Access.Write);
             if (path == null) return;
             if (Directory.Exists(path)) { shell.Error("Das ist ein Ordner: " + path); return; }
@@ -139,7 +144,38 @@ namespace VibanOS.Cli.Commands
             if (File.Exists(path)) File.Delete(path);
             else if (!Directory.Exists(path)) shell.Error("Nicht gefunden: " + path);
             else if (Directory.GetFiles(path).Length + Directory.GetDirectories(path).Length > 0) shell.Error("Ordner ist nicht leer: " + path);
+            // Sonst stünde die Shell danach in einem Ordner, den es nicht mehr gibt.
+            else if (string.Equals(path, shell.CurrentDirectory, StringComparison.OrdinalIgnoreCase)) shell.Error("Das ist der aktuelle Ordner. Erst mit 'cd ..' hinausgehen.");
             else Directory.Delete(path);
+        }
+    }
+
+    public class FormatCommand : Command
+    {
+        public override string Name { get { return "format"; } }
+        public override string Description { get { return "Leere Festplatte einrichten (FAT)"; } }
+        public override Permission Required { get { return Permission.DriverManage; } }
+
+        public override void Execute(string[] args, Shell shell)
+        {
+            if (Vfs.Available) { shell.Error("Es ist schon ein Dateisystem eingebunden: " + Vfs.Root); return; }
+            shell.Ask("Die leere Festplatte wird jetzt eingerichtet. Zum Bestätigen 'ja' eingeben: ", false, answer =>
+            {
+                if (answer != "ja") { shell.WriteLine("Abgebrochen."); return; }
+                string error = Hardware.FormatDisk();
+                if (error == null)
+                {
+                    Vfs.Init(Vfs.Root);
+                    if (!Vfs.Available) error = "Die Festplatte ist eingerichtet, lässt sich aber nicht lesen. Bitte neu starten.";
+                }
+                if (error != null) { shell.Error(error); return; }
+
+                // Die Nutzer gab es bisher nur im Arbeitsspeicher. Jetzt bekommen sie ihre Ordner und die Nutzerdatei.
+                for (int i = 0; i < OS.Users.All.Count; i++) Directory.CreateDirectory(OS.Users.All[i].HomeDirectory);
+                shell.CurrentDirectory = OS.Users.Current.HomeDirectory;
+                shell.WriteLine("Festplatte eingerichtet und unter " + Vfs.Root + " eingebunden.");
+                if (!OS.Users.Save()) shell.Error("Die Nutzerdatei ließ sich nicht schreiben. Nutzer gelten nur bis zum Neustart.");
+            });
         }
     }
 }

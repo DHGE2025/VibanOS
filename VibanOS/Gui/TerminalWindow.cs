@@ -12,6 +12,10 @@ namespace VibanOS.Gui
         private string input = "";
         private int historyIndex = -1;
 
+        // So viele Zeilen ist der Text nach oben geblättert. 0 zeigt das Ende mit der Eingabezeile.
+        private int scroll;
+        private int visibleRows = 1;
+
         // Zeilen nach dem Umbruch, bei jedem Zeichnen neu gefüllt.
         private readonly List<string> rowText = new List<string>();
         private readonly List<LineStyle> rowStyle = new List<LineStyle>();
@@ -28,6 +32,16 @@ namespace VibanOS.Gui
         public override void OnKey(Key key, char c)
         {
             Shell shell = OS.Shell;
+            if (key == Key.PageUp || key == Key.PageDown)
+            {
+                // Eine Seite weiter, eine Zeile bleibt als Anschluss stehen. Das obere Ende begrenzt DrawContent.
+                int page = visibleRows > 1 ? visibleRows - 1 : 1;
+                scroll += key == Key.PageUp ? page : -page;
+                if (scroll < 0) scroll = 0;
+                return;
+            }
+            scroll = 0; // Jede andere Taste springt zurück zur Eingabezeile.
+
             if (key == Key.Enter)
             {
                 string line = input;
@@ -41,8 +55,10 @@ namespace VibanOS.Gui
             }
             else if (key == Key.Up || key == Key.Down)
             {
+                // In einer Rückfrage (etwa nach dem Passwort) gibt es keinen Verlauf.
+                // Pfeil ab ohne vorheriges Blättern lässt die getippte Eingabe stehen.
                 int count = shell.History.Count;
-                if (count == 0) return;
+                if (shell.Asking || count == 0 || (key == Key.Down && historyIndex < 0)) return;
                 if (historyIndex < 0) historyIndex = count;
                 historyIndex += key == Key.Up ? -1 : 1;
                 if (historyIndex < 0) historyIndex = 0;
@@ -63,12 +79,13 @@ namespace VibanOS.Gui
             int charWidth = font.Measure("M");
             int columns = (w - 2 * pad) / charWidth;
             int rows = (h - 2 * pad) / font.LineHeight;
+            if (rows < 1) rows = 1;
+            visibleRows = rows;
 
-            // Nur so viele Zeilen umbrechen, wie höchstens sichtbar sind.
+            // Alles umbrechen, was die Shell aufgehoben hat (höchstens 300 Zeilen), damit man zurückblättern kann.
             rowText.Clear();
             rowStyle.Clear();
-            int first = shell.Lines.Count - rows;
-            for (int i = first < 0 ? 0 : first; i < shell.Lines.Count; i++)
+            for (int i = 0; i < shell.Lines.Count; i++)
                 Wrap(shell.Lines[i].Text, shell.Lines[i].Style, columns);
             string shown = input;
             if (shell.Masked)
@@ -79,10 +96,13 @@ namespace VibanOS.Gui
             int promptRow = rowText.Count;
             Wrap(shell.Prompt + shown, LineStyle.Input, columns);
 
-            int start = rowText.Count > rows ? rowText.Count - rows : 0;
+            int last = rowText.Count > rows ? rowText.Count - rows : 0; // erste sichtbare Zeile ohne Blättern
+            if (scroll > last) scroll = last;
+            int start = last - scroll;
+            int end = start + rows < rowText.Count ? start + rows : rowText.Count;
             int ty = y + pad;
             int endX = x + pad;
-            for (int i = start; i < rowText.Count; i++)
+            for (int i = start; i < end; i++)
             {
                 uint color = T.Color.TextPrimary;
                 if (rowStyle[i] == LineStyle.Muted) color = T.Color.TextSecondary;
@@ -91,20 +111,21 @@ namespace VibanOS.Gui
                 endX = s.DrawText(font, rowText[i], x + pad, ty, color);
                 ty += font.LineHeight;
             }
-            // Einfügemarke hinter dem letzten Zeichen der Eingabe
-            s.FillRect(endX + 1, ty - font.LineHeight + 2, charWidth, font.LineHeight - 4, T.Color.Accent);
+            // Einfügemarke hinter dem letzten Zeichen der Eingabe. Beim Zurückblättern ist die Eingabezeile nicht zu sehen.
+            if (scroll == 0) s.FillRect(endX + 1, ty - font.LineHeight + 2, charWidth, font.LineHeight - 4, T.Color.Accent);
         }
 
         private void Wrap(string text, LineStyle style, int columns)
         {
             if (columns < 1) columns = 1;
+            int at = 0;
             do
             {
-                int n = text.Length > columns ? columns : text.Length;
-                rowText.Add(text.Substring(0, n));
+                int n = text.Length - at > columns ? columns : text.Length - at;
+                rowText.Add(text.Substring(at, n));
                 rowStyle.Add(style);
-                text = text.Substring(n);
-            } while (text.Length > 0);
+                at += n;
+            } while (at < text.Length);
         }
     }
 }

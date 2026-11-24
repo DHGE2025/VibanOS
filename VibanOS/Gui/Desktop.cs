@@ -156,6 +156,7 @@ namespace VibanOS.Gui
                 for (int i = 0; i < windows.Count; i++)
                     if (windows[i].Live) OS.Changed = true;
             }
+            if (Locked && login.LockExpired(now)) OS.Changed = true;
             if (wasLocked && !Locked && windows.Count == 0) Open(Icons.Terminal);
             wasLocked = Locked;
 

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace VibanOS.Drivers
@@ -14,10 +15,13 @@ namespace VibanOS.Drivers
         /// <summary>Richtet die Hardware ein. Wird bei jedem Start aufgerufen.</summary>
         protected abstract void Init();
 
-        public void Start()
+        /// <summary>false: Die Hardware ließ sich nicht einrichten, der Treiber bleibt gestoppt.</summary>
+        public bool Start()
         {
-            Init();
+            try { Init(); }
+            catch (Exception) { return false; }
             Status = DriverStatus.Running;
+            return true;
         }
 
         public virtual void Stop()
@@ -43,9 +47,7 @@ namespace VibanOS.Drivers
         public bool Start(string name)
         {
             Driver d = Find(name);
-            if (d == null) return false;
-            d.Start();
-            return true;
+            return d != null && d.Start();
         }
 
         public bool Stop(string name)

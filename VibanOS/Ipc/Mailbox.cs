@@ -32,11 +32,11 @@ namespace VibanOS.Ipc
             return m;
         }
 
-        /// <summary>Asynchrones Senden. false, wenn es den Empfänger nicht gibt oder seine Mailbox voll ist.</summary>
+        /// <summary>Asynchrones Senden. false, wenn es den Empfänger nicht (mehr) gibt oder seine Mailbox voll ist.</summary>
         public static bool Send(int from, int to, string text)
         {
             Process target = OS.Processes.Get(to);
-            if (target == null || target.Mailbox.Messages.Count >= Capacity) return false;
+            if (target == null || target.State == ProcessState.Terminated || target.Mailbox.Messages.Count >= Capacity) return false;
             Message m = new Message();
             m.From = from;
             m.To = to;

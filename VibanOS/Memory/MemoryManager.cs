@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using VibanOS.Core;
 
@@ -34,6 +35,8 @@ namespace VibanOS.Memory
         {
             int frame = Frames.Allocate(pid);
             if (frame < 0) return -1;
+            // Ein neuer Rahmen ist immer leer: Sonst läse ein Prozess, was sein Vorgänger dort hinterlassen hat.
+            Array.Clear(Physical.Data, frame * PhysicalMemory.FrameSize, PhysicalMemory.FrameSize);
             PageTable table = TableOf(pid);
             if (table == null)
             {
@@ -46,6 +49,7 @@ namespace VibanOS.Memory
                 if (table.Pages[i].Present) continue;
                 table.Pages[i].Frame = frame;
                 table.Pages[i].Present = true;
+                table.Pages[i].Access = PageAccess.ReadWrite; // nicht die Rechte der früheren Seite erben
                 return i;
             }
             PageEntry entry = new PageEntry();

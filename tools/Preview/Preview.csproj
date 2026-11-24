@@ -4,10 +4,8 @@
          Prüft die Logik und schreibt Bildschirmfotos. Aufruf im Repo-Ordner: dotnet run mit Projekt tools/Preview -->
     <PropertyGroup>
         <OutputType>Exe</OutputType>
-        <TargetFramework>net6.0</TargetFramework>
-        <RollForward>Major</RollForward>
+        <TargetFramework>net10.0</TargetFramework>
         <RootNamespace>VibanOS.Preview</RootNamespace>
-        <CheckEolTargetFramework>false</CheckEolTargetFramework>
     </PropertyGroup>
 
     <ItemGroup>

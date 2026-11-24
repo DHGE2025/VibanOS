@@ -5,11 +5,14 @@ using System.IO.Compression;
 using System.Reflection;
 using VibanOS.Cli;
 using VibanOS.Core;
+using VibanOS.Drivers;
 using VibanOS.FileSystem;
 using VibanOS.Graphics;
 using VibanOS.Gui;
+using VibanOS.Interrupts;
 using VibanOS.Memory;
 using VibanOS.Processes;
+using VibanOS.Sync;
 using VibanOS.Syscalls;
 using VibanOS.Users;
 using T = VibanOS.Design.Tokens;
@@ -22,10 +25,19 @@ namespace VibanOS.Platform
         public static bool ShutdownCalled;
         public static string SerialOut = "";
 
+        /// <summary>null: format gelingt und die "Festplatte" (ein Ordner) entsteht. Sonst die Fehlermeldung.</summary>
+        public static string FormatError;
+
         public static void Shutdown() { ShutdownCalled = true; }
         public static void Reboot() { }
         public static byte In(int port) { return 0x20; } // COM1: Senderegister frei, nichts empfangen
         public static void Out(int port, byte value) { if (port == 0x3F8) SerialOut += (char)value; }
+
+        public static string FormatDisk()
+        {
+            if (FormatError == null) Directory.CreateDirectory(Vfs.Root);
+            return FormatError;
+        }
     }
 }
 
@@ -46,55 +58,112 @@ namespace VibanOS.Preview
         {
             string output = Path.GetFullPath(args.Length > 0 ? args[0] : "preview");
             Directory.CreateDirectory(output);
-            string fonts = FindResources();
 
-            // Wegwerf-Festplatte: ein Ordner namens "0", damit die Pfade fast wie unter COSMOS aussehen (0:\home).
+            // Wegwerf-Festplatte: ein Ordner namens "mnt", damit die Pfade fast wie unter COSMOS aussehen (/mnt/home).
+            // Er entsteht erst mit dem Befehl format. So beginnt der Selbsttest wie ein erster Start mit leerer Platte.
             string temp = Path.Combine(Path.GetTempPath(), "vibanos-" + Guid.NewGuid().ToString("N"));
-            string disk = Path.Combine(temp, "0");
-            Directory.CreateDirectory(disk);
+            string disk = Path.Combine(temp, "mnt");
+            string home = Path.Combine(disk, "home", "root");
+            string userFile = Path.Combine(disk, "system", "users.txt");
+            Directory.CreateDirectory(temp);
             Directory.SetCurrentDirectory(temp);
-            Vfs.Init("0" + Path.DirectorySeparatorChar);
-            Fonts.Load(Read(fonts, "body"), Read(fonts, "strong"), Read(fonts, "caption"), Read(fonts, "display"), Read(fonts, "mono"));
+            Vfs.Init("mnt/");
+            Fonts.Load();
             OS.Boot();
             screen = new Surface(T.Size.ScreenWidth, T.Size.ScreenHeight);
             desktop = new Desktop(T.Size.ScreenWidth, T.Size.ScreenHeight);
             desktop.OnMouse(760, 470, false);
 
-            // Erster Start: root vergibt sein Passwort
-            Check(OS.Users.NeedsSetup && OS.Users.Current == null, "Erster Start verlangt die Einrichtung");
+            // Erster Start: root vergibt sein Passwort und tippt es zweimal ein
+            Check(!Vfs.Available && OS.Users.NeedsSetup && OS.Users.Current == null, "Erster Start verlangt die Einrichtung");
             Shot(output, "1-anmeldung");
-            Type("geheim\n");
+            Type("geheim\nanders\n");
+            Check(OS.Users.Current == null && OS.Users.NeedsSetup, "Zwei verschiedene Passwörter richten nichts ein");
+            Type("geheim\ngeheim\n");
             Check(OS.Users.Current != null && OS.Users.Current.Name == "root", "root ist nach der Einrichtung angemeldet");
-            string userFile = File.ReadAllText(Path.Combine(disk, "system", "users.txt"));
-            Check(userFile.Contains("root") && !userFile.Contains("geheim"), "Nutzerdatei enthält kein Klartext-Passwort");
             desktop.Frame(screen);
             Check(desktop.Active is TerminalWindow, "Nach der Anmeldung öffnet sich das Terminal");
+
+            // Leere Festplatte einrichten (VIB-2)
+            Type("ls\n");
+            Check(Last().Style == LineStyle.Error, "Ohne Dateisystem melden Dateibefehle einen Fehler");
+            Platform.Hardware.FormatError = "Keine Festplatte gefunden.";
+            Type("format\nja\n");
+            Check(Last().Text == "Keine Festplatte gefunden." && !Vfs.Available, "format meldet, warum es nicht geht");
+            Platform.Hardware.FormatError = null;
+            Type("format\nnein\n");
+            Check(!Vfs.Available, "format fragt nach und lässt sich abbrechen");
+            Type("format\nja\n");
+            Check(Vfs.Available && File.ReadAllText(userFile).Contains("root") && !File.ReadAllText(userFile).Contains("geheim"),
+                "format richtet die Platte ein und sichert die Nutzer ohne Klartext-Passwort");
+            Check(Directory.Exists(home) && OS.Shell.CurrentDirectory == OS.Users.Current.HomeDirectory, "Nach format steht die Shell im eigenen Ordner");
+            Type("format\n");
+            Check(Last().Style == LineStyle.Error && !OS.Shell.Asking, "Eine eingerichtete Platte fasst format nicht an");
 
             // Shell (VIB-1)
             Type("echo Hallo VibanOS\n");
             Check(Last().Text == "Hallo VibanOS", "echo gibt den Text aus");
             Type("gibtsnicht\n");
             Check(Last().Style == LineStyle.Error, "Unbekannter Befehl meldet einen Fehler");
+            Type("xyz");
+            Press(Key.Down);
+            Type("\n");
+            Check(Last().Text.Contains("xyz"), "Pfeil ab lässt die getippte Eingabe stehen");
             Type("clear\n");
 
             // Dateisystem (VIB-2)
             Type("mkdir notizen\ncd notizen\nwrite plan.txt Erster Eintrag\ncat plan.txt\n");
             Check(Last().Text == "Erster Eintrag", "write und cat arbeiten zusammen");
+            Type("write plan.txt\n");
+            Check(Last().Style == LineStyle.Error && File.ReadAllText(Path.Combine(home, "notizen", "plan.txt")) == "Erster Eintrag",
+                "write ohne Text leert die Datei nicht");
+            Type("write leer.txt \"\"\n");
+            Check(File.ReadAllText(Path.Combine(home, "notizen", "leer.txt")) == "", "Ein leerer Text in Anführungszeichen ist ein Argument");
             Type("cd ..\nrm notizen\n");
-            Check(Last().Style == LineStyle.Error && Directory.Exists(Path.Combine(disk, "home", "root", "notizen")), "rm löscht keinen vollen Ordner");
+            Check(Last().Style == LineStyle.Error && Directory.Exists(Path.Combine(home, "notizen")), "rm löscht keinen vollen Ordner");
+            Type("mkdir leer\ncd leer\nrm .\n");
+            Check(Last().Style == LineStyle.Error && Directory.Exists(Path.Combine(home, "leer")), "rm löscht nicht den aktuellen Ordner");
+            Type("cd ..\nrm leer\n");
+            Check(!Directory.Exists(Path.Combine(home, "leer")), "rm löscht einen leeren Ordner");
+            File.WriteAllText(Path.Combine(home, "windows.txt"), "eins\r\n\tzwei");
+            Type("cat windows.txt\n");
+            Check(Last().Text == "    zwei" && OS.Shell.Lines[OS.Shell.Lines.Count - 2].Text == "eins", "cat zeigt Windows-Zeilenenden und Tabulatoren sauber");
             Type("cd ..\ncd ..\ncd ..\n");
             Check(OS.Shell.CurrentDirectory == Vfs.Root, "cd .. verlässt die Wurzel nicht");
             Type("cd home/root\n");
             Check(Vfs.Resolve(Vfs.Root + "home", "../a/./b") == Vfs.Root + "a" + Vfs.Separator + "b", "Pfade werden aufgelöst");
+            Check(Vfs.Resolve(Vfs.Root + "home", Vfs.Root.TrimEnd('/')) == Vfs.Root, "Die Wurzel gilt auch ohne abschließenden Trenner");
+            Check(Vfs.Resolve(Vfs.Root, "system./users.txt") == Vfs.SystemDirectory + Vfs.Separator + "users.txt", "Punkte am Namensende ergeben keinen zweiten Namen");
 
             // Prozesse und Scheduler (VIB-3)
             Type("start counter\nstart counter\nstart clock\n");
             for (int i = 0; i < 30; i++) OS.Tick();
             Check(OS.Processes.Get(1).Steps == 10 && OS.Processes.Get(2).Steps == 10 && OS.Processes.Get(3).Steps == 10,
                 "Round Robin verteilt die Schritte gleichmäßig");
+            Type("ps\n");
+            Check(OS.Shell.Lines[OS.Shell.Lines.Count - 3].Text.Contains("Zähler 10"), "ps zeigt die Ausgabe der Prozesse");
             int framesBefore = OS.Memory.Frames.FreeCount;
             Type("kill 2\n");
             Check(OS.Processes.Get(2) == null && OS.Memory.Frames.FreeCount == framesBefore + 1, "kill beendet den Prozess und gibt seinen Speicher frei");
+            Type("start counter abc\n");
+            Check(Last().Style == LineStyle.Error && OS.Processes.All.Count == 2, "start lehnt eine Priorität ab, die keine Zahl ist");
+
+            // Signale (VIB-14)
+            Process clock = OS.Processes.Get(3);
+            clock.OnSignal(Signal.Stop);
+            int stoppedAt = clock.Steps;
+            for (int i = 0; i < 10; i++) OS.Tick();
+            Check(clock.Steps == stoppedAt && clock.StateText == "angehalten", "Stop hält einen Prozess an");
+            clock.OnSignal(Signal.Cont);
+            for (int i = 0; i < 10; i++) OS.Tick();
+            Check(clock.Steps > stoppedAt, "Cont lässt ihn weiterlaufen");
+            framesBefore = OS.Memory.Frames.FreeCount;
+            clock.OnSignal(Signal.Term);
+            clock.OnSignal(Signal.Cont);
+            Check(clock.State == ProcessState.Terminated && OS.Memory.Frames.FreeCount == framesBefore + 1,
+                "Term beendet den Prozess endgültig und gibt seinen Speicher frei");
+            Check(!Ipc.Mailbox.Send(1, 3, "hallo") && Ipc.Mailbox.Send(3, 1, "hallo"), "Nachrichten gehen nur an lebende Prozesse");
+            Type("kill 3\n");
 
             // Speicher (VIB-5, VIB-7)
             Type("alloc 1 5\n");
@@ -104,6 +173,38 @@ namespace VibanOS.Preview
             Check(Throws(() => OS.Memory.ReadByte(99, 0)), "Fremder Prozess ohne Seitentabelle wird abgewiesen");
             OS.Memory.TableOf(1).Pages[0].Access = PageAccess.Read;
             Check(Throws(() => OS.Memory.WriteByte(1, 0, 1)) && OS.Memory.Log.Count == 3, "Schreibschutz greift und wird protokolliert");
+            OS.Memory.FreePage(1, 0);
+            OS.Memory.FreePage(1, 1);
+            Type("alloc 1 2\n");
+            Check(!Throws(() => OS.Memory.WriteByte(1, 0, 1)) && OS.Memory.ReadByte(1, 4096 + 7) == 0, "Eine neu vergebene Seite ist leer und beschreibbar");
+            Type("alloc 1 0\n");
+            Check(Last().Style == LineStyle.Error, "alloc verlangt mindestens eine Seite");
+            Type("start counter\n");
+            int hog = OS.Processes.All[OS.Processes.All.Count - 1].Id;
+            Type("alloc " + hog + " 999\n");
+            Check(Last().Style == LineStyle.Error && OS.Memory.Frames.FreeCount == 0, "alloc meldet, wenn der Speicher voll ist");
+            Type("start clock\n");
+            Check(Last().Style == LineStyle.Error && OS.Processes.All.Count == 2, "Ohne freien Rahmen startet kein Prozess");
+            Type("kill " + hog + "\n");
+            Check(OS.Memory.Frames.FreeCount > 0, "kill gibt alle Seiten des Prozesses frei");
+
+            // Sperren (VIB-8)
+            Type("start counter\nstart counter\nstart counter\n");
+            int a = OS.Processes.All[1].Id, b = OS.Processes.All[2].Id, c = OS.Processes.All[3].Id;
+            Mutex mutex = new Mutex("test");
+            Check(mutex.Lock(a) && !mutex.Lock(b) && !mutex.Lock(c) && OS.Processes.Get(b).State == ProcessState.Blocked,
+                "Eine belegte Sperre blockiert den nächsten Prozess");
+            OS.Processes.Kill(b);
+            mutex.Unlock(a);
+            Check(mutex.Owner == c && OS.Processes.Get(c).State == ProcessState.Ready, "Die Sperre geht an den ersten Wartenden, den es noch gibt");
+            OS.Processes.Kill(c);
+            Check(mutex.Lock(a), "Stirbt der Besitzer, wird die Sperre beim nächsten Versuch frei");
+            Semaphore semaphore = new Semaphore("test", 0);
+            bool waited = !semaphore.Wait(a);
+            semaphore.Signal();
+            Check(waited && OS.Processes.Get(a).State == ProcessState.Ready && semaphore.Wait(a) && semaphore.Count == 0,
+                "Eine Freigabe der Semaphore geht nicht verloren");
+            OS.Processes.Kill(a);
 
             // Systemaufrufe (VIB-11, VIB-12)
             Syscall.ShellMode = ProcessMode.User;
@@ -112,18 +213,43 @@ namespace VibanOS.Preview
             Check(Syscall.Invoke(SyscallNumber.GetTime).Error == SyscallResult.Ok, "Usermode darf die Zeit lesen");
             Syscall.ShellMode = ProcessMode.Kernel;
 
-            // Treiber (VIB-9, VIB-10)
+            // Treiber und Interrupts (VIB-9, VIB-10, VIB-14)
             Platform.Hardware.SerialOut = ""; // die Initialisierung schreibt den Baudraten-Teiler auf denselben Port
             Type("send ping\n");
             Check(Platform.Hardware.SerialOut == "ping\n", "send schreibt die Nachricht auf COM1");
+            Driver broken = new BrokenDriver();
+            Check(!broken.Start() && broken.Status == DriverStatus.Stopped, "Ein Treiber ohne seine Hardware bleibt gestoppt");
+            int interrupts = OS.Interrupts.Entries.Count;
+            OS.Interrupts.Register(InterruptManager.Timer, "Timer", null);
+            Check(OS.Interrupts.Entries.Count == interrupts, "Ein Interrupt wird nicht doppelt eingetragen");
 
             // Nutzer und Rechte (VIB-16, VIB-17)
+            Type("useradd Anna!\n");
+            Check(Last().Style == LineStyle.Error && !OS.Shell.Asking, "useradd prüft den Namen, bevor es nach dem Passwort fragt");
+            Type("useradd bert\n");
+            Press(Key.Up);
+            Type("\n");
+            Check(OS.Users.Find("bert") == null, "In einer Passwortabfrage gibt es keinen Verlauf");
             Type("useradd anna\ntopsecret\n");
             Check(OS.Users.Find("anna") != null, "useradd legt nach der Passwortabfrage einen Nutzer an");
             UserManager reloaded = new UserManager();
             reloaded.Load();
             Check(reloaded.Find("anna") != null && reloaded.CheckPassword(reloaded.Find("anna"), "topsecret")
                 && !reloaded.CheckPassword(reloaded.Find("anna"), "falsch"), "Nutzer überstehen einen Neustart");
+            string users = File.ReadAllText(userFile);
+            File.WriteAllText(userFile, "kaputt\nx;y;z;;;\n" + users + "7;;s;h;mnt/home/;users\n9;anna;s;h;mnt/home/anna;users\n");
+            reloaded = new UserManager();
+            reloaded.Load();
+            Check(reloaded.All.Count == 2 && reloaded.CheckPassword(reloaded.Find("root"), "geheim")
+                && reloaded.CheckPassword(reloaded.Find("anna"), "topsecret"), "Kaputte Zeilen der Nutzerdatei sperren niemanden aus");
+            File.WriteAllText(userFile, users);
+            Check(Tail(UserManager.Hash("a", "salz")) != Tail(UserManager.Hash("b", "salz")) || Tail(UserManager.Hash("b", "salz")) != Tail(UserManager.Hash("c", "salz")),
+                "Auch die letzten Stellen des Passwort-Hashs hängen vom Passwort ab");
+            LoginScreen login = new LoginScreen();
+            for (int i = 0; i < 3; i++) { login.OnKey(Key.None, 'x'); login.OnKey(Key.Enter, '\n'); }
+            DateTime now = DateTime.Now;
+            Check(!login.LockExpired(now) && login.LockExpired(now.AddSeconds(6)) && !login.LockExpired(now.AddSeconds(7)),
+                "Die Sperre nach drei Fehlversuchen läuft ab und meldet das genau einmal");
             Type("logout\n");
             Check(OS.Users.Current == null, "logout sperrt den Schreibtisch");
             Type("\tfalsch\n");
@@ -135,8 +261,17 @@ namespace VibanOS.Preview
             Check(Last().Style == LineStyle.Error && !Platform.Hardware.ShutdownCalled, "Normale Nutzer dürfen nicht herunterfahren");
             Type("kill 1\n");
             Check(OS.Processes.Get(1) != null, "Normale Nutzer dürfen fremde Prozesse nicht beenden");
+            int pagesBefore = OS.Memory.TableOf(1).Pages.Count;
+            Type("alloc 1 1\n");
+            Check(Last().Style == LineStyle.Error && OS.Memory.TableOf(1).Pages.Count == pagesBefore, "Normale Nutzer geben fremden Prozessen keinen Speicher");
+            Type("cat /system/users.txt\n");
+            Check(Last().Text.StartsWith("Zugriff verweigert"), "Normale Nutzer lesen die Nutzerdatei nicht");
+            Type("write ../../SYSTEM/users.txt x\n");
+            Check(Last().Text.StartsWith("Zugriff verweigert") && File.ReadAllText(userFile) == users, "Der Systemordner ist auch in anderer Schreibweise gesperrt");
             Type("logout\n\tgeheim\n");
             Check(OS.Users.Current.Name == "root", "root meldet sich wieder an");
+            Type("cat /system/users.txt\n");
+            Check(Last().Style != LineStyle.Error, "Administratoren dürfen in den Systemordner");
 
             // Fenster und Maus
             desktop.Open(Icons.About);
@@ -162,9 +297,16 @@ namespace VibanOS.Preview
             desktop.OnMouse(terminal.X + 300, terminal.Y + 100, true);
             desktop.OnMouse(terminal.X + 300, terminal.Y + 100, false);
             Type("help\n");
+            long bottom = Picture(terminal);
+            Press(Key.PageUp);
+            long top = Picture(terminal);
+            Press(Key.PageDown);
+            Check(top != bottom && Picture(terminal) == bottom, "Bild auf und Bild ab blättern im Terminal");
             Shot(output, "3-terminal");
             OS.Shell.Clear();
-            Type("start busy\nps\nmem\nwhoami\n");
+            Type("start clock\nstart busy\n");
+            for (int i = 0; i < 90; i++) OS.Tick();
+            Type("ps\nmem\nwhoami\n");
             desktop.Open(Icons.Activity);
             desktop.OnMouse(980, 600, false);
             Shot(output, "4-schreibtisch");
@@ -174,6 +316,13 @@ namespace VibanOS.Preview
             Directory.Delete(temp, true);
             Console.WriteLine(checks + " Prüfungen bestanden. Bilder liegen in " + output);
             return 0;
+        }
+
+        private class BrokenDriver : Driver
+        {
+            public override string Name { get { return "kaputt"; } }
+            public override string Description { get { return "Treiber, dessen Hardware fehlt"; } }
+            protected override void Init() { throw new Exception("keine Hardware"); }
         }
 
         private static void Check(bool ok, string what)
@@ -190,6 +339,9 @@ namespace VibanOS.Preview
 
         private static ShellLine Last() { return OS.Shell.Lines[OS.Shell.Lines.Count - 1]; }
 
+        // Die letzten drei Hex-Stellen eines Hashs, also seine unteren 12 Bit.
+        private static string Tail(string hash) { return hash.Substring(hash.Length - 3); }
+
         // Tippt Text wie auf der Tastatur: \n ist die Eingabetaste, \t der Tabulator.
         private static void Type(string text)
         {
@@ -197,21 +349,24 @@ namespace VibanOS.Preview
                 desktop.OnKey(c == '\n' ? Key.Enter : c == '\t' ? Key.Tab : Key.None, c);
         }
 
+        private static void Press(Key key) { desktop.OnKey(key, '\0'); }
+
         private static void Click(int x, int y)
         {
             desktop.OnMouse(x, y, true);
             desktop.OnMouse(x, y, false);
         }
 
-        private static string FindResources()
+        // Zeichnet neu und fasst den Inhalt eines Fensters zu einer Zahl zusammen, um zwei Bilder zu vergleichen.
+        private static long Picture(Window w)
         {
-            string dir = Directory.GetCurrentDirectory();
-            while (dir != null && !Directory.Exists(Path.Combine(dir, "VibanOS", "Resources"))) dir = Path.GetDirectoryName(dir);
-            if (dir == null) throw new Exception("VibanOS/Resources nicht gefunden. Bitte im Repo-Ordner starten.");
-            return Path.Combine(dir, "VibanOS", "Resources");
+            OS.Changed = true;
+            desktop.Frame(screen);
+            long sum = 17;
+            for (int y = w.Y + T.Size.TitleBar; y < w.Y + w.Height; y++)
+                for (int x = w.X; x < w.X + w.Width; x++) sum = sum * 31 + screen.Pixels[y * screen.Width + x];
+            return sum;
         }
-
-        private static byte[] Read(string dir, string role) { return File.ReadAllBytes(Path.Combine(dir, role + ".vfont")); }
 
         private static void Shot(string dir, string name)
         {

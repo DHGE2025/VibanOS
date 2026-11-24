@@ -85,8 +85,8 @@ Zwei Schriftfamilien, fünf Rollen. Andere Größen gibt es nicht.
 | `Fonts.Caption` | Inter Medium 11 | Spaltenköpfe und Kachel-Beschriftungen, in Großbuchstaben |
 | `Fonts.Mono` | JetBrains Mono Regular 13 | Terminal |
 
-Die Schriften liegen als geglättete Atlanten in `VibanOS/Resources/*.vfont` und decken Latin-1 ab (also auch ä, ö, ü, ß).
-Wer eine Größe ändert, passt `tools/make-fonts.py` an und führt es aus. Inter und JetBrains Mono stehen unter der SIL Open Font License.
+Die Schriften sind als geglättete Atlanten in `VibanOS/Graphics/FontData.cs` einkompiliert und decken Latin-1 ab (also auch ä, ö, ü, ß).
+Wer eine Größe ändert, passt `tools/make-fonts.py` an und führt es aus, das Skript schreibt die Datei neu. Inter und JetBrains Mono stehen unter der SIL Open Font License.
 
 ## Abstände, Radien, Maße
 
@@ -103,7 +103,7 @@ Eingabefelder sind Pillen: Der Radius ist die halbe Höhe.
 
 | Maß | px | Einsatz |
 | -- | -- | -- |
-| `Size.ScreenWidth` × `Size.ScreenHeight` | 1280 × 720 | Auflösung |
+| `Size.ScreenWidth` × `Size.ScreenHeight` | 1280 × 720 | Entwurfsgröße: Wunschauflösung beim Start und Größe der Vorschaubilder. Bietet die Grafikkarte sie nicht, richtet sich die Oberfläche nach der echten Größe |
 | `Size.MenuBar` | 28 | Höhe der Menüleiste |
 | `Size.TitleBar` | 34 | Höhe der Titelleiste |
 | `Size.Control`, `Size.ControlGap` | 12, 8 | Durchmesser und Abstand der Fensterknöpfe |
@@ -144,4 +144,4 @@ Der Schatten zeigt, was vorn liegt. Das aktive Fenster hat den kräftigsten.
 dotnet run --project tools/Preview
 ```
 
-Das schreibt die Bilder nach `preview/`. Nach einer Änderung am Design `designsheet.png` und `4-schreibtisch.png` von dort nach `docs/design/` kopieren (letzteres als `schreibtisch.png`).
+Das schreibt die Bilder nach `preview/`. Nach einer Änderung am Design `designsheet.png`, `4-schreibtisch.png` (als `schreibtisch.png`) und `1-anmeldung.png` (als `anmeldung.png`) von dort nach `docs/design/` kopieren.

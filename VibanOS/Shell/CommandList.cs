@@ -4,7 +4,7 @@ namespace VibanOS.Cli
 {
     /// <summary>
     /// Alle Befehle der Shell. Neue Befehle hier mit einer Zeile eintragen.
-    /// Bewusst von Hand: COSMOS unterstützt Reflection nur sehr eingeschränkt.
+    /// Bewusst von Hand: Im COSMOS-Kernel gibt es keine Reflection, die Befehle selbst finden könnte.
     /// </summary>
     public static class CommandList
     {
@@ -26,6 +26,7 @@ namespace VibanOS.Cli
             shell.Register(new CatCommand());
             shell.Register(new WriteCommand());
             shell.Register(new RmCommand());
+            shell.Register(new FormatCommand());
 
             // Prozesse (VIB-3)
             shell.Register(new PsCommand());

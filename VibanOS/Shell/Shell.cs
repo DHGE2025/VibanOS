@@ -22,6 +22,8 @@ namespace VibanOS.Cli
     public class Shell
     {
         private const int MaxLines = 300;
+        private const int MaxLineLength = 2000;
+        private const int MaxHistory = 100;
 
         public readonly List<Command> Commands = new List<Command>();
         public readonly List<ShellLine> Lines = new List<ShellLine>();
@@ -34,8 +36,11 @@ namespace VibanOS.Cli
         private string question;
         private AnswerHandler answer;
 
-        /// <summary>true: Die Eingabe wird mit Punkten verdeckt.</summary>
+        /// <summary>true: Die Eingabe wird mit Sternchen verdeckt.</summary>
         public bool Masked;
+
+        /// <summary>true: Ein Befehl wartet auf eine Antwort. Die nächste Eingabe ist dann kein Befehl.</summary>
+        public bool Asking { get { return answer != null; } }
 
         public void Register(Command command) { Commands.Add(command); }
 
@@ -62,15 +67,18 @@ namespace VibanOS.Cli
 
         public void WriteLine(string text, LineStyle style)
         {
-            string[] parts = text.Split('\n');
-            for (int i = 0; i < parts.Length; i++)
+            // Zeilenenden aus Windows-Dateien und Tabulatoren kennt die Schrift nicht als Zeichen.
+            string[] parts = text.Replace("\r", "").Replace("\t", "    ").Split('\n');
+            // Mehr als MaxLines Zeilen hebt die Shell nicht auf, von sehr langen Texten bleibt also das Ende.
+            for (int i = parts.Length > MaxLines ? parts.Length - MaxLines : 0; i < parts.Length; i++)
             {
                 ShellLine line = new ShellLine();
-                line.Text = parts[i];
+                // Überlange Zeilen (etwa aus einer Binärdatei) würden jedes Neuzeichnen ausbremsen.
+                line.Text = parts[i].Length > MaxLineLength ? parts[i].Substring(0, MaxLineLength) + " [gekürzt]" : parts[i];
                 line.Style = style;
                 Lines.Add(line);
             }
-            while (Lines.Count > MaxLines) Lines.RemoveAt(0);
+            if (Lines.Count > MaxLines) Lines.RemoveRange(0, Lines.Count - MaxLines);
             OS.Changed = true;
         }
 
@@ -102,11 +110,14 @@ namespace VibanOS.Cli
                 question = null;
                 answer = null;
                 Masked = false;
-                handler(input);
+                // Wie bei Befehlen: Ein Fehler in der Antwort-Behandlung landet als Meldung im Terminal.
+                try { handler(input); }
+                catch (Exception e) { Error(e.Message); }
                 return;
             }
             WriteLine(Prompt + input, LineStyle.Input);
             if (input.Trim() == "") return;
+            if (History.Count >= MaxHistory) History.RemoveAt(0);
             History.Add(input);
             Execute(input);
         }
@@ -147,25 +158,26 @@ namespace VibanOS.Cli
             return s;
         }
 
-        // Trennt an Leerzeichen. "Text in Anführungszeichen" bleibt ein Argument.
+        // Trennt an Leerzeichen. "Text in Anführungszeichen" bleibt ein Argument, auch der leere Text "".
         private static List<string> Split(string input)
         {
             List<string> words = new List<string>();
             string word = "";
-            bool quoted = false;
+            bool quoted = false, hadQuote = false;
             for (int i = 0; i < input.Length; i++)
             {
                 char c = input[i];
-                if (c == '"') { quoted = !quoted; continue; }
+                if (c == '"') { quoted = !quoted; hadQuote = true; continue; }
                 if (c == ' ' && !quoted)
                 {
-                    if (word != "") words.Add(word);
+                    if (word != "" || hadQuote) words.Add(word);
                     word = "";
+                    hadQuote = false;
                     continue;
                 }
                 word += c;
             }
-            if (word != "") words.Add(word);
+            if (word != "" || hadQuote) words.Add(word);
             return words;
         }
     }

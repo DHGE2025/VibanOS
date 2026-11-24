@@ -1,5 +1,6 @@
 using VibanOS.Core;
 using VibanOS.Memory;
+using VibanOS.Processes;
 
 namespace VibanOS.Cli.Commands
 {
@@ -33,7 +34,7 @@ namespace VibanOS.Cli.Commands
         }
     }
 
-    public class AllocCommand : Command
+    public class AllocCommand : ProcessCommand
     {
         public override string Name { get { return "alloc"; } }
         public override string Usage { get { return "alloc <pid> <seiten>"; } }
@@ -41,16 +42,15 @@ namespace VibanOS.Cli.Commands
 
         public override void Execute(string[] args, Shell shell)
         {
-            int pid, count;
-            if (args.Length < 2 || !int.TryParse(args[0], out pid) || !int.TryParse(args[1], out count))
-            {
-                shell.Error("Aufruf: " + Usage);
-                return;
-            }
-            if (OS.Processes.Get(pid) == null) { shell.Error("Kein Prozess mit der ID " + pid + "."); return; }
+            int count;
+            if (args.Length < 2 || !int.TryParse(args[1], out count) || count < 1) { shell.Error("Aufruf: " + Usage); return; }
+            Process p = Target(args, shell);
+            if (p == null) return;
+            // Ein beendeter Prozess gibt nichts mehr frei, seine Seiten blieben für immer belegt.
+            if (p.State == ProcessState.Terminated) { shell.Error("Prozess " + p.Id + " ist beendet."); return; }
             int done = 0;
-            while (done < count && OS.Memory.AllocatePage(pid) >= 0) done++;
-            shell.WriteLine(done + " Seite(n) für Prozess " + pid + " belegt.");
+            while (done < count && OS.Memory.AllocatePage(p.Id) >= 0) done++;
+            shell.WriteLine(done + " Seite(n) für Prozess " + p.Id + " belegt.");
             if (done < count) shell.Error("Speicher voll: Es ist kein Rahmen mehr frei.");
         }
     }

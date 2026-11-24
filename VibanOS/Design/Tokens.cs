@@ -76,6 +76,8 @@ namespace VibanOS.Design
         /// <summary>Feste Maße der Oberfläche.</summary>
         public static class Size
         {
+            // Entwurfsgröße: Wunschauflösung in Bootloader/limine.conf und Größe der Vorschaubilder.
+            // Zur Laufzeit zählt die echte Bildschirmgröße, Kernel.cs fragt sie ab.
             public const int ScreenWidth = 1280;
             public const int ScreenHeight = 720;
             public const int MenuBar = 28;

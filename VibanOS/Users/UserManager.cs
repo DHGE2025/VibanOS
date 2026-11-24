@@ -7,7 +7,7 @@ using VibanOS.FileSystem;
 namespace VibanOS.Users
 {
     /// <summary>
-    /// Nutzer, Anmeldung (VIB-16) und Gruppenrechte (VIB-17). Nutzer liegen in system\users.txt,
+    /// Nutzer, Anmeldung (VIB-16) und Gruppenrechte (VIB-17). Nutzer liegen in system/users.txt,
     /// eine Zeile pro Nutzer: id;name;salt;hash;home;gruppe1,gruppe2
     /// </summary>
     public class UserManager
@@ -21,6 +21,13 @@ namespace VibanOS.Users
 
         /// <summary>Angemeldeter Nutzer, null solange niemand angemeldet ist.</summary>
         public User Current;
+
+        /// <summary>false: Die letzte Änderung steht nicht in der Nutzerdatei und gilt nur bis zum Neustart.</summary>
+        public bool Saved = true;
+
+        // Die Nutzerdatei war da, ließ sich aber nicht lesen. Dann wird sie nicht überschrieben,
+        // sonst wären mit einem Lesefehler alle Nutzer verloren.
+        private bool unreadable;
 
         public UserManager()
         {
@@ -62,13 +69,13 @@ namespace VibanOS.Users
             u.HomeDirectory = Vfs.Root + "home" + Vfs.Separator + name;
             u.Groups.Add(group);
             All.Add(u);
-            if (password != "") SetPassword(u, password);
             try
             {
                 if (Vfs.Available && !Directory.Exists(u.HomeDirectory)) Directory.CreateDirectory(u.HomeDirectory);
             }
-            catch { }
-            Save();
+            catch (Exception) { }
+            if (password != "") SetPassword(u, password);
+            else Save();
             return u;
         }
 
@@ -131,7 +138,8 @@ namespace VibanOS.Users
             return false;
         }
 
-        private static bool ValidName(string name)
+        /// <summary>Erlaubt sind a-z, 0-9, - und _, höchstens 16 Zeichen. Der Name wird auch Ordnername.</summary>
+        public static bool ValidName(string name)
         {
             if (name.Length == 0 || name.Length > 16) return false;
             for (int i = 0; i < name.Length; i++)
@@ -145,8 +153,9 @@ namespace VibanOS.Users
 
         /// <summary>
         /// Passwort-Hash mit Salt, im Klartext wird nie etwas gespeichert.
-        /// ponytail: eigener FNV-1a-Hash mit 4096 Runden, weil System.Security.Cryptography unter COSMOS
-        /// nicht verlässlich läuft. Nicht kryptografisch sicher. Auf SHA-256 umstellen, sobald das geht.
+        /// ponytail: eigener FNV-1a-Hash mit 4096 Runden. System.Security.Cryptography stützt sich auf die
+        /// Kryptobibliothek des Wirtssystems, die es im COSMOS-Kernel nicht gibt. Nicht kryptografisch
+        /// sicher. Auf SHA-256 mit vielen Runden umstellen, sobald eine Implementierung im Kernel läuft.
         /// </summary>
         public static string Hash(string password, string salt)
         {
@@ -160,11 +169,17 @@ namespace VibanOS.Users
                     h *= 1099511628211UL;
                 }
                 h ^= (ulong)round;
+                // Die Multiplikation trägt Unterschiede nur nach oben. Ohne diesen Schritt hingen die
+                // unteren Bits nie von den oberen ab und wären am Ende für jedes Passwort gleich.
+                h ^= h >> 29;
             }
             return Text.Hex(h, 16);
         }
 
-        /// <summary>Liest die Nutzerdatei. Gibt es keine, entsteht root ohne Passwort (Ersteinrichtung).</summary>
+        /// <summary>
+        /// Liest die Nutzerdatei. Gibt es keine, entsteht root ohne Passwort (Ersteinrichtung).
+        /// Kaputte Zeilen werden übersprungen, damit eine beschädigte Zeile nicht alle Nutzer aussperrt.
+        /// </summary>
         public void Load()
         {
             try
@@ -175,9 +190,10 @@ namespace VibanOS.Users
                     for (int i = 0; i < lines.Length; i++)
                     {
                         string[] f = lines[i].Trim().Split(';');
-                        if (f.Length < 6) continue;
+                        int id;
+                        if (f.Length < 6 || !int.TryParse(f[0], out id) || !ValidName(f[1]) || Find(f[1]) != null) continue;
                         User u = new User();
-                        u.Id = int.Parse(f[0]);
+                        u.Id = id;
                         u.Name = f[1];
                         u.Salt = f[2];
                         u.PasswordHash = f[3];
@@ -189,13 +205,18 @@ namespace VibanOS.Users
                     }
                 }
             }
-            catch { }
+            catch (Exception)
+            {
+                unreadable = true;
+            }
             if (Find(Root) == null) Add(Root, "", AdminGroup);
         }
 
-        public void Save()
+        /// <summary>Schreibt die Nutzerdatei. false: Es gibt kein Dateisystem oder das Schreiben ist gescheitert.</summary>
+        public bool Save()
         {
-            if (!Vfs.Available) return;
+            Saved = false;
+            if (!Vfs.Available || unreadable) return false;
             string text = "";
             for (int i = 0; i < All.Count; i++)
             {
@@ -204,7 +225,13 @@ namespace VibanOS.Users
                 for (int g = 0; g < u.Groups.Count; g++) groups += (g > 0 ? "," : "") + u.Groups[g];
                 text += u.Id + ";" + u.Name + ";" + u.Salt + ";" + u.PasswordHash + ";" + u.HomeDirectory + ";" + groups + "\n";
             }
-            try { File.WriteAllText(FilePath, text); } catch { }
+            try
+            {
+                File.WriteAllText(FilePath, text);
+                Saved = true;
+            }
+            catch (Exception) { }
+            return Saved;
         }
     }
 }

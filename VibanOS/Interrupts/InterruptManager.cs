@@ -17,8 +17,9 @@ namespace VibanOS.Interrupts
 
     /// <summary>
     /// Verzeichnis der Interrupts mit Zähler (VIB-14).
-    /// ponytail: Der Timer wird bisher aus der Kernel-Schleife ausgelöst (OS.Tick), nicht vom PIT.
-    /// Für echte Zeitscheiben in Kernel.BeforeRun einen PIT-Timer registrieren, der Raise(Timer) aufruft.
+    /// ponytail: Timer und Tastatur werden bisher aus der Kernel-Schleife gemeldet (OS.Tick, Kernel.Frame),
+    /// nicht von der Hardware. Für echte Zeitscheiben in Kernel.BeforeRun einen Timer von COSMOS anmelden,
+    /// der Raise(Timer) aufruft.
     /// </summary>
     public class InterruptManager
     {
@@ -35,24 +36,34 @@ namespace VibanOS.Interrupts
             Register(Serial, "COM1", null);
         }
 
+        private InterruptEntry Find(int number)
+        {
+            for (int i = 0; i < Entries.Count; i++)
+                if (Entries[i].Number == number) return Entries[i];
+            return null;
+        }
+
+        /// <summary>Trägt einen Interrupt ein. Gibt es die Nummer schon, werden Name und Handler ersetzt, der Zähler bleibt.</summary>
         public void Register(int number, string name, InterruptHandler handler)
         {
-            InterruptEntry e = new InterruptEntry();
-            e.Number = number;
+            InterruptEntry e = Find(number);
+            if (e == null)
+            {
+                e = new InterruptEntry();
+                e.Number = number;
+                Entries.Add(e);
+            }
             e.Name = name;
             e.Handler = handler;
-            Entries.Add(e);
         }
 
         /// <summary>Löst einen Interrupt aus. Handler müssen sehr kurz sein: nur zählen oder in einen Puffer schreiben.</summary>
         public void Raise(int number)
         {
-            for (int i = 0; i < Entries.Count; i++)
-            {
-                if (Entries[i].Number != number) continue;
-                Entries[i].Count++;
-                if (Entries[i].Handler != null) Entries[i].Handler();
-            }
+            InterruptEntry e = Find(number);
+            if (e == null) return;
+            e.Count++;
+            if (e.Handler != null) e.Handler();
         }
     }
 }

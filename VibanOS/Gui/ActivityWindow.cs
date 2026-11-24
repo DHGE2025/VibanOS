@@ -53,18 +53,20 @@ namespace VibanOS.Gui
             s.FillRect(left, ty + T.Size.Row - 1, inner, 1, T.Color.Separator);
             ty += T.Size.Row;
 
+            // Passen nicht alle Prozesse in die Tabelle, zeigt sie die zuletzt gestarteten.
             int count = OS.Processes.All.Count;
+            int first = count > MaxRows ? count - MaxRows : 0;
             for (int i = 0; i < MaxRows; i++)
             {
-                if (i < count)
+                if (first + i < count)
                 {
-                    Process p = OS.Processes.All[i];
-                    uint dot = p.State == ProcessState.Blocked ? T.Color.Warning
-                        : p.State == ProcessState.Terminated ? T.Color.TextTertiary : T.Color.Success;
+                    Process p = OS.Processes.All[first + i];
+                    uint dot = p.State == ProcessState.Terminated ? T.Color.TextTertiary
+                        : p.State == ProcessState.Blocked || p.Stopped ? T.Color.Warning : T.Color.Success;
                     s.DrawText(Fonts.Body, p.Id.ToString(), left + col[0], ty + textY, T.Color.TextSecondary);
                     s.DrawText(Fonts.Strong, p.Name, left + col[1], ty + textY, T.Color.TextPrimary);
                     s.FillCircle(left + col[2] + 4, ty + T.Size.Row / 2, 8, dot);
-                    s.DrawText(Fonts.Body, Process.StateName(p.State), left + col[2] + 14, ty + textY, T.Color.TextPrimary);
+                    s.DrawText(Fonts.Body, p.StateText, left + col[2] + 14, ty + textY, T.Color.TextPrimary);
                     s.DrawText(Fonts.Body, p.Owner, left + col[3], ty + textY, T.Color.TextSecondary);
                     s.DrawText(Fonts.Body, p.Steps.ToString(), left + col[4], ty + textY, T.Color.TextSecondary);
                     s.DrawText(Fonts.Body, p.Output, left + col[5], ty + textY, T.Color.TextPrimary);

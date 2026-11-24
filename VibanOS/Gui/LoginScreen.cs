@@ -9,8 +9,8 @@ using T = VibanOS.Design.Tokens;
 namespace VibanOS.Gui
 {
     /// <summary>
-    /// Anmeldebildschirm (VIB-16). Beim allerersten Start vergibt man hier das Passwort für root.
-    /// Tab wechselt zwischen den Nutzern.
+    /// Anmeldebildschirm (VIB-16). Beim allerersten Start vergibt man hier das Passwort für root
+    /// und tippt es zur Sicherheit zweimal ein. Tab wechselt zwischen den Nutzern.
     /// </summary>
     public class LoginScreen
     {
@@ -24,6 +24,18 @@ namespace VibanOS.Gui
         private int tries;
         private DateTime lockedUntil;
 
+        // Ersteinrichtung: die erste Eingabe des neuen Passworts, bis es wiederholt wurde.
+        private string firstEntry;
+
+        /// <summary>true genau einmal, wenn die Sperre nach zu vielen Versuchen abgelaufen ist. Dann verschwindet die Meldung.</summary>
+        public bool LockExpired(DateTime now)
+        {
+            if (lockedUntil == DateTime.MinValue || now < lockedUntil) return false;
+            lockedUntil = DateTime.MinValue;
+            error = "";
+            return true;
+        }
+
         public void OnKey(Key key, char c)
         {
             if (DateTime.Now < lockedUntil) return;
@@ -36,6 +48,7 @@ namespace VibanOS.Gui
                 userIndex = (userIndex + 1) % users.All.Count;
                 password = "";
                 error = "";
+                firstEntry = null;
             }
             else if (key == Key.Backspace)
             {
@@ -44,7 +57,26 @@ namespace VibanOS.Gui
             else if (key == Key.Enter)
             {
                 if (password == "") return;
-                if (users.NeedsSetup && user.Name == UserManager.Root) users.SetPassword(user, password);
+                if (users.NeedsSetup && user.Name == UserManager.Root)
+                {
+                    // Das neue Passwort zweimal eintippen: Ein Tippfehler würde root sonst für immer aussperren.
+                    if (firstEntry == null)
+                    {
+                        firstEntry = password;
+                        password = "";
+                        error = "";
+                        return;
+                    }
+                    bool same = firstEntry == password;
+                    firstEntry = null;
+                    if (!same)
+                    {
+                        password = "";
+                        error = "Die Passwörter stimmen nicht überein. Bitte noch einmal.";
+                        return;
+                    }
+                    users.SetPassword(user, password);
+                }
                 if (users.Login(user.Name, password))
                 {
                     tries = 0;
@@ -102,7 +134,8 @@ namespace VibanOS.Gui
             int textY = ty + (T.Size.Field - Fonts.Body.LineHeight) / 2;
             if (password == "")
             {
-                s.DrawText(Fonts.Body, setup ? "Neues Passwort festlegen" : "Passwort eingeben", fx + T.Space.M, textY, T.Color.TextSecondary);
+                string placeholder = !setup ? "Passwort eingeben" : firstEntry == null ? "Neues Passwort festlegen" : "Passwort wiederholen";
+                s.DrawText(Fonts.Body, placeholder, fx + T.Space.M, textY, T.Color.TextSecondary);
             }
             else
             {

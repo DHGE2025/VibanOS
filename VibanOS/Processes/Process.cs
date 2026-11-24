@@ -1,4 +1,5 @@
 using System;
+using VibanOS.Core;
 using VibanOS.Interrupts;
 using VibanOS.Ipc;
 
@@ -22,6 +23,12 @@ namespace VibanOS.Processes
         public ProcessState State = ProcessState.Ready;
         public ProcessMode Mode = ProcessMode.User;
 
+        /// <summary>
+        /// Mit dem Signal Stop angehalten, bis Cont kommt. Bewusst kein eigener Zustand: Ein Prozess kann
+        /// angehalten sein und zugleich auf eine Sperre warten (Blocked), beides muss erhalten bleiben.
+        /// </summary>
+        public bool Stopped;
+
         // Statistik, Grundlage für die Kennzahlen in VIB-15
         public DateTime StartTime;
         public int Steps;
@@ -38,19 +45,25 @@ namespace VibanOS.Processes
         /// <summary>Standardverhalten für Signale (VIB-14). Prozesse können das überschreiben.</summary>
         public virtual void OnSignal(Signal signal)
         {
-            if (signal == Signal.Term) State = ProcessState.Terminated;
-            else if (signal == Signal.Stop) State = ProcessState.Blocked;
-            else if (signal == Signal.Cont && State == ProcessState.Blocked) State = ProcessState.Ready;
+            if (State == ProcessState.Terminated) return; // Ein beendeter Prozess lebt nicht wieder auf.
+            if (signal == Signal.Stop) Stopped = true;
+            else if (signal == Signal.Cont) Stopped = false;
+            else if (signal == Signal.Term)
+            {
+                State = ProcessState.Terminated;
+                OS.Memory.FreeAll(Id);
+            }
         }
 
-        public static string StateName(ProcessState state)
+        /// <summary>Zustand als Text für ps und die Aktivitätsanzeige.</summary>
+        public string StateText
         {
-            switch (state)
+            get
             {
-                case ProcessState.Ready: return "bereit";
-                case ProcessState.Running: return "läuft";
-                case ProcessState.Blocked: return "blockiert";
-                default: return "beendet";
+                if (State == ProcessState.Terminated) return "beendet";
+                if (Stopped) return "angehalten";
+                if (State == ProcessState.Blocked) return "blockiert";
+                return State == ProcessState.Running ? "läuft" : "bereit";
             }
         }
     }

@@ -1,91 +1,110 @@
 using System;
-using Cosmos.Core.Memory;
-using Cosmos.System.Graphics;
-using IL2CPU.API.Attribs;
+using System.Threading;
+using Cosmos.Kernel.System.Diagnostics;
+using Cosmos.Kernel.System.Graphics;
+using Cosmos.Kernel.System.Input;
+using Cosmos.Kernel.System.Input.Layouts;
 using VibanOS.Core;
 using VibanOS.FileSystem;
 using VibanOS.Graphics;
 using VibanOS.Gui;
-using Sys = Cosmos.System;
-using T = VibanOS.Design.Tokens;
+using VibanOS.Interrupts;
+using VibanOS.Platform;
+using Sys = Cosmos.Kernel.System;
 
 namespace VibanOS
 {
     /// <summary>
-    /// Einstiegspunkt unter COSMOS. Hier steht bewusst nur Verkabelung: Hardware einrichten,
+    /// Einstiegspunkt unter COSMOS 3. Hier steht bewusst nur Verkabelung: Hardware einrichten,
     /// Tastatur und Maus an die Oberfläche weiterreichen, das fertige Bild anzeigen.
     /// Die eigentliche Logik liegt in Core/, Gui/ und den Teilsystemen.
     /// </summary>
     public class Kernel : Sys.Kernel
     {
-        // Schrift-Atlanten, als eingebettete Ressourcen (siehe VibanOS.csproj und tools/make-fonts.py).
-        // IL2CPU füllt die Felder beim Bauen, der C#-Compiler sieht das nicht.
-#pragma warning disable CS0649
-        [ManifestResourceStream(ResourceName = "VibanOS.Resources.body.vfont")] private static byte[] fontBody;
-        [ManifestResourceStream(ResourceName = "VibanOS.Resources.strong.vfont")] private static byte[] fontStrong;
-        [ManifestResourceStream(ResourceName = "VibanOS.Resources.caption.vfont")] private static byte[] fontCaption;
-        [ManifestResourceStream(ResourceName = "VibanOS.Resources.display.vfont")] private static byte[] fontDisplay;
-        [ManifestResourceStream(ResourceName = "VibanOS.Resources.mono.vfont")] private static byte[] fontMono;
-#pragma warning restore CS0649
+        // So viele Durchläufe dürfen nacheinander scheitern, bevor der Kernel aufgibt.
+        private const int MaxFailures = 3;
+
+        // Pause je Durchlauf in Millisekunden. Gibt die CPU frei, statt sie in der Schleife zu verheizen.
+        private const int FramePause = 10;
 
         private Canvas canvas;
-        private Bitmap frame;
         private Surface front;
         private Desktop desktop;
-        private int frames;
 
         protected override void BeforeRun()
         {
-            // Dateisystem (VIB-2). Ohne angehängte FAT32-Festplatte läuft das System trotzdem,
-            // Dateibefehle melden dann, dass kein Dateisystem da ist.
-            try
-            {
-                Sys.FileSystem.VFS.VFSManager.RegisterVFS(new Sys.FileSystem.CosmosVFS());
-            }
-            catch (Exception) { }
-            Vfs.Init(@"0:\");
+            // Dateisystem (VIB-2). Ohne formatierte Festplatte läuft das System trotzdem,
+            // Dateibefehle melden dann, dass kein Dateisystem da ist. 'format' richtet eine leere Platte ein.
+            Hardware.MountDisk();
+            Vfs.Init(Hardware.DiskRoot);
 
-            Fonts.Load(fontBody, fontStrong, fontCaption, fontDisplay, fontMono);
+            Fonts.Load();
             OS.Boot();
 
-            canvas = FullScreenCanvas.GetFullScreenCanvas(new Mode(T.Size.ScreenWidth, T.Size.ScreenHeight, ColorDepth.ColorDepth32));
-            // Die Oberfläche zeichnet direkt in den Puffer dieser Bitmap, DrawImage kopiert ihn auf den Bildschirm.
-            frame = new Bitmap(T.Size.ScreenWidth, T.Size.ScreenHeight, ColorDepth.ColorDepth32);
-            front = new Surface(T.Size.ScreenWidth, T.Size.ScreenHeight, frame.RawData);
-            Sys.MouseManager.ScreenWidth = T.Size.ScreenWidth;
-            Sys.MouseManager.ScreenHeight = T.Size.ScreenHeight;
-            desktop = new Desktop(T.Size.ScreenWidth, T.Size.ScreenHeight);
+            // Die Auflösung legt der Bootloader fest (Bootloader/limine.conf), deshalb hier nachfragen statt annehmen.
+            canvas = Canvas.GetFullScreen();
+            // Die Zeichenfläche schreibt direkt in den Puffer des Canvas, Display() bringt ihn auf den Bildschirm.
+            front = new Surface(canvas.Width, canvas.Height, canvas.GetBuffer());
+            MouseManager.SetScreenSize(canvas.Width, canvas.Height);
+            // Deutsche Tastatur. Für ein anderes Layout hier z. B. new USStandardLayout() einsetzen.
+            KeyboardManager.SetLayout(new DEStandardLayout());
+            desktop = new Desktop(canvas.Width, canvas.Height);
         }
 
+        /// <summary>
+        /// Die Kernel-Schleife. COSMOS 3 ruft Run() zwar selbst immer wieder auf, schreibt dabei aber jedes
+        /// Mal zwei Zeilen ins Protokoll. Deshalb läuft die Schleife hier und Run() kehrt erst beim Beenden zurück.
+        /// </summary>
         protected override void Run()
         {
-            Sys.KeyEvent key;
-            while (Sys.KeyboardManager.TryReadKey(out key))
-                desktop.OnKey(Translate(key.Key), key.KeyChar);
-            desktop.OnMouse((int)Sys.MouseManager.X, (int)Sys.MouseManager.Y, Sys.MouseManager.MouseState == Sys.MouseState.Left);
-
-            OS.Tick();
-
-            if (desktop.Frame(front))
+            int failures = 0;
+            while (!Stopped)
             {
-                canvas.DrawImage(frame, 0, 0);
-                canvas.Display();
+                try
+                {
+                    Frame();
+                    failures = 0;
+                }
+                catch (Exception e)
+                {
+                    // Ein Fehler in einem Befehl oder Fenster soll nicht das ganze System anhalten.
+                    Log.WriteString("[VibanOS] Fehler in der Kernel-Schleife: " + e.Message + "\n");
+                    // Scheitert jeder Durchlauf, hilft Weitermachen nicht: COSMOS zeigt den Fehler dann an und hält an.
+                    if (++failures >= MaxFailures) throw;
+                    OS.Shell.Error("Interner Fehler: " + e.Message);
+                }
+                Thread.Sleep(FramePause);
             }
-            // COSMOS räumt den Heap nicht von selbst auf.
-            if (++frames % 20 == 0) Heap.Collect();
         }
 
-        private static Key Translate(Sys.ConsoleKeyEx key)
+        // Ein Durchlauf: Eingaben verteilen, Kern weiterschalten, bei Bedarf neu zeichnen.
+        private void Frame()
+        {
+            KeyEvent key;
+            while (KeyboardManager.TryReadKey(out key))
+            {
+                OS.Interrupts.Raise(InterruptManager.Keyboard);
+                desktop.OnKey(Translate(key.Key), key.KeyChar);
+            }
+            desktop.OnMouse(MouseManager.X, MouseManager.Y, MouseManager.LeftButton);
+            OS.Tick();
+            // Nur wenn sich etwas geändert hat, geht ein neues Bild an den Bildschirm.
+            if (desktop.Frame(front)) canvas.Display();
+        }
+
+        private static Gui.Key Translate(Sys.Input.Key key)
         {
             switch (key)
             {
-                case Sys.ConsoleKeyEx.Enter: return Key.Enter;
-                case Sys.ConsoleKeyEx.NumEnter: return Key.Enter;
-                case Sys.ConsoleKeyEx.Backspace: return Key.Backspace;
-                case Sys.ConsoleKeyEx.UpArrow: return Key.Up;
-                case Sys.ConsoleKeyEx.DownArrow: return Key.Down;
-                case Sys.ConsoleKeyEx.Tab: return Key.Tab;
-                default: return Key.None;
+                case Sys.Input.Key.Enter: return Gui.Key.Enter;
+                case Sys.Input.Key.NumEnter: return Gui.Key.Enter;
+                case Sys.Input.Key.Backspace: return Gui.Key.Backspace;
+                case Sys.Input.Key.UpArrow: return Gui.Key.Up;
+                case Sys.Input.Key.DownArrow: return Gui.Key.Down;
+                case Sys.Input.Key.PageUp: return Gui.Key.PageUp;
+                case Sys.Input.Key.PageDown: return Gui.Key.PageDown;
+                case Sys.Input.Key.Tab: return Gui.Key.Tab;
+                default: return Gui.Key.None;
             }
         }
     }

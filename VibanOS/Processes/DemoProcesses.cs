@@ -43,8 +43,8 @@ namespace VibanOS.Processes
             for (int d = 2; d * d <= candidate; d++)
                 if (candidate % d == 0) { prime = false; break; }
             if (prime) found++;
-            candidate++;
             Output = found + " Primzahlen bis " + candidate;
+            candidate++;
             if (Steps + 1 >= EstimatedSteps) State = ProcessState.Terminated;
         }
     }
