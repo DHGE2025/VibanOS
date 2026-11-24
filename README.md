@@ -26,17 +26,77 @@ qemu-system-x86_64 -cdrom VibanOS/bin/Debug/net6.0/VibanOS.iso -m 512M
 
 Um F5 dauerhaft auf ein anderes Ziel zu stellen, in `VibanOS/VibanOS.csproj` die Werte `<Launch>` und `<Profile>` ändern (z. B. `ISO`, `Bochs`, `HyperV`).
 
+## Bedienung
+
+Nach dem Start erscheint der Anmeldebildschirm. Beim allerersten Start legt man dort das Passwort für `root` fest.
+Danach öffnet sich der Schreibtisch mit Menüleiste, Dock und einem Terminal. `help` zeigt alle Befehle.
+
+- Fenster zieht man an der Titelleiste, der rote Knopf schließt sie.
+- Das Dock öffnet Terminal, Aktivitätsanzeige (Prozesse und Speicher) und „Über VibanOS“.
+- Ohne angehängte FAT32-Festplatte läuft das System trotzdem. Dateibefehle melden dann, dass kein Dateisystem da ist, und Nutzer werden nicht gespeichert (das Passwort für `root` wird bei jedem Start neu vergeben).
+- Die Tastatur ist auf das US-Layout eingestellt, bis jemand in `Kernel.BeforeRun()` ein deutsches Layout setzt.
+
+![Schreibtisch](docs/design/schreibtisch.png)
+
 ## Projektstruktur
 
 ```
 VibanOS.sln
 VibanOS/
   VibanOS.csproj   COSMOS-Kernelprojekt
-  Kernel.cs        Einstiegspunkt: BeforeRun() einmal beim Boot, Run() in Endlosschleife
+  Kernel.cs        Einstiegspunkt: Hardware einrichten, Eingaben weiterreichen, Bild anzeigen
+  Platform/        Einzige weitere Stelle mit COSMOS-Aufrufen (Ports, Ein/Aus)
+  Core/            OS (hält alle Teilsysteme), Texthelfer
+  Design/          Tokens.cs: Farben, Abstände, Radien, Maße
+  Graphics/        Zeichenfläche und Schrift
+  Gui/             Schreibtisch, Fenster, Terminal, Aktivitätsanzeige, Anmeldung
+  Shell/           Shell und Befehle, ein Thema pro Datei in Shell/Commands/
+  FileSystem/      Pfade und Rechteprüfung für Dateien
+  Processes/       Prozesse und Scheduler
+  Memory/          Simulierter RAM, Rahmen- und Seitentabellen
+  Users/           Nutzer, Gruppen, Rechte
+  Syscalls/        Systemaufrufe mit Modusprüfung
+  Drivers/         Treiberverwaltung, COM1
+  Ipc/, Sync/      Mailbox, Mutex, Semaphore
+  Interrupts/      Interrupt-Verzeichnis, Signale
+  Resources/       Schrift-Atlanten
+docs/
+  architektur.md   Aufbau, Zuordnung der Aufgaben, Regeln für COSMOS
+  design/          Designsheet mit allen Tokens
+tools/
+  Preview/         Selbsttest und Bildschirmfotos ohne VM
+  make-fonts.py    Erzeugt die Schrift-Atlanten
 ```
 
-`Kernel.cs` enthält eine kleine Shell mit den Befehlen `help`, `echo`, `clear`, `time`, `reboot`, `shutdown`.
-Neue Befehle einfach als weiteren `case` im `switch` ergänzen.
+Mehr dazu in [docs/architektur.md](docs/architektur.md). Für alles Sichtbare gilt das [Designsheet](docs/design/designsheet.md).
+
+## So fügst du einen neuen Befehl hinzu
+
+1. In `VibanOS/Shell/Commands/` eine Klasse anlegen, die von `Command` ableitet:
+
+   ```csharp
+   public class HalloCommand : Command
+   {
+       public override string Name { get { return "hallo"; } }
+       public override string Description { get { return "Sagt Hallo"; } }
+
+       public override void Execute(string[] args, Shell shell)
+       {
+           shell.WriteLine("Hallo " + Shell.Join(args, 0));
+       }
+   }
+   ```
+2. In `VibanOS/Shell/CommandList.cs` eine Zeile ergänzen: `shell.Register(new HalloCommand());`
+
+`help` zeigt den Befehl dann von selbst. Ausgaben laufen über `shell.WriteLine` und `shell.Error`, nicht über `Console`, weil das Terminal ein Fenster ist. Befehle dürfen nicht auf Eingaben warten. Für Rückfragen gibt es `shell.Ask(...)`, ein Beispiel steht in `UserCommands.cs`.
+
+## Prüfen ohne VM
+
+```sh
+dotnet run --project tools/Preview
+```
+
+Fährt den Kern und die Oberfläche ohne COSMOS hoch, prüft die Grundfunktionen und legt Bildschirmfotos in `preview/` ab. Das geht schnell und fängt Logikfehler ab. Vor einem Pull Request trotzdem in VMware oder QEMU starten.
 
 ## Branch-Workflow
 

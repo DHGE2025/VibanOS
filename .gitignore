@@ -6,3 +6,6 @@ obj/
 *.iso
 *.vmdk
 *.log
+
+# Ausgabe von tools/Preview
+preview/

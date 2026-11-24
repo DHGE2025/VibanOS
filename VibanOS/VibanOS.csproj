@@ -20,6 +20,11 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <!-- Schrift-Atlanten, werden in Kernel.cs per ManifestResourceStream geladen -->
+        <EmbeddedResource Include="Resources\*.vfont" />
+    </ItemGroup>
+
+    <ItemGroup>
         <PackageReference Include="Cosmos.Build" Version="0-*" NoWarn="NU1604" />
         <PackageReference Include="Cosmos.Debug.Kernel" Version="0-*" NoWarn="NU1604" />
         <PackageReference Include="Cosmos.System2" Version="0-*" NoWarn="NU1604" />
