@@ -21,7 +21,15 @@ Besonderheiten für Windows auf ARM und für Macs mit Apple-Chip stehen in der [
 
 ## Bauen und starten
 
-Im Ordner `VibanOS/` (dort liegt `VibanOS.csproj`):
+Alle Befehle laufen im Ordner `VibanOS/` (dort liegt `VibanOS.csproj`).
+
+Einmalig legt man dort die virtuelle Festplatte an, eine leere Datei von 64 MB:
+
+```sh
+qemu-img create disk.img 64M
+```
+
+Danach, und nach jeder Änderung am Code:
 
 ```sh
 cosmos build
@@ -30,19 +38,18 @@ cosmos run --disk disk.img
 
 `cosmos build` übersetzt den Kernel und legt `VibanOS.iso` und `VibanOS.elf` in `output-x64/` ab. `cosmos run` startet die ISO in QEMU und zeigt im Terminal die serielle Ausgabe des Kernels. Dort stehen auch Fehlermeldungen, wenn das System nicht hochkommt.
 
-VibanOS ist für x64 gedacht. Die I/O-Ports für den Treiber `com1` gibt es nur dort.
+Zwei Stolpersteine von COSMOS 3.0.99:
+
+- Der Pfad zum Projekt darf **keine Leerzeichen** enthalten (also nicht `C:\Users\Max Mustermann\...`). `cosmos build` reicht ihn ohne Anführungszeichen weiter und scheitert sonst.
+- Scheitert der Bau, zeigt `cosmos build -v` die vollständige Ausgabe des Compilers.
+
+VibanOS ist für x64 gedacht, die Projektdatei legt das fest. Die I/O-Ports für den Treiber `com1` gibt es nur dort.
 
 ### Die Festplatte
 
-`disk.img` ist die virtuelle Festplatte, auf der Dateien und Nutzer liegen. Sie wird einmal als leere Datei angelegt, ebenfalls im Ordner `VibanOS/`:
+Auf `disk.img` liegen Dateien und Nutzer. Fehlt die Datei, bricht `cosmos run --disk disk.img` mit „Disk image not found“ ab. Ohne `qemu-img` tut es jede leere Datei dieser Größe: `truncate -s 64M disk.img` unter Linux, `mkfile -n 64m disk.img` unter macOS, `fsutil file createnew disk.img 67108864` unter Windows.
 
-```sh
-qemu-img create disk.img 64M
-```
-
-Ohne `qemu-img` tut es jede leere Datei dieser Größe: `truncate -s 64M disk.img` unter Linux und macOS, `fsutil file createnew disk.img 67108864` unter Windows.
-
-Beim ersten Start ist die Platte leer. Nach der Anmeldung als `root` richtet der Befehl `format` sie ein (Partitionstabelle und FAT-Dateisystem) und sichert die Nutzer darauf. `format` fasst nur eine völlig leere Platte an. Für einen Neuanfang löscht man `disk.img` und legt sie neu an.
+Beim ersten Start ist die Platte leer. Nach der Anmeldung als `root` richtet der Befehl `format` sie ein (Partitionstabelle und FAT-Dateisystem) und sichert die Nutzer darauf. `format` fasst nur eine Platte an, deren erstes Megabyte leer ist, und überschreibt deshalb keine vorhandenen Daten. Für einen Neuanfang löscht man `disk.img` und legt sie neu an.
 
 Ohne `--disk` läuft das System trotzdem. Dateibefehle melden dann, dass kein Dateisystem da ist, und Nutzer gelten nur bis zum Ausschalten.
 
@@ -54,8 +61,8 @@ Danach öffnet sich der Schreibtisch mit Menüleiste, Dock und einem Terminal. `
 - Fenster zieht man an der Titelleiste, der rote Knopf schließt sie.
 - Das Dock öffnet Terminal, Aktivitätsanzeige (Prozesse und Speicher) und „Über VibanOS“.
 - Im Terminal blättern Bild auf und Bild ab, Pfeil auf und ab holen frühere Eingaben zurück.
-- `shutdown` und `reboot` hängen die Festplatte vorher sauber aus. Am besten so beenden, statt das QEMU-Fenster zu schließen.
-- Die Tastatur ist auf das deutsche Layout eingestellt. Ein anderes setzt man in `Kernel.BeforeRun()`.
+- `shutdown` und `reboot` hängen die Festplatte vorher sauber aus. Am besten so beenden, statt das QEMU-Fenster einfach zu schließen. Unter `cosmos run` bleibt das Fenster danach mit dem letzten Bild stehen und kann geschlossen werden. Auch nach `reboot` startet dort nichts neu, dafür ruft man `cosmos run` noch einmal auf.
+- Die Tastatur ist auf das deutsche Layout eingestellt. Ein anderes setzt man in `Kernel.BeforeRun()`. Das deutsche Layout von COSMOS 3.0.99 hat Lücken: `#` und `'` lassen sich nicht tippen, und `<`, `>` und `|` liegen auf der Taste `#` (allein, mit Umschalt, mit AltGr). Die Num-Taste bleibt am besten aus, sonst liefern die Pfeiltasten Ziffern.
 - Die Uhr zeigt die Zeit der virtuellen Maschine. QEMU stellt sie auf Weltzeit (UTC), sie geht also gegenüber der deutschen Zeit ein bis zwei Stunden nach.
 
 ![Schreibtisch](docs/design/schreibtisch.png)

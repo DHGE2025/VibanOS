@@ -184,9 +184,12 @@ namespace VibanOS.Users
         {
             try
             {
-                if (Vfs.Available && File.Exists(FilePath))
+                // Wurde das Umbenennen in Save() unterbrochen, liegt der vollständige neue Stand noch unter .new.
+                string path = FilePath;
+                if (Vfs.Available && !File.Exists(path)) path += ".new";
+                if (Vfs.Available && File.Exists(path))
                 {
-                    string[] lines = File.ReadAllText(FilePath).Split('\n');
+                    string[] lines = File.ReadAllText(path).Split('\n');
                     for (int i = 0; i < lines.Length; i++)
                     {
                         string[] f = lines[i].Trim().Split(';');
@@ -227,7 +230,11 @@ namespace VibanOS.Users
             }
             try
             {
-                File.WriteAllText(FilePath, text);
+                // Erst vollständig daneben schreiben, dann umbenennen. Scheitert das Schreiben (etwa bei voller
+                // Platte), bleibt die bisherige Datei unversehrt. Eine leere Nutzerdatei hieße beim nächsten
+                // Start Ersteinrichtung, also root ohne Passwort.
+                File.WriteAllText(FilePath + ".new", text);
+                File.Move(FilePath + ".new", FilePath, true);
                 Saved = true;
             }
             catch (Exception) { }

@@ -5,6 +5,8 @@
         <OutputType>Exe</OutputType>
         <TargetFramework>net10.0</TargetFramework>
         <RootNamespace>VibanOS</RootNamespace>
+        <!-- 'cosmos build' liest diese Zeile und baut damit auch auf ARM-Rechnern für x64, passend zu 'cosmos run'. -->
+        <CosmosTargetArch>x64</CosmosTargetArch>
         <!-- Derselbe Code baut auch ohne COSMOS (tools/Preview), deshalb gelten die Voreinstellungen von normalem C#. -->
         <ImplicitUsings>disable</ImplicitUsings>
         <Nullable>disable</Nullable>

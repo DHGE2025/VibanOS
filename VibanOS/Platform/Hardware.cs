@@ -26,6 +26,9 @@ namespace VibanOS.Platform
         private const ulong PartitionStart = 2048;
         private const int SectorSize = 512;
 
+        // So viele Sektoren liest format auf einmal, wenn es prüft, ob die Platte leer ist.
+        private const int ProbeSectors = 8;
+
         private static bool fatRegistered;
 
         public static void Shutdown()
@@ -65,8 +68,9 @@ namespace VibanOS.Platform
 
         /// <summary>
         /// Richtet eine leere Festplatte ein: Partitionstabelle, eine FAT-Partition über die ganze Platte, einhängen.
-        /// Arbeitet nur auf einer Platte, deren erster Sektor leer ist. Eine Platte mit Partitionstabelle oder
-        /// Dateisystem wird nie überschrieben. Rückgabe: null bei Erfolg, sonst der Grund als Text.
+        /// Arbeitet nur auf einer Platte, deren erstes MiB leer ist. Dort stehen die Partitionstabelle und der
+        /// Kopf jedes gängigen Dateisystems, eine Platte mit Inhalt wird also nicht überschrieben.
+        /// Rückgabe: null bei Erfolg, sonst der Grund als Text.
         /// </summary>
         public static string FormatDisk()
         {
@@ -79,14 +83,19 @@ namespace VibanOS.Platform
                 if (disk.BlockCount <= 2 * PartitionStart)
                     return "Die Festplatte ist zu klein.";
 
-                byte[] first = new byte[SectorSize];
-                disk.ReadBlock(0, 1, first);
-                for (int i = 0; i < first.Length; i++)
-                    if (first[i] != 0) return "Die Festplatte ist nicht leer und wird deshalb nicht angefasst. Für einen Neuanfang ein leeres Abbild anlegen.";
+                // Der erste Sektor allein genügt nicht: ext4, btrfs und Swap lassen ihn frei und beginnen kurz dahinter.
+                byte[] chunk = new byte[ProbeSectors * SectorSize];
+                for (ulong lba = 0; lba < PartitionStart; lba += ProbeSectors)
+                {
+                    disk.ReadBlock(lba, ProbeSectors, chunk);
+                    for (int i = 0; i < chunk.Length; i++)
+                        if (chunk[i] != 0) return "Die Festplatte ist nicht leer und wird deshalb nicht angefasst. Für einen Neuanfang ein leeres Abbild anlegen.";
+                }
 
                 if (!fatRegistered) fatRegistered = VfsManager.RegisterFileSystem(FatDriver, new FatFileSystemType());
                 Mbr.Create(disk);
-                // 0x0C ist die Kennung für FAT32 in einer MBR-Tabelle. Die GUID zählt nur bei GPT-Platten.
+                // 0x0C steht in einer MBR-Tabelle für FAT mit LBA-Adressen. COSMOS wertet die Kennung nicht aus,
+                // es erkennt das Dateisystem am Inhalt. Die GUID zählt nur bei GPT-Platten.
                 if (!PartitionManager.Create(disk, PartitionStart, disk.BlockCount - PartitionStart, 0x0C, Gpt.BasicDataPartitionType))
                     return "Die Partition ließ sich nicht anlegen.";
                 StorageManager.RescanPartitions(disk);

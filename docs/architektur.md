@@ -1,6 +1,6 @@
 # Architektur von VibanOS
 
-VibanOS ist ein Kernel in C# auf COSMOS 3.0 (Generation 3: .NET 10, übersetzt mit NativeAOT, Start über UEFI und Limine). Dieses Dokument zeigt, welche Teile es gibt, wie sie zusammenhängen und wo welche Aufgabe aus Linear ihren Platz hat.
+VibanOS ist ein Kernel in C# auf COSMOS 3.0 (Generation 3: .NET 10, übersetzt mit NativeAOT, Start über den Bootloader Limine per BIOS oder UEFI). Dieses Dokument zeigt, welche Teile es gibt, wie sie zusammenhängen und wo welche Aufgabe aus Linear ihren Platz hat.
 
 ## Überblick
 
@@ -48,7 +48,11 @@ Wer neue Hardware anspricht, ergänzt eine Methode in `Hardware` (und in der Att
 
 `Hardware.MountDisk()` hängt beim Start die erste FAT-Partition unter `/mnt` ein. Danach arbeitet der ganze Code mit den normalen .NET-Klassen `File` und `Directory`, `Vfs` kümmert sich um Pfade und Rechte. Auf der Platte liegen `system/` (die Nutzerdatei, nur für Administratoren) und `home/<name>/`.
 
-Eine neue, leere Platte hat weder Partitionstabelle noch Dateisystem. Der Befehl `format` ruft `Hardware.FormatDisk()` auf: MBR-Partitionstabelle, eine Partition, FAT (COSMOS wählt je nach Größe FAT12, FAT16 oder FAT32), einhängen. Er arbeitet nur, wenn der erste Sektor der Platte leer ist, und überschreibt deshalb nie vorhandene Daten. `shutdown` und `reboot` hängen die Platte vorher aus, erst das sichert alle Schreibvorgänge.
+Zwei Eigenheiten von FAT prägen die Rechteprüfung in `Vfs.CanAccess`: Groß- und Kleinschreibung zählt nicht, und jeder lange Name hat einen zweiten, kurzen (aus `system` wird `SYSTEM~1`), unter dem dieselbe Datei erreichbar ist. Deshalb vergleicht die Prüfung ohne Rücksicht auf die Schreibweise, und Pfade mit `~` sind Administratoren vorbehalten. Wer die Prüfung für VIB-18 ausbaut, muss beides erhalten.
+
+Die Nutzerdatei wird nie an Ort und Stelle überschrieben. `UserManager.Save()` schreibt sie vollständig nach `users.txt.new` und benennt sie dann um. Scheitert das Schreiben, bleibt die bisherige Datei gültig. Eine leere Nutzerdatei hieße beim nächsten Start Ersteinrichtung, also `root` ohne Passwort.
+
+Eine neue, leere Platte hat weder Partitionstabelle noch Dateisystem. Der Befehl `format` ruft `Hardware.FormatDisk()` auf: MBR-Partitionstabelle, eine Partition, FAT (COSMOS wählt je nach Größe FAT12, FAT16 oder FAT32), einhängen. Er arbeitet nur, wenn das erste Megabyte der Platte leer ist, und überschreibt deshalb keine vorhandenen Daten. `shutdown` und `reboot` hängen die Platte vorher aus, erst das sichert alle Schreibvorgänge.
 
 ## Wo liegt was
 

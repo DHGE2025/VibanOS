@@ -243,6 +243,11 @@ namespace VibanOS.Preview
             Check(reloaded.All.Count == 2 && reloaded.CheckPassword(reloaded.Find("root"), "geheim")
                 && reloaded.CheckPassword(reloaded.Find("anna"), "topsecret"), "Kaputte Zeilen der Nutzerdatei sperren niemanden aus");
             File.WriteAllText(userFile, users);
+            File.Move(userFile, userFile + ".new");
+            reloaded = new UserManager();
+            reloaded.Load();
+            Check(!reloaded.NeedsSetup && reloaded.Find("anna") != null, "Ein unterbrochenes Speichern der Nutzerdatei führt nicht zur Ersteinrichtung");
+            File.Move(userFile + ".new", userFile);
             Check(Tail(UserManager.Hash("a", "salz")) != Tail(UserManager.Hash("b", "salz")) || Tail(UserManager.Hash("b", "salz")) != Tail(UserManager.Hash("c", "salz")),
                 "Auch die letzten Stellen des Passwort-Hashs hängen vom Passwort ab");
             LoginScreen login = new LoginScreen();
@@ -268,6 +273,8 @@ namespace VibanOS.Preview
             Check(Last().Text.StartsWith("Zugriff verweigert"), "Normale Nutzer lesen die Nutzerdatei nicht");
             Type("write ../../SYSTEM/users.txt x\n");
             Check(Last().Text.StartsWith("Zugriff verweigert") && File.ReadAllText(userFile) == users, "Der Systemordner ist auch in anderer Schreibweise gesperrt");
+            Type("cat /system~1/users.txt\n");
+            Check(Last().Text.StartsWith("Zugriff verweigert"), "Der FAT-Kurzname des Systemordners (SYSTEM~1) ist normalen Nutzern gesperrt");
             Type("logout\n\tgeheim\n");
             Check(OS.Users.Current.Name == "root", "root meldet sich wieder an");
             Type("cat /system/users.txt\n");

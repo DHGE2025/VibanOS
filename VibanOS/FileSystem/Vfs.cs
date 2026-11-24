@@ -106,10 +106,14 @@ namespace VibanOS.FileSystem
         /// </summary>
         public static bool CanAccess(User user, string path, Access access)
         {
+            if (OS.Users.HasPermission(user, Permission.UserManage)) return true;
+            // FAT gibt jedem langen Namen einen zweiten, kurzen (aus "system" wird SYSTEM~1) und findet
+            // Dateien unter beiden. Die Prüfung unten kennt nur den langen Namen. Damit sie sich über den
+            // kurzen nicht umgehen lässt, sind Namen mit ~ Administratoren vorbehalten.
+            if (path.IndexOf('~') >= 0) return false;
             // FAT unterscheidet Groß- und Kleinschreibung nicht, deshalb hier auch nicht.
             string wanted = path.ToLowerInvariant(), system = SystemDirectory.ToLowerInvariant();
-            bool inSystem = wanted == system || Text.HasPrefix(wanted, system + Separator);
-            return !inSystem || OS.Users.HasPermission(user, Permission.UserManage);
+            return wanted != system && !Text.HasPrefix(wanted, system + Separator);
         }
     }
 }
