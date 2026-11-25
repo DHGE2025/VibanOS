@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Buffers.Binary;
 using System.IO;
 using System.IO.Compression;
@@ -32,6 +33,32 @@ namespace VibanOS.Platform
         public static void Reboot() { }
         public static byte In(int port) { return 0x20; } // COM1: Senderegister frei, nichts empfangen
         public static void Out(int port, byte value) { if (port == 0x3F8) SerialOut += (char)value; }
+
+        // Bildschirm wie die VMware-SVGA-Grafik: schaltet um, lehnt aber zu große Auflösungen ab.
+        public static int ScreenWidth = T.Size.ScreenWidth, ScreenHeight = T.Size.ScreenHeight;
+        public static bool GermanKeyboard = true;
+        public static int MaxPixels = 2048 * 1536; // so viel fasst der Grafikspeicher
+
+        public static string ScreenName() { return "vmware-svga (Attrappe)"; }
+        public static Resolution ScreenSize() { return new Resolution(ScreenWidth, ScreenHeight); }
+
+        public static List<Resolution> ScreenModes()
+        {
+            int[] modes = { 640, 480, 800, 600, 1024, 768, 1280, 720, 1920, 1080, 2560, 1600 };
+            List<Resolution> list = new List<Resolution>();
+            for (int i = 0; i < modes.Length; i += 2) list.Add(new Resolution(modes[i], modes[i + 1]));
+            return list;
+        }
+
+        public static bool SetScreenMode(int width, int height)
+        {
+            if (width * height > MaxPixels) return false;
+            ScreenWidth = width;
+            ScreenHeight = height;
+            return true;
+        }
+
+        public static void SetKeyboardLayout(bool german) { GermanKeyboard = german; }
 
         public static string FormatDisk()
         {
@@ -325,7 +352,7 @@ namespace VibanOS.Preview
             desktop.OnMouse(0, 0, false);
             Check(terminal.X + terminal.Width >= T.Size.DockIcon && terminal.Y + T.Size.TitleBar <= dockTop,
                 "Ein Fenster lässt sich nicht ganz aus dem Bildschirm oder unter das Dock ziehen");
-            Click(T.Size.ScreenWidth / 2, dockRow);
+            Click(DockIconX(Icons.Activity), dockRow);
             Check(desktop.Active is ActivityWindow, "Klick im Dock öffnet die App");
             Window activity = desktop.Active;
             Check(activity.Process != null && OS.Processes.Get(activity.Process.Id) == activity.Process && activity.Process.Name == "aktivität",
@@ -357,7 +384,7 @@ namespace VibanOS.Preview
             Click(ControlX(desktop.Active, Window.CloseButton), desktop.Active.Y + T.Size.TitleBar / 2);
             terminal.X = oldX;
             terminal.Y = T.Size.ScreenHeight / 2; // reicht jetzt bis unter das Dock
-            Click(T.Size.ScreenWidth / 2 + T.Size.DockIcon / 2 + T.Space.M / 2, dockRow);
+            Click(DockIconX(Icons.Activity) + T.Size.DockIcon / 2 + T.Space.M / 2, dockRow);
             Check(desktop.Active is ActivityWindow, "Ein Klick zwischen die Dock-Symbole trifft kein Fenster darunter");
             Desktop small = new Desktop(800, 600);
             small.Frame(new Surface(800, 600));
@@ -370,6 +397,83 @@ namespace VibanOS.Preview
             plain.Shadow(50, 30, 100, 60, T.Radius.L, T.Shadow.DockBlur, T.Shadow.DockOffset, T.Shadow.DockAlpha, T.Color.Shadow);
             Check(plain.Pixels[32 * 200 + 100] == plain.Pixels[0] && plain.Pixels[60 * 200 + 100] == plain.Pixels[0] && plain.Pixels[95 * 200 + 100] != plain.Pixels[0],
                 "Der Schatten liegt nur außerhalb der Form, auch in den Zeilen der Ecken");
+
+            // Einstellungen: Auflösung, Akzentfarbe, Uhr, Tastatur, Mauszeiger
+            Click(DockIconX(Icons.Settings), dockRow);
+            Check(desktop.Active is SettingsWindow, "Das Zahnrad im Dock öffnet die Einstellungen");
+            SettingsWindow settings = (SettingsWindow)desktop.Active;
+            settings.X = 300;
+            settings.Y = 60;
+            ClickAt(settings.CenterOf(1)); // noch während des Einblendens
+            bool early = desktop.Animating;
+            Settle();
+            Check(early && settings.CenterOf(SettingsWindow.PickAccent) != null, "Schon während des Einblendens treffen Klicks die richtige Stelle");
+            ClickAt(settings.CenterOf(0));
+            Shot(output, "6-einstellungen");
+            Check(settings.Modes.Count == 4 && settings.Modes[0].Width == 800 && settings.Modes[3].Width == 1920,
+                "Die Einstellungen bieten nur Auflösungen an, mit denen die Oberfläche etwas anfangen kann");
+            Check(settings.CenterOf(SettingsWindow.PickMode + 2) == null, "Die aktuelle Auflösung ist gewählt und nicht noch einmal klickbar");
+            terminal.X = T.Size.ScreenWidth - 2 * T.Size.DockIcon; // passt nur auf den großen Bildschirm
+            ClickAt(settings.CenterOf(SettingsWindow.PickMode + 1));
+            Check(Platform.Hardware.ScreenWidth == 1024 && Platform.Hardware.ScreenHeight == 768, "Ein Klick auf 1024 × 768 schaltet den Bildschirm um");
+            ScreenChanged();
+            Check(screen.Width == 1024 && terminal.X + T.Size.DockIcon <= 1024 && settings.Y + T.Size.TitleBar <= 768 - T.Size.DockIcon,
+                "Nach dem Umschalten liegen alle Fenster wieder erreichbar auf dem kleineren Bildschirm");
+            Check(settings.CenterOf(SettingsWindow.PickMode + 1) == null && settings.CenterOf(SettingsWindow.PickMode + 2) != null,
+                "Nach dem Umschalten ist die neue Auflösung gewählt");
+            ClickAt(settings.CenterOf(SettingsWindow.PickMode + 2));
+            ScreenChanged();
+            Check(screen.Width == T.Size.ScreenWidth && screen.Height == T.Size.ScreenHeight, "Zurück auf die Entwurfsgröße");
+            Click(ControlX(terminal, Window.ZoomButton), terminal.Y + T.Size.TitleBar / 2);
+            Settle();
+            desktop.Open(Icons.Settings); // wieder nach vorn, das vergrößerte Terminal liegt sonst darüber
+            ClickAt(settings.CenterOf(SettingsWindow.PickMode + 1));
+            ScreenChanged();
+            Check(terminal.Zoomed && terminal.Width == 1024 - 2 * T.Space.S && terminal.NormalX + T.Size.DockIcon <= 1024 && !desktop.Animating,
+                "Ein vergrößertes Fenster füllt nach dem Umschalten die neue Fläche");
+            ClickAt(settings.CenterOf(SettingsWindow.PickMode + 2));
+            ScreenChanged();
+            Click(ControlX(terminal, Window.ZoomButton), terminal.Y + T.Size.TitleBar / 2);
+            Settle();
+            desktop.Open(Icons.Settings);
+            Platform.Hardware.MaxPixels = 1280 * 720;
+            ClickAt(settings.CenterOf(SettingsWindow.PickMode + 3));
+            ScreenChanged();
+            Check(screen.Width == T.Size.ScreenWidth && settings.Error.Contains("schafft die Grafikkarte nicht"),
+                "Lehnt die Grafikkarte eine Auflösung ab, bleibt alles, wie es war, und das Fenster sagt es");
+            Platform.Hardware.MaxPixels = 2048 * 1536;
+            ClickAt(settings.CenterOf(1));
+            Check(settings.CenterOf(SettingsWindow.PickMode) == null && settings.CenterOf(SettingsWindow.PickAccent) != null, "Die Seitenleiste wechselt die Seite");
+            ClickAt(settings.CenterOf(SettingsWindow.PickAccent + 3));
+            Check(T.Color.Accent == T.Color.AccentOrange, "Ein Farbpunkt setzt die Akzentfarbe");
+            ClickAt(settings.CenterOf(SettingsWindow.PickAccent));
+            Check(T.Color.Accent == T.Color.AccentBlue, "Und zurück auf Blau");
+            ClickAt(settings.CenterOf(SettingsWindow.ToggleSeconds));
+            Check(Settings.ShowSeconds, "Der Schalter zeigt Sekunden in der Menüleiste");
+            long withSeconds = MenuBar();
+            System.Threading.Thread.Sleep(1100);
+            Check(desktop.Frame(screen) && MenuBar() != withSeconds, "Mit Sekunden zeichnet die Menüleiste jede Sekunde neu");
+            Shot(output, "7-einstellungen-erscheinungsbild");
+            ClickAt(settings.CenterOf(SettingsWindow.ToggleSeconds));
+            Check(!Settings.ShowSeconds, "Ein zweiter Klick schaltet die Sekunden wieder aus");
+            ClickAt(settings.CenterOf(2));
+            ClickAt(settings.CenterOf(SettingsWindow.PickUs));
+            Check(!Settings.GermanKeyboard && !Platform.Hardware.GermanKeyboard, "US-Tastaturbelegung lässt sich wählen");
+            ClickAt(settings.CenterOf(SettingsWindow.PickGerman));
+            Check(Settings.GermanKeyboard && Platform.Hardware.GermanKeyboard, "Und zurück auf Deutsch");
+            ClickAt(settings.CenterOf(SettingsWindow.ToggleCursor));
+            desktop.OnMouse(200, 200, false);
+            desktop.Frame(screen);
+            Shot(output, "8-einstellungen-tastatur");
+            // Zeile 10 des Zeigers beginnt mit einem Randpixel. Doppelt so groß liegt es bei y + 20 statt y + 10.
+            bool large = screen.Pixels[(200 + 2 * 10 + 1) * screen.Width + 200 + 1] == unchecked((int)T.Color.CursorEdge);
+            ClickAt(settings.CenterOf(SettingsWindow.ToggleCursor));
+            desktop.OnMouse(200, 200, false);
+            desktop.Frame(screen);
+            bool small2 = screen.Pixels[(200 + 2 * 10 + 1) * screen.Width + 200 + 1] != unchecked((int)T.Color.CursorEdge);
+            Check(large && small2, "Der große Mauszeiger ist doppelt so groß und lässt sich wieder ausschalten");
+            ClickAt(settings.CenterOf(0));
+            Click(settings.X + T.Space.M + T.Size.Control / 2, settings.Y + T.Size.TitleBar / 2);
 
             Surface still = new Surface(100, 60);
             still.FillRect(0, 0, 100, 60, T.Color.Danger);
@@ -415,7 +519,7 @@ namespace VibanOS.Preview
             Check(terminal.Width > 720 && terminal.Width < T.Size.ScreenWidth - 2 * T.Space.S, "Beim Zoomen wächst das echte Fenster schrittweise");
             Settle();
             Check(terminal.Width == 720 && terminal.X == 70 && terminal.Y == 64, "Ein zweiter Klick stellt die alte Größe wieder her");
-            Click(T.Size.ScreenWidth / 2, dockRow); // Aktivität wieder nach vorn
+            Click(DockIconX(Icons.Activity), dockRow); // Aktivität wieder nach vorn
 
             // Bild für die Vorschau herrichten
             Type("");
@@ -493,6 +597,38 @@ namespace VibanOS.Preview
         }
 
         private static void Press(Key key) { desktop.OnKey(key, '\0'); }
+
+        private static void ClickAt(int[] point)
+        {
+            if (point == null) throw new Exception("Prüfung fehlgeschlagen: Klickfläche nicht gefunden");
+            Click(point[0], point[1]);
+            OS.Changed = true;
+            desktop.Frame(screen); // neu zeichnen, damit die Klickflächen zum neuen Stand passen
+        }
+
+        // Was Kernel.cs tut, wenn der Canvas eine neue Größe hat.
+        private static void ScreenChanged()
+        {
+            if (screen.Width == Platform.Hardware.ScreenWidth && screen.Height == Platform.Hardware.ScreenHeight) return;
+            screen = new Surface(Platform.Hardware.ScreenWidth, Platform.Hardware.ScreenHeight);
+            desktop.Resize(screen.Width, screen.Height);
+            desktop.Frame(screen);
+        }
+
+        // Mitte eines Dock-Symbols bei Entwurfsgröße.
+        private static int DockIconX(int icon)
+        {
+            int dock = Icons.Count * T.Size.DockIcon + (Icons.Count - 1) * T.Space.M + 2 * T.Space.S;
+            return (T.Size.ScreenWidth - dock) / 2 + T.Space.S + icon * (T.Size.DockIcon + T.Space.M) + T.Size.DockIcon / 2;
+        }
+
+        // Fasst die Menüleiste zu einer Zahl zusammen.
+        private static long MenuBar()
+        {
+            long sum = 17;
+            for (int i = 0; i < T.Size.MenuBar * screen.Width; i++) sum = sum * 31 + screen.Pixels[i];
+            return sum;
+        }
 
         // Stellt die Uhr weiter, bis jede Animation fertig ist, und zeichnet neu.
         private static void Settle()

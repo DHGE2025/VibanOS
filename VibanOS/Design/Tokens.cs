@@ -10,8 +10,14 @@ namespace VibanOS.Design
         /// <summary>Farben als 0xAARRGGBB.</summary>
         public static class Color
         {
-            // Akzent und Status
-            public const uint Accent = 0xFF0A84FF;
+            // Akzent und Status. Accent ist die einzige veränderliche Farbe: Die Einstellungen setzen eine der Akzentfarben darunter.
+            public static uint Accent = AccentBlue;
+            public const uint AccentBlue = 0xFF0A84FF;
+            public const uint AccentPurple = 0xFFBF5AF2;
+            public const uint AccentPink = 0xFFFF375F;
+            public const uint AccentOrange = 0xFFFF9F0A;
+            public const uint AccentGreen = 0xFF32D74B;
+            public const uint AccentGraphite = 0xFF8E8E93;
             public const uint Success = 0xFF30D158;
             public const uint Warning = 0xFFFFD60A;
             public const uint Danger = 0xFFFF453A;
@@ -21,6 +27,8 @@ namespace VibanOS.Design
             public const uint TitleBar = 0xFF2C2C2F;
             public const uint Sunken = 0xFF161618;       // Terminal, Eingabefelder
             public const uint Raised = 0xFF3A3A3D;       // Kacheln, Tabellenkopf
+            public const uint Grouped = 0xFF2A2A2D;      // Gruppen in den Einstellungen
+            public const uint Track = 0xFF48484C;        // ausgeschalteter Schalter
             public const uint MenuBar = 0x8C161618;      // durchscheinend
             public const uint Dock = 0x73303034;         // durchscheinend
             public const uint Scrim = 0x66000000;        // Abdunklung hinter dem Login
@@ -89,6 +97,11 @@ namespace VibanOS.Design
             public const int Field = 30;        // Höhe von Eingabefeldern und Knöpfen
             public const int Row = 24;          // Zeilenhöhe in Listen
             public const int Avatar = 88;
+            public const int Sidebar = 180;     // Seitenleiste der Einstellungen
+            public const int ToggleWidth = 38;  // Schalter an/aus
+            public const int ToggleHeight = 22;
+            public const int Swatch = 20;       // Farbpunkt der Akzentfarbe
+            public const int CursorScale = 2;   // Vergrößerung des großen Mauszeigers
         }
 
         /// <summary>Schatten: Unschärfe, Versatz nach unten, Deckkraft (0–255).</summary>

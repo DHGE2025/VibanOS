@@ -36,8 +36,8 @@ namespace VibanOS.Gui
             "       XX   ",
         };
 
-        private readonly Surface wallpaper;
-        private readonly Surface scene;
+        private Surface wallpaper;
+        private Surface scene;
         private readonly LoginScreen login = new LoginScreen();
         private readonly Window[] apps = new Window[Icons.Count];   // offenes Fenster je App oder null
         private readonly List<Window> windows = new List<Window>(); // hinten nach vorn, das letzte ist aktiv
@@ -64,6 +64,59 @@ namespace VibanOS.Gui
         /// <summary>true, solange eine Fenster-Animation läuft.</summary>
         public bool Animating { get { return transitions.Count > 0; } }
 
+        /// <summary>
+        /// Neue Bildschirmgröße (Auflösung in den Einstellungen umgeschaltet): Hintergrund neu, laufende Animationen
+        /// beenden, alle Fenster der Apps zurück auf den Schirm, auch minimierte. Vergrößerte füllen die neue Fläche.
+        /// </summary>
+        public void Resize(int width, int height)
+        {
+            for (int i = 0; i < transitions.Count; i++) transitions[i].Finish();
+            transitions.Clear();
+            wallpaper = new Surface(width, height);
+            scene = new Surface(width, height);
+            Wallpaper.Render(wallpaper);
+            for (int i = 0; i < apps.Length; i++)
+            {
+                Window w = apps[i];
+                if (w == null) continue;
+                if (w.Zoomed)
+                {
+                    ZoomArea(out w.X, out w.Y, out w.Width, out w.Height);
+                    Keep(ref w.NormalX, ref w.NormalY, w.NormalWidth); // auch die Größe davor muss auf den Schirm passen
+                }
+                else Place(w, w.X, w.Y);
+            }
+            drawnX = drawnY = -1;
+            OS.Changed = true;
+        }
+
+        private void Place(Window w, int nx, int ny)
+        {
+            Keep(ref nx, ref ny, w.Width);
+            if (w.X != nx || w.Y != ny) OS.Changed = true;
+            w.X = nx;
+            w.Y = ny;
+        }
+
+        // Ein Stück der Titelleiste bleibt erreichbar: seitlich, über dem Dock und unter der Menüleiste.
+        private void Keep(ref int x, ref int y, int width)
+        {
+            int keep = T.Size.DockIcon;
+            if (x < keep - width) x = keep - width;
+            if (x > scene.Width - keep) x = scene.Width - keep;
+            if (y > DockY - T.Size.TitleBar) y = DockY - T.Size.TitleBar;
+            if (y < T.Size.MenuBar) y = T.Size.MenuBar;
+        }
+
+        // Die Fläche, die der grüne Knopf füllt: zwischen Menüleiste und Dock.
+        private void ZoomArea(out int x, out int y, out int width, out int height)
+        {
+            x = T.Space.S;
+            y = T.Size.MenuBar + T.Space.S;
+            width = scene.Width - 2 * T.Space.S;
+            height = DockY - T.Space.S - y;
+        }
+
         private static bool Locked { get { return OS.Users.Current == null; } }
 
         /// <summary>Das vorderste Fenster. Es bekommt die Tastatur. null, wenn keines offen ist.</summary>
@@ -85,18 +138,7 @@ namespace VibanOS.Gui
             if (Locked) return;
 
             if (!down) dragging = null;
-            if (dragging != null)
-            {
-                // Ein Stück der Titelleiste bleibt immer erreichbar: seitlich, über dem Dock und unter der Menüleiste.
-                int nx = x - dragX, ny = y - dragY, keep = T.Size.DockIcon;
-                if (nx < keep - dragging.Width) nx = keep - dragging.Width;
-                if (nx > scene.Width - keep) nx = scene.Width - keep;
-                if (ny > DockY - T.Size.TitleBar) ny = DockY - T.Size.TitleBar;
-                if (ny < T.Size.MenuBar) ny = T.Size.MenuBar;
-                if (dragging.X != nx || dragging.Y != ny) OS.Changed = true;
-                dragging.X = nx;
-                dragging.Y = ny;
-            }
+            if (dragging != null) Place(dragging, x - dragX, y - dragY);
             if (!pressed) return;
 
             int icon = DockIconAt(x, y);
@@ -118,6 +160,7 @@ namespace VibanOS.Gui
                     dragX = x - w.X;
                     dragY = y - w.Y;
                 }
+                else w.OnClick(x, y);
                 return;
             }
         }
@@ -137,6 +180,7 @@ namespace VibanOS.Gui
             string name;
             if (icon == Icons.Terminal) { w = new TerminalWindow(); name = "terminal"; }
             else if (icon == Icons.Activity) { w = new ActivityWindow(); name = "aktivität"; }
+            else if (icon == Icons.Settings) { w = new SettingsWindow(); name = "optionen"; } // ps zeigt Namen bis 10 Zeichen
             else { w = new AboutWindow(); name = "info"; }
             // Jede offene App ist ein Prozess, sonst fehlt sie in ps und in der Aktivitätsanzeige.
             w.Process = OS.Processes.Start(new AppProcess(name));
@@ -187,10 +231,7 @@ namespace VibanOS.Gui
             else
             {
                 w.NormalX = w.X; w.NormalY = w.Y; w.NormalWidth = w.Width; w.NormalHeight = w.Height;
-                x = T.Space.S;
-                y = T.Size.MenuBar + T.Space.S;
-                width = scene.Width - 2 * T.Space.S;
-                height = DockY - T.Space.S - y;
+                ZoomArea(out x, out y, out width, out height);
             }
             w.Zoomed = !w.Zoomed;
             transitions.Add(new Transition(w, Motion.Zoom, Clock(), true, x, y, width, height));
@@ -247,6 +288,7 @@ namespace VibanOS.Gui
             if (now.Second != lastSecond)
             {
                 lastSecond = now.Second;
+                if (Settings.ShowSeconds && !Locked) OS.Changed = true;
                 for (int i = 0; i < windows.Count; i++)
                     if (windows[i].Live) OS.Changed = true;
             }
@@ -278,7 +320,8 @@ namespace VibanOS.Gui
             }
             else
             {
-                front.CopyRect(scene, drawnX, drawnY, CursorSize, CursorSize); // alten Mauszeiger entfernen
+                int size = CursorSize * T.Size.CursorScale; // reicht für beide Größen, auch direkt nach dem Umschalten
+                front.CopyRect(scene, drawnX, drawnY, size, size); // alten Mauszeiger entfernen
             }
             DrawCursor(front, mouseX, mouseY);
             drawnX = mouseX;
@@ -326,6 +369,7 @@ namespace VibanOS.Gui
             s.DrawText(Fonts.Strong, title, T.Space.L + logo + T.Space.M, textY, T.Color.TextPrimary);
 
             string clock = Text.Date(now) + "  " + Text.Time(now);
+            if (Settings.ShowSeconds) clock += ":" + Text.Two(now.Second);
             int x = s.Width - T.Space.L - Fonts.Body.Measure(clock);
             s.DrawText(Fonts.Body, clock, x, textY, T.Color.TextPrimary);
             string user = OS.Users.Current.Name;
@@ -366,13 +410,14 @@ namespace VibanOS.Gui
 
         private static void DrawCursor(Surface s, int x, int y)
         {
+            int k = Settings.LargeCursor ? T.Size.CursorScale : 1;
             for (int j = 0; j < Cursor.Length; j++)
             {
                 string row = Cursor[j];
                 for (int i = 0; i < row.Length; i++)
                 {
                     if (row[i] == ' ') continue;
-                    s.FillRect(x + i, y + j, 1, 1, row[i] == 'X' ? T.Color.CursorEdge : T.Color.CursorFill);
+                    s.FillRect(x + i * k, y + j * k, k, k, row[i] == 'X' ? T.Color.CursorEdge : T.Color.CursorFill);
                 }
             }
         }
