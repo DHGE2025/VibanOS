@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using VibanOS.Core;
+using VibanOS.FileSystem;
 using VibanOS.Graphics;
 using VibanOS.Platform;
 using T = VibanOS.Design.Tokens;
@@ -69,8 +70,8 @@ namespace VibanOS.Gui
         private void Do(int action)
         {
             error = "";
-            if (action < Pages.Length) page = action;
-            else if (action >= PickAccent && action < PickAccent + Accents.Length) T.Color.Accent = Accents[action - PickAccent];
+            if (action < Pages.Length) { page = action; return; }
+            if (action >= PickAccent && action < PickAccent + Accents.Length) T.Color.Accent = Accents[action - PickAccent];
             else if (action >= PickMode && action < PickMode + modes.Count)
             {
                 Resolution r = modes[action - PickMode];
@@ -83,6 +84,9 @@ namespace VibanOS.Gui
                 Settings.GermanKeyboard = action == PickGerman;
                 Hardware.SetKeyboardLayout(Settings.GermanKeyboard);
             }
+            else return;
+            if (!Settings.Save(OS.Users.Current) && error == "") error = Vfs.Available
+                ? "Die Einstellungen ließen sich nicht speichern." : "Ohne Festplatte gelten die Einstellungen nur bis zum Ausschalten.";
         }
 
         /// <summary>Für den Selbsttest: Mitte der Klickfläche einer Aktion beim letzten Zeichnen, oder null.</summary>
@@ -133,6 +137,7 @@ namespace VibanOS.Gui
                 Label(s, "Großer Mauszeiger", left, ty + RowHeight);
                 Toggle(s, left + inner - T.Space.L - T.Size.ToggleWidth, ty + RowHeight, Settings.LargeCursor, ToggleCursor);
             }
+            if (error != "") s.DrawText(Fonts.Body, error, left, y + h - T.Space.XL - Fonts.Body.LineHeight, T.Color.Danger);
         }
 
         private void DrawSidebar(Surface s, int x, int y, int h)
@@ -197,7 +202,6 @@ namespace VibanOS.Gui
                 s.DrawText(Fonts.Body, "Dazu VibanOS mit -vga vmware starten (siehe README).", left, ty, T.Color.TextSecondary);
                 ty += Fonts.Body.LineHeight + T.Space.XS;
             }
-            if (error != "") s.DrawText(Fonts.Body, error, left, ty, T.Color.Danger);
         }
 
         private void DrawAccents(Surface s, int right, int centerY)

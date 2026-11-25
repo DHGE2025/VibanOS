@@ -45,6 +45,18 @@ namespace VibanOS.Core
             return true;
         }
 
+        /// <summary>Größe in Bytes für Menschen: "512 Byte", "12 KB", "3,4 MB". Komma als Dezimalzeichen.</summary>
+        public static string Bytes(ulong n)
+        {
+            if (n < 1024) return n + " Byte";
+            string[] units = { "KB", "MB", "GB", "TB" };
+            ulong tenths = n * 10 / 1024;
+            int unit = 0;
+            while (tenths >= 10240 && unit < units.Length - 1) { tenths /= 1024; unit++; }
+            // Unter 10 mit einer Nachkommastelle, darüber ganze Zahlen.
+            return (tenths < 100 && tenths % 10 != 0 ? tenths / 10 + "," + tenths % 10 : ((tenths + 5) / 10).ToString()) + " " + units[unit];
+        }
+
         public static string Time(DateTime t)
         {
             return Two(t.Hour) + ":" + Two(t.Minute);

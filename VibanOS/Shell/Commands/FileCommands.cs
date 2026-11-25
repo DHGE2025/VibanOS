@@ -150,6 +150,87 @@ namespace VibanOS.Cli.Commands
         }
     }
 
+    public class PwdCommand : Command
+    {
+        public override string Name { get { return "pwd"; } }
+        public override string Description { get { return "Aktuellen Ordner anzeigen"; } }
+
+        public override void Execute(string[] args, Shell shell) { shell.WriteLine(shell.CurrentDirectory); }
+    }
+
+    /// <summary>Gemeinsame Basis von cp und mv: Quelle und Ziel prüfen. Ist das Ziel ein Ordner, landet die Quelle darin.</summary>
+    public abstract class TransferCommand : FileCommand
+    {
+        protected bool Paths(string[] args, Shell shell, Access source, out string from, out string to)
+        {
+            from = to = null;
+            if (args.Length < 2) { shell.Error("Aufruf: " + Usage); return false; }
+            from = Target(args, shell, source);
+            if (from == null) return false;
+            to = Target(new[] { args[1] }, shell, Access.Write);
+            if (to == null) return false;
+            if (!File.Exists(from) && !Directory.Exists(from)) { shell.Error("Nicht gefunden: " + from); return false; }
+            if (Directory.Exists(to)) to = to + Vfs.Separator + Vfs.NameOf(from);
+            // Der Ordnername kommt aus der Quelle und könnte ein Kurzname mit ~ sein: noch einmal prüfen.
+            if (!Vfs.CanAccess(OS.Users.Current, to, Access.Write)) { shell.Error("Zugriff verweigert: " + to); return false; }
+            if (File.Exists(to) || Directory.Exists(to)) { shell.Error("Gibt es schon: " + to); return false; }
+            return true;
+        }
+    }
+
+    public class CpCommand : TransferCommand
+    {
+        public override string Name { get { return "cp"; } }
+        public override string Usage { get { return "cp <datei> <ziel>"; } }
+        public override string Description { get { return "Datei kopieren"; } }
+
+        public override void Execute(string[] args, Shell shell)
+        {
+            string from, to;
+            if (!Paths(args, shell, Access.Read, out from, out to)) return;
+            if (Directory.Exists(from)) { shell.Error("Ordner kopiert cp nicht, nur Dateien."); return; }
+            File.Copy(from, to, false);
+        }
+    }
+
+    public class MvCommand : TransferCommand
+    {
+        public override string Name { get { return "mv"; } }
+        public override string Usage { get { return "mv <name> <ziel>"; } }
+        public override string Description { get { return "Datei oder Ordner verschieben oder umbenennen"; } }
+
+        public override void Execute(string[] args, Shell shell)
+        {
+            string from, to;
+            if (!Paths(args, shell, Access.Write, out from, out to)) return;
+            if (File.Exists(from)) { File.Move(from, to); return; }
+            string home = (Vfs.Root + "home").ToLowerInvariant(), lower = from.ToLowerInvariant();
+            // Die Nutzer finden ihre Ordner über den festen Pfad home/<name>. Verschoben fände niemand sie wieder.
+            if (lower == home || (Text.HasPrefix(lower, home + Vfs.Separator) && lower.IndexOf(Vfs.Separator, home.Length + 1) < 0))
+            {
+                shell.Error("Home-Ordner lassen sich nicht verschieben: " + from);
+                return;
+            }
+            string cwd = shell.CurrentDirectory.ToLowerInvariant() + Vfs.Separator;
+            if (Text.HasPrefix(cwd, lower + Vfs.Separator)) { shell.Error("Darin steht gerade die Shell. Erst mit 'cd' hinausgehen."); return; }
+            if (Text.HasPrefix(to.ToLowerInvariant() + Vfs.Separator, lower + Vfs.Separator)) { shell.Error("Ein Ordner passt nicht in sich selbst."); return; }
+            Directory.Move(from, to);
+        }
+    }
+
+    public class DfCommand : Command
+    {
+        public override string Name { get { return "df"; } }
+        public override string Description { get { return "Belegten und freien Platz der Festplatte anzeigen"; } }
+
+        public override void Execute(string[] args, Shell shell)
+        {
+            ulong total, free;
+            if (!Vfs.Available || !Hardware.DiskSpace(out total, out free)) { shell.Error("Kein Dateisystem eingebunden."); return; }
+            shell.WriteLine(Vfs.Root + "  " + Text.Bytes(total) + " gesamt, " + Text.Bytes(total - free) + " belegt, " + Text.Bytes(free) + " frei");
+        }
+    }
+
     public class FormatCommand : Command
     {
         public override string Name { get { return "format"; } }

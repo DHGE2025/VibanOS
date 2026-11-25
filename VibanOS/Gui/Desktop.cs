@@ -178,16 +178,20 @@ namespace VibanOS.Gui
             }
             Window w;
             string name;
-            if (icon == Icons.Terminal) { w = new TerminalWindow(); name = "terminal"; }
+            if (icon == Icons.Files) { w = new FilesWindow(); name = "dateien"; }
+            else if (icon == Icons.Terminal) { w = new TerminalWindow(); name = "terminal"; }
             else if (icon == Icons.Activity) { w = new ActivityWindow(); name = "aktivität"; }
             else if (icon == Icons.Settings) { w = new SettingsWindow(); name = "optionen"; } // ps zeigt Namen bis 10 Zeichen
             else { w = new AboutWindow(); name = "info"; }
             // Jede offene App ist ein Prozess, sonst fehlt sie in ps und in der Aktivitätsanzeige.
             w.Process = OS.Processes.Start(new AppProcess(name));
-            // Neue Fenster leicht versetzt, damit sie sich nicht genau überdecken
-            w.X = (scene.Width - w.Width) / 2 + (icon - 1) * T.Space.XXL * 3;
-            w.Y = T.Size.MenuBar + T.Space.XL + icon * T.Space.XXL;
+            // Neue Fenster leicht versetzt, damit sie sich nicht genau überdecken. Das Terminal steht vorn,
+            // Dateien (ganz links im Dock) bekommt den letzten Platz.
+            int slot = icon == Icons.Files ? Icons.Count - 1 : icon - Icons.Terminal;
+            w.X = (scene.Width - w.Width) / 2 + (slot - 1) * T.Space.XXL * 3;
+            w.Y = T.Size.MenuBar + T.Space.XL + slot * T.Space.XXL;
             // Auf einem kleinen Bildschirm bleiben Fensterknöpfe und Zeilenanfänge sichtbar.
+            if (w.X + w.Width > scene.Width - T.Space.M) w.X = scene.Width - T.Space.M - w.Width;
             if (w.X < T.Space.M) w.X = T.Space.M;
             apps[icon] = w;
             windows.Add(w);
@@ -299,6 +303,7 @@ namespace VibanOS.Gui
                 if (p != null && (p.State == ProcessState.Terminated || OS.Processes.Get(p.Id) != p)) Close(apps[i]);
             }
             if (Locked && login.LockExpired(now)) OS.Changed = true;
+            if (wasLocked && !Locked) Settings.Load(OS.Users.Current); // Akzentfarbe, Uhr, Tastatur, Auflösung des Nutzers
             if (wasLocked && !Locked && windows.Count == 0) Open(Icons.Terminal);
             wasLocked = Locked;
 

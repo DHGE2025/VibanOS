@@ -60,6 +60,13 @@ namespace VibanOS.Platform
 
         public static void SetKeyboardLayout(bool german) { GermanKeyboard = german; }
 
+        public static bool DiskSpace(out ulong total, out ulong free)
+        {
+            total = 64UL * 1024 * 1024;
+            free = 60UL * 1024 * 1024;
+            return Vfs.Available;
+        }
+
         public static string FormatDisk()
         {
             if (FormatError == null) Directory.CreateDirectory(Vfs.Root);
@@ -157,6 +164,36 @@ namespace VibanOS.Preview
             File.WriteAllText(Path.Combine(home, "windows.txt"), "eins\r\n\tzwei");
             Type("cat windows.txt\n");
             Check(Last().Text == "    zwei" && OS.Shell.Lines[OS.Shell.Lines.Count - 2].Text == "eins", "cat zeigt Windows-Zeilenenden und Tabulatoren sauber");
+            Type("pwd\n");
+            Check(Last().Text == OS.Users.Current.HomeDirectory, "pwd zeigt den aktuellen Ordner");
+            Type("cp notizen/plan.txt kopie.txt\n");
+            Check(File.ReadAllText(Path.Combine(home, "kopie.txt")) == "Erster Eintrag", "cp kopiert eine Datei");
+            Type("cp kopie.txt notizen\n");
+            Check(File.Exists(Path.Combine(home, "notizen", "kopie.txt")), "cp in einen Ordner legt die Datei hinein");
+            Type("cp kopie.txt notizen/plan.txt\n");
+            Check(Last().Style == LineStyle.Error && File.ReadAllText(Path.Combine(home, "notizen", "plan.txt")) == "Erster Eintrag",
+                "cp überschreibt keine vorhandene Datei");
+            Type("cp notizen anderswo\n");
+            Check(Last().Style == LineStyle.Error && !Directory.Exists(Path.Combine(home, "anderswo")), "cp kopiert keine Ordner");
+            Type("mv kopie.txt neu.txt\n");
+            Check(!File.Exists(Path.Combine(home, "kopie.txt")) && File.Exists(Path.Combine(home, "neu.txt")), "mv benennt eine Datei um");
+            Type("mv notizen archiv\n");
+            Check(Directory.Exists(Path.Combine(home, "archiv")) && File.Exists(Path.Combine(home, "archiv", "plan.txt")), "mv benennt einen Ordner um");
+            Type("mv archiv archiv/innen\n");
+            Check(Last().Style == LineStyle.Error && Directory.Exists(Path.Combine(home, "archiv")), "mv schiebt keinen Ordner in sich selbst");
+            Type("cd archiv\nmv /home/root/archiv /x\n");
+            Check(Last().Style == LineStyle.Error && Directory.Exists(Path.Combine(home, "archiv")), "mv verschiebt nicht den Ordner, in dem die Shell steht");
+            Type("cd /\nmv /home/root /verlegt\n");
+            Check(Last().Text.StartsWith("Home-Ordner") && Directory.Exists(home), "mv verschiebt keinen Home-Ordner");
+            Type("cd /home/root\n");
+            Type("mv neu.txt archiv\nmv archiv notizen\n");
+            Check(File.Exists(Path.Combine(home, "notizen", "neu.txt")), "mv in einen Ordner legt die Datei hinein");
+            Type("mv fehlt.txt x.txt\n");
+            Check(Last().Text.StartsWith("Nicht gefunden"), "mv meldet eine fehlende Quelle");
+            Type("df\n");
+            Check(Last().Text.Contains("64 MB gesamt") && Last().Text.Contains("60 MB frei"), "df zeigt Größe und freien Platz der Platte");
+            Check(Text.Bytes(0) == "0 Byte" && Text.Bytes(1536) == "1,5 KB" && Text.Bytes(10 * 1024) == "10 KB" && Text.Bytes(5UL << 30) == "5 GB",
+                "Größen werden lesbar ausgegeben");
             Type("cd ..\ncd ..\ncd ..\n");
             Check(OS.Shell.CurrentDirectory == Vfs.Root, "cd .. verlässt die Wurzel nicht");
             Type("cd home/root\n");
@@ -454,8 +491,22 @@ namespace VibanOS.Preview
             System.Threading.Thread.Sleep(1100);
             Check(desktop.Frame(screen) && MenuBar() != withSeconds, "Mit Sekunden zeichnet die Menüleiste jede Sekunde neu");
             Shot(output, "7-einstellungen-erscheinungsbild");
+            string settingsFile = Path.Combine(home, Settings.FileName);
+            Check(File.ReadAllText(settingsFile).Contains("sekunden=1"), "Die Einstellungen landen im Home-Ordner");
+            ClickAt(settings.CenterOf(SettingsWindow.PickAccent + 3));
+            Settings.Load(OS.Users.Find("anna"));
+            Check(T.Color.Accent == T.Color.AccentBlue && !Settings.ShowSeconds, "Ein anderer Nutzer ohne eigene Einstellungen bekommt die Grundwerte");
+            Settings.Load(OS.Users.Current);
+            Check(T.Color.Accent == T.Color.AccentOrange && Settings.ShowSeconds, "Die eigenen Einstellungen kommen nach dem Anmelden zurück");
+            string savedSettings = File.ReadAllText(settingsFile);
+            File.WriteAllText(settingsFile, "akzent=zz\nbreite=abc\nsekunden");
+            Settings.Load(OS.Users.Current);
+            Check(T.Color.Accent == T.Color.AccentBlue && screen.Width == T.Size.ScreenWidth, "Eine kaputte Einstellungsdatei ergibt Grundwerte statt eines Fehlers");
+            File.WriteAllText(settingsFile, savedSettings);
+            Settings.Load(OS.Users.Current);
+            ClickAt(settings.CenterOf(SettingsWindow.PickAccent));
             ClickAt(settings.CenterOf(SettingsWindow.ToggleSeconds));
-            Check(!Settings.ShowSeconds, "Ein zweiter Klick schaltet die Sekunden wieder aus");
+            Check(!Settings.ShowSeconds && File.ReadAllText(settingsFile).Contains("sekunden=0"), "Ein zweiter Klick schaltet die Sekunden wieder aus");
             ClickAt(settings.CenterOf(2));
             ClickAt(settings.CenterOf(SettingsWindow.PickUs));
             Check(!Settings.GermanKeyboard && !Platform.Hardware.GermanKeyboard, "US-Tastaturbelegung lässt sich wählen");
@@ -520,6 +571,67 @@ namespace VibanOS.Preview
             Settle();
             Check(terminal.Width == 720 && terminal.X == 70 && terminal.Y == 64, "Ein zweiter Klick stellt die alte Größe wieder her");
             Click(DockIconX(Icons.Activity), dockRow); // Aktivität wieder nach vorn
+
+            // Dateien-App (VIB-2)
+            Click(DockIconX(Icons.Files), dockRow);
+            Check(desktop.Active is FilesWindow, "Der Ordner im Dock öffnet die App Dateien");
+            FilesWindow files = (FilesWindow)desktop.Active;
+            files.X = 200;
+            files.Y = 60;
+            Settle();
+            Check(files.Folder == OS.Users.Current.HomeDirectory && files.IndexOf("notizen") >= 0, "Dateien beginnt im eigenen Ordner und zeigt ihn");
+            ClickAt(files.CenterOf(FilesWindow.NewFolder));
+            Check(Directory.Exists(Path.Combine(home, "Neuer Ordner")) && files.IndexOf("Neuer Ordner") >= 0, "Neuer Ordner legt einen Ordner an");
+            ClickAt(files.CenterOf(FilesWindow.NewFolder));
+            Check(Directory.Exists(Path.Combine(home, "Neuer Ordner 2")), "Ein zweiter neuer Ordner bekommt eine Nummer");
+            Directory.Delete(Path.Combine(home, "Neuer Ordner 2"));
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("notizen")));
+            Check(files.Folder == OS.Users.Current.HomeDirectory, "Ein Klick wählt nur aus");
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("notizen")));
+            Check(files.Folder.EndsWith("notizen") && files.IndexOf("plan.txt") >= 0, "Ein zweiter Klick öffnet den Ordner");
+            File.WriteAllText(Path.Combine(home, "notizen", "liste.txt"), "Milch\r\nBrot\n\tButter");
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("plan.txt"))); // ein Klick ins Fenster liest den Ordner neu
+            Check(files.IndexOf("liste.txt") >= 0, "Was im Terminal entsteht, zeigt Dateien nach dem nächsten Klick");
+            files.OnKey(Key.Down, '\0');
+            files.OnKey(Key.Enter, '\0');
+            Check(files.OpenFile != null && files.OpenFile.EndsWith("plan.txt") && files.Lines[0] == "Erster Eintrag", "Pfeil und Eingabe öffnen eine Datei");
+            Shot(output, "9-dateien-text");
+            files.OnKey(Key.Backspace, '\0');
+            Picture(files); // neu zeichnen, die Liste ist wieder da
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("liste.txt")));
+            files.OnKey(Key.Enter, '\0');
+            Check(files.Lines.Count == 3 && files.Lines[1] == "Brot" && files.Lines[2] == "    Butter", "Die Vorschau zeigt Windows-Zeilenenden und Tabulatoren sauber");
+            ClickAt(files.CenterOf(FilesWindow.Back));
+            ClickAt(files.CenterOf(FilesWindow.Back));
+            Check(files.Folder == OS.Users.Current.HomeDirectory && files.OpenFile == null, "Zurück geht von der Datei zum Ordner und weiter nach oben");
+            ClickAt(files.CenterOf(FilesWindow.PlaceDisk));
+            Check(files.Folder == Vfs.Root && files.IndexOf("system") >= 0 && files.CenterOf(FilesWindow.Back) == null, "VIBANOS zeigt die Wurzel, weiter zurück geht es nicht");
+            ClickAt(files.CenterOf(FilesWindow.PlaceHome));
+            Check(files.Folder == OS.Users.Current.HomeDirectory, "Der eigene Ordner in der Seitenleiste führt nach Hause");
+            Shot(output, "9-dateien");
+            ClickAt(files.CenterOf(FilesWindow.PlaceDisk));
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("system")));
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("system")));
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("users.txt")));
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("users.txt")));
+            Check(files.OpenFile != null && files.Lines[0].Contains("root"), "Administratoren sehen die Nutzerdatei");
+            OS.Shell.Submit("logout");
+            Type("\ttopsecret\n");
+            Check(OS.Users.Current.Name == "anna", "anna meldet sich an, das Fenster von root ist noch offen");
+            desktop.Open(Icons.Files);
+            Picture(files);
+            Check(files.OpenFile == null && files.Folder == OS.Users.Current.HomeDirectory && files.Lines.Count == 0,
+                "Nach einem Nutzerwechsel zeigt Dateien nicht mehr, was der Vorgänger offen hatte");
+            ClickAt(files.CenterOf(FilesWindow.PlaceDisk));
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("system")));
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("system")));
+            Check(files.Folder == Vfs.Root && files.Message.StartsWith("Zugriff verweigert"), "Normale Nutzer kommen auch in Dateien nicht in den Systemordner");
+            Click(ControlX(files, Window.CloseButton), files.Y + T.Size.TitleBar / 2);
+            Settle();
+            OS.Shell.Submit("logout");
+            Type("\tgeheim\n");
+            Check(OS.Users.Current.Name == "root", "Zurück zu root");
+            terminal = desktop.Active is TerminalWindow ? desktop.Active : terminal;
 
             // Bild für die Vorschau herrichten
             Type("");

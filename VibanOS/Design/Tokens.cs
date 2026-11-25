@@ -55,6 +55,10 @@ namespace VibanOS.Design
             public const uint WallBlob3 = 0xFFFF9552;
             public const uint WallBlob4 = 0xFF2A7BEA;
 
+            // Symbole der App Dateien
+            public const uint Folder = 0xFF5AB4F5;       // Ordner, vorn
+            public const uint FolderBack = 0xFF3A8FDB;   // Ordner, Reiter und Rückseite
+
             public const uint Shadow = 0xFF000000;
             public const uint CursorFill = 0xFF111113;
             public const uint CursorEdge = 0xFFFFFFFF;
@@ -97,7 +101,7 @@ namespace VibanOS.Design
             public const int Field = 30;        // Höhe von Eingabefeldern und Knöpfen
             public const int Row = 24;          // Zeilenhöhe in Listen
             public const int Avatar = 88;
-            public const int Sidebar = 180;     // Seitenleiste der Einstellungen
+            public const int Sidebar = 180;     // Seitenleiste der Einstellungen und der App Dateien
             public const int ToggleWidth = 38;  // Schalter an/aus
             public const int ToggleHeight = 22;
             public const int Swatch = 20;       // Farbpunkt der Akzentfarbe

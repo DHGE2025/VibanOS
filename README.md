@@ -69,8 +69,9 @@ Nach dem Start erscheint der Anmeldebildschirm. Beim allerersten Start legt man 
 Danach öffnet sich der Schreibtisch mit Menüleiste, Dock und einem Terminal. `help` zeigt alle Befehle.
 
 - Fenster zieht man an der Titelleiste, der rote Knopf schließt sie.
-- Das Dock öffnet Terminal, Aktivitätsanzeige (Prozesse und Speicher), Systemeinstellungen und „Über VibanOS“.
-- In den Systemeinstellungen stellt man Auflösung, Akzentfarbe, Sekunden in der Menüleiste, Tastaturbelegung (Deutsch oder US) und einen großen Mauszeiger ein. Alles gilt sofort und bis zum Ausschalten.
+- Das Dock öffnet Dateien, Terminal, Aktivitätsanzeige (Prozesse und Speicher), Systemeinstellungen und „Über VibanOS“.
+- Dateien blättert durch die Festplatte: Ein Klick wählt aus, ein zweiter Klick auf dieselbe Zeile öffnet den Ordner oder zeigt den Text der Datei. Pfeiltasten wählen, die Eingabetaste öffnet, die Rücktaste geht zurück. „Neuer Ordner“ legt einen Ordner an. Umbenennen, Kopieren und Löschen gehen im Terminal mit `mv`, `cp` und `rm`, `df` zeigt den freien Platz.
+- In den Systemeinstellungen stellt man Auflösung, Akzentfarbe, Sekunden in der Menüleiste, Tastaturbelegung (Deutsch oder US) und einen großen Mauszeiger ein. Alles gilt sofort. Mit Festplatte merkt sich VibanOS die Einstellungen je Nutzer in `home/<name>/settings.txt` und stellt sie nach der Anmeldung wieder her.
 - Im Terminal blättern Bild auf und Bild ab, Pfeil auf und ab holen frühere Eingaben zurück.
 - `shutdown` und `reboot` hängen die Festplatte vorher sauber aus. Am besten so beenden, statt das QEMU-Fenster einfach zu schließen. Unter `cosmos run` bleibt das Fenster danach mit dem letzten Bild stehen und kann geschlossen werden. Auch nach `reboot` startet dort nichts neu, dafür ruft man `cosmos run` noch einmal auf.
 - Die Tastatur ist auf das deutsche Layout eingestellt, die Systemeinstellungen schalten auf US um. Das deutsche Layout von COSMOS 3.0.99 hat Lücken: `#` und `'` lassen sich nicht tippen, und `<`, `>` und `|` liegen auf der Taste `#` (allein, mit Umschalt, mit AltGr). Die Num-Taste bleibt am besten aus, sonst liefern die Pfeiltasten Ziffern.
@@ -90,7 +91,7 @@ VibanOS/
   Core/            OS (hält alle Teilsysteme), Texthelfer
   Design/          Tokens.cs: Farben, Abstände, Radien, Maße
   Graphics/        Zeichenfläche und Schrift (FontData.cs enthält die Schrift-Atlanten)
-  Gui/             Schreibtisch, Fenster, Terminal, Aktivitätsanzeige, Anmeldung
+  Gui/             Schreibtisch, Fenster, Terminal, Dateien, Aktivitätsanzeige, Anmeldung
   Shell/           Shell und Befehle, ein Thema pro Datei in Shell/Commands/
   FileSystem/      Pfade und Rechteprüfung für Dateien
   Processes/       Prozesse und Scheduler

@@ -21,11 +21,15 @@ namespace VibanOS.Cli
             // Dateisystem (VIB-2)
             shell.Register(new LsCommand());
             shell.Register(new CdCommand());
+            shell.Register(new PwdCommand());
             shell.Register(new MkdirCommand());
             shell.Register(new TouchCommand());
             shell.Register(new CatCommand());
             shell.Register(new WriteCommand());
             shell.Register(new RmCommand());
+            shell.Register(new CpCommand());
+            shell.Register(new MvCommand());
+            shell.Register(new DfCommand());
             shell.Register(new FormatCommand());
 
             // Prozesse (VIB-3)

@@ -52,6 +52,12 @@ Zwei Eigenheiten von FAT prägen die Rechteprüfung in `Vfs.CanAccess`: Groß- u
 
 Die Nutzerdatei wird nie an Ort und Stelle überschrieben. `UserManager.Save()` schreibt sie vollständig nach `users.txt.new` und benennt sie dann um. Scheitert das Schreiben, bleibt die bisherige Datei gültig. Eine leere Nutzerdatei hieße beim nächsten Start Ersteinrichtung, also `root` ohne Passwort. Aus demselben Grund führt ein Lesefehler nicht zur Ersteinrichtung: `UserManager.LoadError` bleibt gesetzt, die Datei wird nicht überschrieben, und der Anmeldebildschirm lässt niemanden hinein.
 
+`mv` verschiebt keine Home-Ordner (die Nutzer finden sie über den festen Pfad `home/<name>`), keinen Ordner in sich selbst und nicht den Ordner, in dem die Shell steht. `cp` und `mv` überschreiben nichts.
+
+Die App Dateien (`Gui/FilesWindow.cs`) fragt für jeden Ordner und jede Datei dieselbe Prüfung `Vfs.CanAccess` wie das Terminal. Fenster bleiben bei einer Abmeldung offen, deshalb setzt sich Dateien zurück, sobald ein anderer Nutzer angemeldet ist: Sonst sähe er, was sein Vorgänger offen hatte. Die Liste liest sie beim Wechseln des Ordners und bei jedem Klick ins Fenster neu, nicht bei jedem Zeichnen.
+
+Die Einstellungen (`Core/Settings.cs`) stehen je Nutzer in `home/<name>/settings.txt` als Zeilen `schlüssel=wert`. Die Einstellungen-App schreibt die Datei nach jeder Änderung, `Desktop` lädt sie nach der Anmeldung. Fehlt die Datei oder ein Eintrag, gilt der Grundwert.
+
 Eine neue, leere Platte hat weder Partitionstabelle noch Dateisystem. Der Befehl `format` ruft `Hardware.FormatDisk()` auf: MBR-Partitionstabelle, eine Partition, FAT (COSMOS wählt je nach Größe FAT12, FAT16 oder FAT32), einhängen. Er arbeitet nur, wenn das erste Megabyte der Platte leer ist, und überschreibt deshalb keine vorhandenen Daten. `shutdown` und `reboot` hängen die Platte vorher aus, erst das sichert alle Schreibvorgänge.
 
 ## Wo liegt was
@@ -59,7 +65,7 @@ Eine neue, leere Platte hat weder Partitionstabelle noch Dateisystem. Der Befehl
 | Aufgabe | Ordner | Steht schon | Offen |
 | -- | -- | -- | -- |
 | VIB-1 Shell-Befehle | `Shell/` | `Command`, `Shell`, `CommandList`, alle sechs Grundbefehle | Fertig bis auf Feinschliff |
-| VIB-2 Dateisystem | `FileSystem/`, `Shell/Commands/FileCommands.cs`, `Platform/` | `Vfs` (Pfade, Rechteprüfung), Einhängen der Festplatte unter `/mnt`, `format` für eine leere Platte, `ls`, `cd`, `mkdir`, `touch`, `cat`, `write`, `rm`, Verzeichnis im Prompt, Anleitung im README | `df` (COSMOS bietet dafür `VfsManager.TryStatFs`) |
+| VIB-2 Dateisystem | `FileSystem/`, `Shell/Commands/FileCommands.cs`, `Platform/` | `Vfs` (Pfade, Rechteprüfung), Einhängen der Festplatte unter `/mnt`, `format` für eine leere Platte, `ls`, `cd`, `pwd`, `mkdir`, `touch`, `cat`, `write`, `rm`, `cp`, `mv`, `df`, Verzeichnis im Prompt, die App Dateien (`Gui/FilesWindow.cs`), Einstellungen je Nutzer in `home/<name>/settings.txt`, Anleitung im README | `rm -r`, Umbenennen und Löschen in der App Dateien |
 | VIB-3 Multitasking | `Processes/` | `Process`, `ProcessManager`, Round Robin, `counter`/`clock`/`busy`, `ps` mit Ausgabe, `start`, `kill` | `block`, `unblock` |
 | VIB-4 Dokumentation | `docs/` | dieses Dokument, Designsheet | Themenseiten, `befehle.md`, Vorführ-Skript |
 | VIB-5 Rahmentabellen | `Memory/` | `PhysicalMemory`, `FrameTable`, `PageTable`, Übersetzung, Page Fault, `mem`, `frames`, `alloc` | `pagetable`, `free`, `translate` |
