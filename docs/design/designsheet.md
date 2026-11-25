@@ -122,9 +122,26 @@ Eingabefelder sind Pillen: Der Radius ist die halbe Höhe.
 
 Der Schatten zeigt, was vorn liegt. Das aktive Fenster hat den kräftigsten. Gezeichnet wird er nur außerhalb der Form, durch das durchscheinende Dock scheint er also nicht hindurch.
 
+## Bewegung
+
+Fenster bewegen sich kurz und ruhig, nie verspielt. Die Werte stehen in `T.Motion`.
+
+| Token | Wert | Bewegung |
+| -- | -- | -- |
+| `Motion.Open` | 200 ms | Öffnen: wächst von `StartScale` auf volle Größe und blendet ein, bremst sanft ab |
+| `Motion.Close` | 150 ms | Schließen: schrumpft auf `StartScale` und blendet aus |
+| `Motion.Minimize` | 300 ms | Gelber Knopf: das Fenster zieht sich auf sein Dock-Symbol zusammen und wird dabei blasser, ein Klick auf das Symbol holt es auf demselben Weg zurück. Beschleunigt und bremst |
+| `Motion.Zoom` | 250 ms | Grüner Knopf: das Fenster wächst auf die Fläche zwischen Menüleiste und Dock (Rand `S`), ein zweiter Klick stellt die alte Größe her |
+| `Motion.StartScale` | 90 % | Größe am Anfang des Öffnens und am Ende des Schließens |
+| `Motion.DockAlpha` | 90 von 255 | Deckkraft, wenn das Fenster im Dock ankommt |
+
+![Minimieren, auf halbem Weg ins Dock](minimieren.png)
+
+Öffnen, Schließen und Minimieren zeichnen ein Standbild des Fensters, das einmal am Anfang entsteht, gestreckt und durchscheinend. Der Inhalt bleibt so lange stehen. Zoom verändert das echte Fenster, der Inhalt wächst mit. Die Dauer richtet sich nach der Uhr, nicht nach der Bildrate: Ist die VM langsam, zeigt sie weniger Zwischenbilder, die Animation dauert aber gleich lang.
+
 ## Bausteine
 
-- **Fenster** (`Gui/Window.cs`): Radius `M`, Titelleiste in `TitleBar` mit zentriertem Titel in `Fonts.Strong`, links die drei Knöpfe mit Abstand `M` zum Rand. 1-px-Rahmen in `Border`, darunter der Schatten. Inaktive Fenster: Knöpfe grau, Titel in `TextTertiary`, schwächerer Schatten.
+- **Fenster** (`Gui/Window.cs`): Radius `M`, Titelleiste in `TitleBar` mit zentriertem Titel in `Fonts.Strong`, links die drei Knöpfe mit Abstand `M` zum Rand. 1-px-Rahmen in `Border`, darunter der Schatten. Inaktive Fenster: Knöpfe grau, Titel in `TextTertiary`, schwächerer Schatten. Der grüne Knopf ist auch im aktiven Fenster grau, wenn der Inhalt nicht mitwächst (nur das Terminal lässt sich zoomen).
 - **Menüleiste**: volle Breite, durchscheinend. Links Logo und Titel des aktiven Fensters, rechts Nutzer (`TextSecondary`), Datum und Uhrzeit.
 - **Dock**: mittig am unteren Rand, Abstand `S` zum Rand, Radius `L`, durchscheinend mit Rahmen. Symbole 48 px mit Abstand `M`. Ein kleiner Punkt zeigt, dass die App offen ist.
 - **App-Symbol** (`Gui/Icons.cs`): abgerundetes Quadrat mit senkrechtem Verlauf, 1-px-Rahmen, ein einfaches helles Zeichen. Symbole werden gezeichnet, nicht als Bild geladen.
@@ -136,7 +153,7 @@ Der Schatten zeigt, was vorn liegt. Das aktive Fenster hat den kräftigsten. Gez
 ## Nicht vorgesehen
 
 - Ein helles Erscheinungsbild. Die Flächen- und Text-Tokens sind so benannt, dass man sie dafür später austauschen kann.
-- Animationen und echte Unschärfe hinter durchscheinenden Flächen. Beides ist unter COSMOS ohne Grafikbeschleunigung zu langsam.
+- Echte Unschärfe hinter durchscheinenden Flächen und aufwendige Animationen wie der verbogene „Flaschengeist“ beim Minimieren. Beides ist unter COSMOS ohne Grafikbeschleunigung zu langsam.
 
 ## Bilder neu erzeugen
 
@@ -144,4 +161,4 @@ Der Schatten zeigt, was vorn liegt. Das aktive Fenster hat den kräftigsten. Gez
 dotnet run --project tools/Preview
 ```
 
-Das schreibt die Bilder nach `preview/`. Nach einer Änderung am Design `designsheet.png`, `4-schreibtisch.png` (als `schreibtisch.png`) und `1-anmeldung.png` (als `anmeldung.png`) von dort nach `docs/design/` kopieren.
+Das schreibt die Bilder nach `preview/`. Nach einer Änderung am Design `designsheet.png`, `4-schreibtisch.png` (als `schreibtisch.png`) und `1-anmeldung.png` (als `anmeldung.png`) und `5-minimieren.png` (als `minimieren.png`) von dort nach `docs/design/` kopieren.

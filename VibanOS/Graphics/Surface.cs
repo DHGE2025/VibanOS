@@ -251,6 +251,37 @@ namespace VibanOS.Graphics
             DrawText(font, text, centerX - font.Measure(text) / 2, y, color);
         }
 
+        /// <summary>
+        /// Zeichnet source gestreckt auf das Rechteck (x, y, w, h), mit Deckkraft alpha (0–255) und Eckenradius r.
+        /// Nimmt das nächstgelegene Pixel, das ist schnell genug für Animationen ohne Grafikbeschleunigung.
+        /// </summary>
+        public void DrawScaled(Surface source, int x, int y, int w, int h, int r, int alpha)
+        {
+            if (w <= 0 || h <= 0 || alpha <= 0) return;
+            if (2 * r > w) r = w / 2;
+            if (2 * r > h) r = h / 2;
+            int stepX = (source.Width << 16) / w, stepY = (source.Height << 16) / h;
+            for (int j = 0; j < h; j++)
+            {
+                int py = y + j;
+                if (py < clipY0 || py >= clipY1) continue;
+                int inset = 0;
+                if (j < r || j >= h - r)
+                {
+                    float dy = (j < r ? r - j : j - (h - r) + 1) - 0.5f;
+                    float reach = r * r - dy * dy;
+                    inset = reach <= 0 ? r : r - (int)Math.Sqrt(reach);
+                }
+                int x0 = x + inset, x1 = x + w - inset;
+                if (x0 < clipX0) x0 = clipX0;
+                if (x1 > clipX1) x1 = clipX1;
+                int row = ((j * stepY) >> 16) * source.Width;
+                int sx = (x0 - x) * stepX;
+                for (int px = x0; px < x1; px++, sx += stepX)
+                    Blend(py * Width + px, (uint)source.Pixels[row + (sx >> 16)], alpha);
+            }
+        }
+
         public void CopyFrom(Surface source)
         {
             Array.Copy(source.Pixels, Pixels, Pixels.Length);
