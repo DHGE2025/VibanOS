@@ -53,6 +53,7 @@ namespace VibanOS.Preview
         private static Desktop desktop;
         private static Surface screen;
         private static int checks;
+        private static long animTime; // Uhr der Animationen, läuft nur, wenn der Test sie weiterstellt
 
         public static int Main(string[] args)
         {
@@ -72,6 +73,7 @@ namespace VibanOS.Preview
             OS.Boot();
             screen = new Surface(T.Size.ScreenWidth, T.Size.ScreenHeight);
             desktop = new Desktop(T.Size.ScreenWidth, T.Size.ScreenHeight);
+            desktop.Clock = () => animTime;
             desktop.OnMouse(760, 470, false);
 
             // Erster Start: root vergibt sein Passwort und tippt es zweimal ein
@@ -338,6 +340,52 @@ namespace VibanOS.Preview
             Check(plain.Pixels[32 * 200 + 100] == plain.Pixels[0] && plain.Pixels[60 * 200 + 100] == plain.Pixels[0] && plain.Pixels[95 * 200 + 100] != plain.Pixels[0],
                 "Der Schatten liegt nur außerhalb der Form, auch in den Zeilen der Ecken");
 
+            Surface still = new Surface(100, 60);
+            still.FillRect(0, 0, 100, 60, T.Color.Danger);
+            plain.FillRect(0, 0, 200, 120, T.Color.TextOnAccent);
+            plain.DrawScaled(still, 50, 30, 50, 30, T.Radius.M, 255);
+            Check(plain.Pixels[30 * 200 + 50] == plain.Pixels[0] && plain.Pixels[45 * 200 + 75] == unchecked((int)T.Color.Danger) && plain.Pixels[45 * 200 + 100] == plain.Pixels[0],
+                "Das gestreckte Standbild einer Animation hat runde Ecken und bleibt in seinem Rechteck");
+
+            // Animationen
+            terminal.X = 70;
+            terminal.Y = 64;
+            Settle();
+            Check(!desktop.Animating, "Animationen enden nach ihrer Dauer");
+            desktop.Open(Icons.About);
+            Window info = desktop.Active;
+            int edge = (info.Y + T.Size.TitleBar / 2) * screen.Width + info.X + T.Space.XS;
+            desktop.Frame(screen);
+            int hidden = screen.Pixels[edge];
+            animTime += T.Motion.Open / 2;
+            desktop.Frame(screen);
+            Check(desktop.Animating && hidden != unchecked((int)T.Color.TitleBar) && screen.Pixels[edge] != unchecked((int)T.Color.TitleBar), "Ein neues Fenster blendet sich ein");
+            animTime += T.Motion.Open;
+            desktop.Frame(screen);
+            Check(!desktop.Animating && screen.Pixels[edge] == unchecked((int)T.Color.TitleBar), "Nach dem Einblenden steht das Fenster fertig da");
+            Click(ControlX(info, Window.ZoomButton), info.Y + T.Size.TitleBar / 2);
+            Check(!desktop.Animating && info.Width == 340, "Fenster mit festem Inhalt vergrößert der grüne Knopf nicht");
+            Click(ControlX(info, Window.MinimizeButton), info.Y + T.Size.TitleBar / 2);
+            Check(desktop.Active != info && desktop.Animating, "Der gelbe Knopf legt das Fenster ins Dock");
+            Settle();
+            int dockLeft = (T.Size.ScreenWidth - (Icons.Count * T.Size.DockIcon + (Icons.Count - 1) * T.Space.M + 2 * T.Space.S)) / 2 + T.Space.S;
+            Click(dockLeft + Icons.About * (T.Size.DockIcon + T.Space.M) + T.Size.DockIcon / 2, dockRow);
+            Check(desktop.Active == info && desktop.Animating, "Ein Klick auf das Dock-Symbol holt dasselbe Fenster zurück");
+            Click(ControlX(info, Window.CloseButton), info.Y + T.Size.TitleBar / 2);
+            Settle();
+            Check(desktop.Active != info && !desktop.Animating, "Der rote Knopf schließt auch ein Fenster, das noch hereinkommt");
+            Click(ControlX(terminal, Window.ZoomButton), terminal.Y + T.Size.TitleBar / 2);
+            Settle();
+            Check(desktop.Active == terminal && terminal.Width == T.Size.ScreenWidth - 2 * T.Space.S && terminal.Y == T.Size.MenuBar + T.Space.S,
+                "Der grüne Knopf vergrößert das Terminal auf die freie Fläche");
+            Click(ControlX(terminal, Window.ZoomButton), terminal.Y + T.Size.TitleBar / 2);
+            animTime += T.Motion.Zoom / 2;
+            desktop.Frame(screen);
+            Check(terminal.Width > 720 && terminal.Width < T.Size.ScreenWidth - 2 * T.Space.S, "Beim Zoomen wächst das echte Fenster schrittweise");
+            Settle();
+            Check(terminal.Width == 720 && terminal.X == 70 && terminal.Y == 64, "Ein zweiter Klick stellt die alte Größe wieder her");
+            Click(T.Size.ScreenWidth / 2, dockRow); // Aktivität wieder nach vorn
+
             // Bild für die Vorschau herrichten
             Type("");
             terminal.X = 70;
@@ -361,6 +409,11 @@ namespace VibanOS.Preview
             desktop.Open(Icons.Activity);
             desktop.OnMouse(980, 600, false);
             Shot(output, "4-schreibtisch");
+            Click(ControlX(terminal, Window.MinimizeButton), terminal.Y + T.Size.TitleBar / 2);
+            animTime += T.Motion.Minimize / 2;
+            desktop.Frame(screen);
+            SavePng(screen, Path.Combine(output, "5-minimieren.png"));
+            Settle();
             DesignSheet(output);
 
             Directory.SetCurrentDirectory(output);
@@ -410,6 +463,19 @@ namespace VibanOS.Preview
 
         private static void Press(Key key) { desktop.OnKey(key, '\0'); }
 
+        // Stellt die Uhr weiter, bis jede Animation fertig ist, und zeichnet neu.
+        private static void Settle()
+        {
+            animTime += 1000;
+            desktop.Frame(screen);
+        }
+
+        // Mitte eines Fensterknopfs, waagerecht.
+        private static int ControlX(Window w, int button)
+        {
+            return w.X + T.Space.M + button * (T.Size.Control + T.Size.ControlGap) + T.Size.Control / 2;
+        }
+
         private static void Click(int x, int y)
         {
             desktop.OnMouse(x, y, true);
@@ -419,6 +485,7 @@ namespace VibanOS.Preview
         // Zeichnet neu und fasst den Inhalt eines Fensters zu einer Zahl zusammen, um zwei Bilder zu vergleichen.
         private static long Picture(Window w)
         {
+            animTime += 1000;
             OS.Changed = true;
             desktop.Frame(screen);
             long sum = 17;
@@ -429,6 +496,7 @@ namespace VibanOS.Preview
 
         private static void Shot(string dir, string name)
         {
+            animTime += 1000;
             OS.Changed = true;
             desktop.Frame(screen);
             SavePng(screen, Path.Combine(dir, name + ".png"));
