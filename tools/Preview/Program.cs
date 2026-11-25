@@ -200,10 +200,18 @@ namespace VibanOS.Preview
             Type("rm /system/users.txt\n");
             Check(Last().Text.StartsWith("Das braucht das System") && File.Exists(userFile), "rm löscht die Nutzerdatei nicht, auch nicht für root");
             Type("write /home/zettel.txt x\nmv /home/zettel.txt /home/root/zettel.txt\n");
-            Check(File.Exists(Path.Combine(home, "zettel.txt")), "Eine Datei direkt in home lässt sich verschieben, nur die Ordner dort sind fest");
+            Check(File.Exists(Path.Combine(home, "zettel.txt")), "Eine Datei direkt in home lässt sich verschieben, fest sind dort nur die Home-Ordner der Nutzer");
             Type("rm /home/root/zettel.txt\n");
+            Type("rm /home/root\n");
+            Check(Last().Text.StartsWith("Das braucht das System") && Directory.Exists(home), "rm löscht keinen Home-Ordner");
+            Type("mkdir /home/fremd\nmv /home/fremd /home/fremd2\nrm /home/fremd2\n");
+            Check(Last().Style != LineStyle.Error && !Directory.Exists(Path.Combine(disk, "home", "fremd")) && !Directory.Exists(Path.Combine(disk, "home", "fremd2")),
+                "Ein Ordner in home, der keinem Nutzer gehört, lässt sich umbenennen und löschen");
+            // Die Meldung muss von der Schutzregel kommen: Im Selbsttest scheiterte das Verschieben der Wurzel auch am Wirtssystem.
             Type("mv / /verlegt\n");
-            Check(Last().Style == LineStyle.Error && Directory.Exists(home) && !Directory.Exists(Path.Combine(disk, "verlegt")), "mv verschiebt die Wurzel nicht");
+            Check(Last().Text.StartsWith("Das braucht das System") && Directory.Exists(home) && !Directory.Exists(Path.Combine(disk, "verlegt")), "mv verschiebt die Wurzel nicht");
+            Type("rm /\n");
+            Check(Last().Text.StartsWith("Das braucht das System"), "rm fasst die Wurzel nicht an");
             Type("cd /home/root\n");
             Type("mv neu.txt archiv\nmv archiv notizen\n");
             Check(File.Exists(Path.Combine(home, "notizen", "neu.txt")), "mv in einen Ordner legt die Datei hinein");
@@ -226,14 +234,23 @@ namespace VibanOS.Preview
             Type("rm /plan.txt\n");
             Type("mv fehlt.txt x.txt\n");
             Check(Last().Text.StartsWith("Nicht gefunden"), "mv meldet eine fehlende Quelle");
+            Type("mv notizen/neu.txt neu kopie.txt\n");
+            Check(Last().Text.StartsWith("Aufruf: mv") && File.Exists(Path.Combine(home, "notizen", "neu.txt")) && !File.Exists(Path.Combine(home, "neu")),
+                "mv mit einem Argument zu viel fasst nichts an, etwa bei einem Namen mit Leerzeichen ohne Anführungszeichen");
+            Type("mkdir \"zwei worte\"\nmv \"zwei worte\" \"drei kurze worte\"\n");
+            bool renamed = Directory.Exists(Path.Combine(home, "drei kurze worte")) && !Directory.Exists(Path.Combine(home, "zwei worte"));
+            Type("rm \"drei kurze worte\"\n");
+            Check(renamed && !Directory.Exists(Path.Combine(home, "drei kurze worte")), "In Anführungszeichen gehen auch Namen mit Leerzeichen");
             Type("df\n");
             Check(Last().Text.Contains("64 MB gesamt") && Last().Text.Contains("60 MB frei"), "df zeigt Größe und freien Platz der Platte");
             Platform.Hardware.DiskSpaceFails = true;
             Type("df\n");
             Check(Last().Style == LineStyle.Error && Last().Text.StartsWith("Der freie Platz"), "df sagt, wenn sich der freie Platz nicht ermitteln lässt");
             Platform.Hardware.DiskSpaceFails = false;
-            Check(Text.Bytes(0) == "0 Byte" && Text.Bytes(1536) == "1,5 KB" && Text.Bytes(10 * 1024) == "10 KB" && Text.Bytes(5UL << 30) == "5 GB",
+            Check(Text.Bytes(0) == "0 Byte" && Text.Bytes(1023) == "1023 Byte" && Text.Bytes(1536) == "1,5 KB" && Text.Bytes(10239) == "9,9 KB"
+                && Text.Bytes(10 * 1024) == "10 KB" && Text.Bytes(5UL << 30) == "5 GB" && Text.Bytes(ulong.MaxValue) == "16777216 TB",
                 "Größen werden lesbar ausgegeben");
+            Check(Text.Bytes((1UL << 20) - 1) == "1 MB" && Text.Bytes((1UL << 30) - 1) == "1 GB", "Knapp unter der nächsten Einheit steht 1 MB und nicht 1024 KB");
             Type("cd ..\ncd ..\ncd ..\n");
             Check(OS.Shell.CurrentDirectory == Vfs.Root, "cd .. verlässt die Wurzel nicht");
             Type("cd home/root\n");
@@ -544,6 +561,13 @@ namespace VibanOS.Preview
             Directory.CreateDirectory(settingsFile); // ein Ordner im Weg: Schreiben scheitert
             ClickAt(settings.CenterOf(SettingsWindow.PickAccent));
             Check(settings.Error.StartsWith("Die Einstellungen ließen sich nicht speichern") && settings.Note == "", "Scheitert das Speichern, sagt es das Fenster");
+            OS.Users.Logout(); // Nutzerwechsel bei offenem Fenster, hier ohne den Weg über den Anmeldebildschirm
+            OS.Users.Login("anna", "topsecret");
+            Picture(settings);
+            bool forgotten = settings.Error == "";
+            OS.Users.Logout();
+            OS.Users.Login(UserManager.Root, "geheim");
+            Check(forgotten && OS.Users.Current.Name == UserManager.Root, "Die Meldung des Vorgängers steht nach einem Nutzerwechsel nicht mehr in den Einstellungen");
             Directory.Delete(settingsFile);
             ClickAt(settings.CenterOf(SettingsWindow.PickAccent));
             Check(settings.Error == "" && File.Exists(settingsFile), "Der nächste Klick speichert wieder");
@@ -691,13 +715,30 @@ namespace VibanOS.Preview
             files.OnKey(Key.Enter, '\0');
             Check(files.Lines.Count == 3 && files.Lines[0] == "Milch" && files.Lines[1] == "Brot" && files.Lines[2] == "    Butter",
                 "Die Vorschau zeigt Windows-Zeilenenden, Tabulatoren und die UTF-8-Kennung sauber");
+            File.WriteAllText(Path.Combine(home, "notizen", "ende.txt"), "eins\r\nzwei\r\n");
+            File.WriteAllText(Path.Combine(home, "notizen", "nichts.txt"), "");
+            files.OnKey(Key.Backspace, '\0');
+            Picture(files);
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("ende.txt")));
+            files.OnKey(Key.Enter, '\0');
+            bool two = files.Lines.Count == 2 && files.Lines[1] == "zwei" && files.Info == "2 Zeilen";
+            files.OnKey(Key.Backspace, '\0');
+            Picture(files);
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("nichts.txt")));
+            files.OnKey(Key.Enter, '\0');
+            Picture(files);
+            for (int i = 0; i < 3; i++) files.OnKey(Key.PageDown, '\0');
+            Picture(files);
+            Check(two && files.OpenFile != null && files.Lines.Count == 0 && files.Info == "0 Zeilen" && files.Top == 0,
+                "Ein Zeilenende am Schluss zählt nicht als weitere Zeile, und eine leere Datei hat keine");
             File.WriteAllText(Path.Combine(home, "notizen", "lang.txt"), new string('x', 10000)); // eine einzige, sehr lange Zeile
             files.OnKey(Key.Backspace, '\0');
             Picture(files);
             ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("lang.txt")));
             files.OnKey(Key.Enter, '\0');
             Picture(files);
-            Check(files.Lines.Count == 2 && files.Lines[0].Length == 8192 && files.Lines[1] == "...", "Von einer großen Datei liest die Vorschau nur den Anfang");
+            Check(files.Lines.Count == 2 && files.Lines[0].Length == 8192 && files.Lines[1] == "..." && files.Info == "Die ersten 8 KB der Datei",
+                "Von einer großen Datei liest die Vorschau nur den Anfang und sagt das in der Statusleiste");
             long lineStart = Picture(files);
             for (int i = 0; i < 100; i++) files.OnKey(Key.PageDown, '\0');
             Check(Picture(files) != lineStart && files.Top > 0, "Eine sehr lange Zeile bricht in der Vorschau um: Mit Bild ab kommt man bis an ihr Ende");
@@ -762,10 +803,16 @@ namespace VibanOS.Preview
             bool shown = files.CenterOf(FilesWindow.Item + files.IndexOf("o18")) != null;
             files.OnKey(Key.Enter, '\0');
             Check(inside && shown && files.Folder.EndsWith("o18"), "Zurück aus einem Unterordner ist er ausgewählt und zu sehen, auch weit unten in der Liste");
+            files.OnKey(Key.Backspace, '\0');
+            Picture(files);
+            bool scrolled = FirstRow(files) > 0;
+            for (int i = 0; i < 17; i++) files.OnKey(Key.Up, '\0');
+            Picture(files);
+            Check(scrolled && FirstRow(files) == 0, "Die Liste blättert auch nach oben mit der Auswahl mit");
             Directory.Delete(many, true);
             ClickAt(files.CenterOf(FilesWindow.PlaceHome));
             Check(FilesWindow.Kind("bild.png") == "PNG-Datei" && FilesWindow.Kind("NOTIZ.TXT") == "Text" && FilesWindow.Kind("ohne") == "Datei"
-                && FilesWindow.Kind("sicherung.backup2024") == "Datei" && FilesWindow.Kind("Bericht v1.2 final") == "Datei",
+                && FilesWindow.Kind("a.jpeg") == "JPEG-Datei" && FilesWindow.Kind("sicherung.backup2024") == "Datei" && FilesWindow.Kind("Bericht v1. neu") == "Datei",
                 "Die Spalte Art nennt nur kurze Endungen, alles andere heißt Datei");
             OS.Shell.Submit("mkdir /home/root/wand");
             ClickAt(files.CenterOf(FilesWindow.PlaceHome)); // liest den Ordner neu
@@ -786,6 +833,26 @@ namespace VibanOS.Preview
             files.OnKey(Key.PageUp, '\0');
             files.OnKey(Key.Enter, '\0');
             Check(files.Folder.EndsWith("Neuer Ordner"), "Bild auf geht höchstens bis zum ersten Eintrag");
+            files.OnKey(Key.Backspace, '\0');
+            Picture(files);
+            OS.Shell.Submit("mkdir /home/root/wand");
+            ClickAt(files.CenterOf(FilesWindow.PlaceHome));
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("wand")));
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("wand")));
+            OS.Shell.Submit("rm /home/root/wand");
+            ClickAt(blank);
+            Check(files.Folder == OS.Users.Current.HomeDirectory && files.Message.StartsWith("Ordner nicht gefunden"),
+                "Ist der gezeigte Ordner weg, führt auch ein Klick ins Leere nach Hause und sagt es");
+            ClickAt(blank);
+            Check(files.Message == "", "Der nächste Klick ins Leere räumt die alte Meldung weg");
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("windows.txt")));
+            files.OnKey(Key.Enter, '\0');
+            Picture(files);
+            ClickAt(blank); // mitten in den Text
+            files.OnKey(Key.Backspace, '\0');
+            Picture(files);
+            files.OnKey(Key.Enter, '\0');
+            Check(files.OpenFile != null && files.OpenFile.EndsWith("windows.txt"), "Ein Klick in die Vorschau hebt die Auswahl der Liste nicht auf");
             files.OnKey(Key.Backspace, '\0');
             Picture(files);
             ClickAt(files.CenterOf(FilesWindow.PlaceDisk));

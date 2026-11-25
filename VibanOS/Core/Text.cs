@@ -50,9 +50,10 @@ namespace VibanOS.Core
         {
             if (n < 1024) return n + " Byte";
             string[] units = { "KB", "MB", "GB", "TB" };
-            ulong tenths = n * 10 / 1024;
+            ulong tenths = n / 1024 * 10 + n % 1024 * 10 / 1024; // Zehntel der Einheit, ohne Überlauf bei riesigen Werten
             int unit = 0;
-            while (tenths >= 10240 && unit < units.Length - 1) { tenths /= 1024; unit++; }
+            // Ab 1023,5 rundet die Ausgabe unten auf 1024: Dann ist es 1 der nächsten Einheit, nicht "1024 KB".
+            while (tenths >= 10235 && unit < units.Length - 1) { tenths = (tenths + 512) / 1024; unit++; }
             // Unter 10 mit einer Nachkommastelle, darüber ganze Zahlen.
             return (tenths < 100 && tenths % 10 != 0 ? tenths / 10 + "," + tenths % 10 : ((tenths + 5) / 10).ToString()) + " " + units[unit];
         }

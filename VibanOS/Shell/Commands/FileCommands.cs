@@ -166,7 +166,8 @@ namespace VibanOS.Cli.Commands
         protected bool Paths(string[] args, Shell shell, Access source, out string from, out string to)
         {
             from = to = null;
-            if (args.Length < 2) { shell.Error("Aufruf: " + Usage); return false; }
+            // Genau zwei: Ein Name mit Leerzeichen ohne Anführungszeichen zerfiele sonst still in Ziel und Rest.
+            if (args.Length != 2) { shell.Error("Aufruf: " + Usage + " (Namen mit Leerzeichen in Anführungszeichen)"); return false; }
             from = Target(args, shell, source);
             if (from == null) return false;
             to = Target(new[] { args[1] }, shell, Access.Write);

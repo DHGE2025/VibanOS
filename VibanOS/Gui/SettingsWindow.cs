@@ -34,6 +34,7 @@ namespace VibanOS.Gui
         private int page;
         private string error = "";   // etwas ist gescheitert
         private string note = "";    // Hinweis, kein Fehler
+        private VibanOS.Users.User owner; // wem die Meldung gilt
 
         public SettingsWindow()
         {
@@ -66,6 +67,7 @@ namespace VibanOS.Gui
         private void Do(int action)
         {
             error = note = "";
+            owner = OS.Users.Current; // was jetzt gemeldet wird, gilt ihm
             if (action < Pages.Length) { page = action; return; }
             if (action >= PickAccent && action < PickAccent + Accents.Length) T.Color.Accent = Accents[action - PickAccent];
             else if (action >= PickMode && action < PickMode + modes.Count)
@@ -111,6 +113,8 @@ namespace VibanOS.Gui
 
         protected override void DrawContent(Surface s, int x, int y, int w, int h)
         {
+            // Fenster überleben die Abmeldung, die Meldung des Vorgängers nicht.
+            if (owner != OS.Users.Current) { owner = OS.Users.Current; error = note = ""; }
             hot.Clear();
             originX = x;
             originY = y;

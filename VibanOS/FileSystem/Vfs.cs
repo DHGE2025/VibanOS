@@ -105,14 +105,17 @@ namespace VibanOS.FileSystem
 
         /// <summary>
         /// Pfade, auf die sich das System verlässt: die Wurzel, der Ordner system samt Inhalt (die Nutzerdatei), home und
-        /// die Ordner direkt darin, also die Home-Ordner. Verschoben fände sie niemand wieder. Ohne die Nutzerdatei
-        /// begänne der nächste Start mit der Ersteinrichtung, und außerhalb von system könnte sie jeder lesen.
+        /// die Home-Ordner der Nutzer. Verschoben fände sie niemand wieder. Ohne die Nutzerdatei begänne der nächste
+        /// Start mit der Ersteinrichtung, und außerhalb von system könnte sie jeder lesen.
         /// </summary>
         public static bool IsFixed(string path)
         {
-            string p = path.ToLowerInvariant(), system = SystemDirectory.ToLowerInvariant(), home = (Root + "home").ToLowerInvariant();
-            if (p == Root.ToLowerInvariant() || p == home || p == system || Text.HasPrefix(p, system + Separator)) return true;
-            return Text.HasPrefix(p, home + Separator) && p.IndexOf(Separator, home.Length + 1) < 0 && Directory.Exists(path);
+            string p = path.ToLowerInvariant(), system = SystemDirectory.ToLowerInvariant();
+            if (p == Root.ToLowerInvariant() || p == (Root + "home").ToLowerInvariant() || p == system || Text.HasPrefix(p, system + Separator)) return true;
+            // Nur die Ordner der Nutzer, nicht jeder Ordner, den jemand in home anlegt: Den würde sonst niemand wieder los.
+            for (int i = 0; i < OS.Users.All.Count; i++)
+                if (p == OS.Users.All[i].HomeDirectory.ToLowerInvariant()) return true;
+            return false;
         }
 
         /// <summary>

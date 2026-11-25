@@ -39,6 +39,7 @@ namespace VibanOS.Gui
         // Liste und Vorschau blättern getrennt: Sonst stünde die Liste nach dem Schließen einer Datei woanders.
         private int selected = -1, scroll, visibleRows = 1; // Liste: gewählte Zeile, erste gezeigte, so viele passen
         private int top, previewRows = 1;                   // Vorschau: erste gezeigte Zeile, so viele passen
+        private bool cut;                                   // Vorschau: Die Datei geht nach dem gezeigten Anfang weiter
         private string message = "";
         private string space = "";  // freier Platz für die Statuszeile, siehe ReadSpace
 
@@ -84,6 +85,18 @@ namespace VibanOS.Gui
         internal int Count { get { return entries.Count; } }
         internal List<string> Lines { get { return lines; } }
         internal int Top { get { return top; } }
+
+        /// <summary>Text der Statusleiste: was das Fenster gerade zeigt.</summary>
+        internal string Info
+        {
+            get
+            {
+                if (file == null) return entries.Count + (entries.Count == 1 ? " Objekt" : " Objekte");
+                // Von einer großen Datei kennt die Vorschau nur den Anfang, also auch nicht die Zahl ihrer Zeilen.
+                if (cut) return "Die ersten " + Text.Bytes(PreviewBytes) + " der Datei";
+                return lines.Count + (lines.Count == 1 ? " Zeile" : " Zeilen");
+            }
+        }
 
         /// <summary>Zeigt einen Ordner. Ohne Recht oder wenn es ihn nicht gibt, bleibt alles, wie es war.</summary>
         private void Go(string path)
@@ -174,8 +187,11 @@ namespace VibanOS.Gui
                 {
                     bool more;
                     string[] split = Vfs.ReadStart(path, PreviewBytes, out more).Split('\n');
-                    for (int i = 0; i < split.Length; i++) lines.Add(split[i].Replace("\r", "").Replace("\t", "    "));
+                    // Ein Zeilenende am Schluss beginnt keine weitere Zeile, und eine leere Datei hat keine.
+                    int count = !more && split[split.Length - 1] == "" ? split.Length - 1 : split.Length;
+                    for (int i = 0; i < count; i++) lines.Add(split[i].Replace("\r", "").Replace("\t", "    "));
                     if (more) lines.Add("...");
+                    cut = more;
                     file = path;
                     top = 0;
                     message = "";
@@ -225,8 +241,11 @@ namespace VibanOS.Gui
                 OS.Changed = true;
                 return;
             }
-            // Ein Klick ins Leere hebt die Auswahl auf und holt den neuesten Stand des Ordners.
+            // In der Vorschau gibt es nichts abzuwählen: Die Auswahl der Liste bleibt für den Weg zurück.
+            if (file != null) return;
+            // Ein Klick ins Leere hebt die Auswahl auf, räumt eine alte Meldung weg und holt den neuesten Stand des Ordners.
             selected = -1;
+            message = "";
             Reload();
             OS.Changed = true;
         }
@@ -321,8 +340,7 @@ namespace VibanOS.Gui
             if (message != "") s.DrawText(Fonts.Body, ActivityWindow.Fit(Fonts.Body, message, inner - 2 * T.Space.L), left + T.Space.L, textY, T.Color.Danger);
             else if (Vfs.Available)
             {
-                string info = file != null ? lines.Count + (lines.Count == 1 ? " Zeile" : " Zeilen") : entries.Count + (entries.Count == 1 ? " Objekt" : " Objekte");
-                s.DrawTextCentered(Fonts.Body, info + space, left + inner / 2, textY, T.Color.TextSecondary);
+                s.DrawTextCentered(Fonts.Body, Info + space, left + inner / 2, textY, T.Color.TextSecondary);
             }
         }
 
@@ -447,6 +465,7 @@ namespace VibanOS.Gui
             for (int i = 0; i < lines.Count; i++) total += Rows(lines[i], columns);
             if (top > total - previewRows) top = total - previewRows;
             if (top < 0) top = 0;
+            if (lines.Count == 0) { Empty(s, x, w, y, bottom, "Diese Datei ist leer.", ""); return; }
             int row = 0, end = top + previewRows;
             for (int i = 0; i < lines.Count && row < end; i++)
             {
