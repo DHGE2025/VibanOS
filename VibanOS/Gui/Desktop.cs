@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using VibanOS.Core;
 using VibanOS.Graphics;
+using VibanOS.Processes;
 using T = VibanOS.Design.Tokens;
 
 namespace VibanOS.Gui
@@ -115,9 +116,12 @@ namespace VibanOS.Gui
         {
             if (apps[icon] != null) { Focus(apps[icon]); return; }
             Window w;
-            if (icon == Icons.Terminal) w = new TerminalWindow();
-            else if (icon == Icons.Activity) w = new ActivityWindow();
-            else w = new AboutWindow();
+            string name;
+            if (icon == Icons.Terminal) { w = new TerminalWindow(); name = "terminal"; }
+            else if (icon == Icons.Activity) { w = new ActivityWindow(); name = "aktivität"; }
+            else { w = new AboutWindow(); name = "info"; }
+            // Jede offene App ist ein Prozess, sonst fehlt sie in ps und in der Aktivitätsanzeige.
+            w.Process = OS.Processes.Start(new AppProcess(name));
             // Neue Fenster leicht versetzt, damit sie sich nicht genau überdecken
             w.X = (scene.Width - w.Width) / 2 + (icon - 1) * T.Space.XXL * 3;
             w.Y = T.Size.MenuBar + T.Space.XL + icon * T.Space.XXL;
@@ -137,6 +141,8 @@ namespace VibanOS.Gui
 
         private void Close(Window w)
         {
+            if (w.Process != null) OS.Processes.Kill(w.Process.Id);
+            w.Process = null;
             Remove(w);
             for (int i = 0; i < apps.Length; i++)
                 if (apps[i] == w) apps[i] = null;
@@ -163,6 +169,12 @@ namespace VibanOS.Gui
                 lastSecond = now.Second;
                 for (int i = 0; i < windows.Count; i++)
                     if (windows[i].Live) OS.Changed = true;
+            }
+            // Wurde der Prozess einer App beendet (kill, Signal), geht ihr Fenster zu.
+            for (int i = windows.Count - 1; i >= 0; i--)
+            {
+                Process p = windows[i].Process;
+                if (p != null && (p.State == ProcessState.Terminated || OS.Processes.Get(p.Id) != p)) Close(windows[i]);
             }
             if (Locked && login.LockExpired(now)) OS.Changed = true;
             if (wasLocked && !Locked && windows.Count == 0) Open(Icons.Terminal);

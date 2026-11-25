@@ -136,20 +136,22 @@ namespace VibanOS.Preview
             Check(Vfs.Resolve(Vfs.Root, "system./users.txt") == Vfs.SystemDirectory + Vfs.Separator + "users.txt", "Punkte am Namensende ergeben keinen zweiten Namen");
 
             // Prozesse und Scheduler (VIB-3)
+            // PID 1 ist das Terminal: Jede offene App ist ein Prozess und bekommt ihren Anteil.
             Type("start counter\nstart counter\nstart clock\n");
-            for (int i = 0; i < 30; i++) OS.Tick();
-            Check(OS.Processes.Get(1).Steps == 10 && OS.Processes.Get(2).Steps == 10 && OS.Processes.Get(3).Steps == 10,
+            for (int i = 0; i < 40; i++) OS.Tick();
+            Check(OS.Processes.Get(1).Name == "terminal" && OS.Processes.Get(1).Steps == 10 && OS.Processes.Get(2).Steps == 10
+                && OS.Processes.Get(3).Steps == 10 && OS.Processes.Get(4).Steps == 10,
                 "Round Robin verteilt die Schritte gleichmäßig");
             Type("ps\n");
             Check(OS.Shell.Lines[OS.Shell.Lines.Count - 3].Text.Contains("Zähler 10"), "ps zeigt die Ausgabe der Prozesse");
             int framesBefore = OS.Memory.Frames.FreeCount;
-            Type("kill 2\n");
-            Check(OS.Processes.Get(2) == null && OS.Memory.Frames.FreeCount == framesBefore + 1, "kill beendet den Prozess und gibt seinen Speicher frei");
+            Type("kill 3\n");
+            Check(OS.Processes.Get(3) == null && OS.Memory.Frames.FreeCount == framesBefore + 1, "kill beendet den Prozess und gibt seinen Speicher frei");
             Type("start counter abc\n");
-            Check(Last().Style == LineStyle.Error && OS.Processes.All.Count == 2, "start lehnt eine Priorität ab, die keine Zahl ist");
+            Check(Last().Style == LineStyle.Error && OS.Processes.All.Count == 3, "start lehnt eine Priorität ab, die keine Zahl ist");
 
             // Signale (VIB-14)
-            Process clock = OS.Processes.Get(3);
+            Process clock = OS.Processes.Get(4);
             clock.OnSignal(Signal.Stop);
             int stoppedAt = clock.Steps;
             for (int i = 0; i < 10; i++) OS.Tick();
@@ -162,35 +164,35 @@ namespace VibanOS.Preview
             clock.OnSignal(Signal.Cont);
             Check(clock.State == ProcessState.Terminated && OS.Memory.Frames.FreeCount == framesBefore + 1,
                 "Term beendet den Prozess endgültig und gibt seinen Speicher frei");
-            Check(!Ipc.Mailbox.Send(1, 3, "hallo") && Ipc.Mailbox.Send(3, 1, "hallo"), "Nachrichten gehen nur an lebende Prozesse");
-            Type("kill 3\n");
+            Check(!Ipc.Mailbox.Send(2, 4, "hallo") && Ipc.Mailbox.Send(4, 2, "hallo"), "Nachrichten gehen nur an lebende Prozesse");
+            Type("kill 4\n");
 
             // Speicher (VIB-5, VIB-7)
-            Type("alloc 1 5\n");
-            OS.Memory.WriteByte(1, 4096 + 7, 42);
-            Check(OS.Memory.ReadByte(1, 4096 + 7) == 42, "Schreiben und Lesen über die Seitentabelle");
-            Check(Throws(() => OS.Memory.ReadByte(1, 40 * 4096)), "Zugriff auf eine nicht zugeordnete Seite ist ein Page Fault");
+            Type("alloc 2 5\n");
+            OS.Memory.WriteByte(2, 4096 + 7, 42);
+            Check(OS.Memory.ReadByte(2, 4096 + 7) == 42, "Schreiben und Lesen über die Seitentabelle");
+            Check(Throws(() => OS.Memory.ReadByte(2, 40 * 4096)), "Zugriff auf eine nicht zugeordnete Seite ist ein Page Fault");
             Check(Throws(() => OS.Memory.ReadByte(99, 0)), "Fremder Prozess ohne Seitentabelle wird abgewiesen");
-            OS.Memory.TableOf(1).Pages[0].Access = PageAccess.Read;
-            Check(Throws(() => OS.Memory.WriteByte(1, 0, 1)) && OS.Memory.Log.Count == 3, "Schreibschutz greift und wird protokolliert");
-            OS.Memory.FreePage(1, 0);
-            OS.Memory.FreePage(1, 1);
-            Type("alloc 1 2\n");
-            Check(!Throws(() => OS.Memory.WriteByte(1, 0, 1)) && OS.Memory.ReadByte(1, 4096 + 7) == 0, "Eine neu vergebene Seite ist leer und beschreibbar");
-            Type("alloc 1 0\n");
+            OS.Memory.TableOf(2).Pages[0].Access = PageAccess.Read;
+            Check(Throws(() => OS.Memory.WriteByte(2, 0, 1)) && OS.Memory.Log.Count == 3, "Schreibschutz greift und wird protokolliert");
+            OS.Memory.FreePage(2, 0);
+            OS.Memory.FreePage(2, 1);
+            Type("alloc 2 2\n");
+            Check(!Throws(() => OS.Memory.WriteByte(2, 0, 1)) && OS.Memory.ReadByte(2, 4096 + 7) == 0, "Eine neu vergebene Seite ist leer und beschreibbar");
+            Type("alloc 2 0\n");
             Check(Last().Style == LineStyle.Error, "alloc verlangt mindestens eine Seite");
             Type("start counter\n");
             int hog = OS.Processes.All[OS.Processes.All.Count - 1].Id;
             Type("alloc " + hog + " 999\n");
             Check(Last().Style == LineStyle.Error && OS.Memory.Frames.FreeCount == 0, "alloc meldet, wenn der Speicher voll ist");
             Type("start clock\n");
-            Check(Last().Style == LineStyle.Error && OS.Processes.All.Count == 2, "Ohne freien Rahmen startet kein Prozess");
+            Check(Last().Style == LineStyle.Error && OS.Processes.All.Count == 3, "Ohne freien Rahmen startet kein Prozess");
             Type("kill " + hog + "\n");
             Check(OS.Memory.Frames.FreeCount > 0, "kill gibt alle Seiten des Prozesses frei");
 
             // Sperren (VIB-8)
             Type("start counter\nstart counter\nstart counter\n");
-            int a = OS.Processes.All[1].Id, b = OS.Processes.All[2].Id, c = OS.Processes.All[3].Id;
+            int a = OS.Processes.All[2].Id, b = OS.Processes.All[3].Id, c = OS.Processes.All[4].Id;
             Mutex mutex = new Mutex("test");
             Check(mutex.Lock(a) && !mutex.Lock(b) && !mutex.Lock(c) && OS.Processes.Get(b).State == ProcessState.Blocked,
                 "Eine belegte Sperre blockiert den nächsten Prozess");
@@ -323,6 +325,26 @@ namespace VibanOS.Preview
                 "Ein Fenster lässt sich nicht ganz aus dem Bildschirm oder unter das Dock ziehen");
             Click(T.Size.ScreenWidth / 2, dockRow);
             Check(desktop.Active is ActivityWindow, "Klick im Dock öffnet die App");
+            Window activity = desktop.Active;
+            Check(activity.Process != null && OS.Processes.Get(activity.Process.Id) == activity.Process && activity.Process.Name == "aktivität",
+                "Eine geöffnete App ist ein Prozess");
+            int before = OS.Processes.All.Count;
+            desktop.Open(Icons.About);
+            Window info = desktop.Active;
+            Check(OS.Processes.All.Count == before + 1, "Eine App, die nach der Aktivitätsanzeige aufgeht, wird mitgezählt");
+            Click(info.X + T.Space.M + T.Size.Control / 2, info.Y + T.Size.TitleBar / 2);
+            Check(OS.Processes.All.Count == before && OS.Processes.Get(info.Process == null ? -1 : info.Process.Id) == null,
+                "Schließen beendet den Prozess der App");
+            desktop.Open(Icons.About);
+            info = desktop.Active;
+            OS.Processes.Kill(info.Process.Id);
+            desktop.Frame(new Surface(T.Size.ScreenWidth, T.Size.ScreenHeight));
+            Check(!(desktop.Active is AboutWindow) && OS.Processes.All.Count == before, "kill auf den Prozess einer App schließt ihr Fenster");
+            desktop.Open(Icons.About);
+            info = desktop.Active;
+            info.Process.OnSignal(Signal.Term);
+            desktop.Frame(new Surface(T.Size.ScreenWidth, T.Size.ScreenHeight));
+            Check(!(desktop.Active is AboutWindow), "Das Signal Term an eine App schließt ihr Fenster");
             terminal.X = oldX;
             terminal.Y = T.Size.ScreenHeight / 2; // reicht jetzt bis unter das Dock
             Click(T.Size.ScreenWidth / 2 + T.Size.DockIcon / 2 + T.Space.M / 2, dockRow);
@@ -330,6 +352,7 @@ namespace VibanOS.Preview
             Desktop small = new Desktop(800, 600);
             small.Frame(new Surface(800, 600));
             Check(small.Active != null && small.Active.X >= 0, "Auch bei 800x600 beginnt das Terminal auf dem Bildschirm");
+            OS.Processes.Kill(small.Active.Process.Id); // Der zweite Schreibtisch soll im Bild keinen Prozess hinterlassen.
             Check(ActivityWindow.Fit(Fonts.Body, "root", 82) == "root" && Fonts.Body.Measure(ActivityWindow.Fit(Fonts.Body, "max_mustermann12", 82)) <= 82,
                 "Lange Nutzernamen werden für die Prozesstabelle gekürzt");
             Surface plain = new Surface(200, 120);

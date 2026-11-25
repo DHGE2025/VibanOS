@@ -1,4 +1,5 @@
 using VibanOS.Graphics;
+using VibanOS.Processes;
 using T = VibanOS.Design.Tokens;
 
 namespace VibanOS.Gui
@@ -14,6 +15,9 @@ namespace VibanOS.Gui
     {
         public int X, Y, Width, Height;
         public string Title = "";
+
+        /// <summary>Prozess des Fensters, solange es offen ist. null, wenn beim Öffnen kein Speicher frei war.</summary>
+        public Process Process;
 
         /// <summary>true: Inhalt ändert sich von selbst und wird jede Sekunde neu gezeichnet.</summary>
         public virtual bool Live { get { return false; } }
