@@ -1,0 +1,3 @@
+VibanOS/Graphics/FontData.cs linguist-generated=true
+# Der Bootloader liest diese Datei beim Start. Sie behält auch unter Windows Unix-Zeilenenden.
+VibanOS/Bootloader/limine.conf text eol=lf
