@@ -207,12 +207,16 @@ namespace VibanOS.Preview
             Check(File.Exists(Path.Combine(home, "notizen", "neu.txt")), "mv in einen Ordner legt die Datei hinein");
             // FAT unterscheidet Groß- und Kleinschreibung nicht. Dort wäre das Ziel die Quelle selbst.
             Type("mv notizen NOTIZEN\n");
-            Check(Last().Text.StartsWith("Quelle und Ziel sind dasselbe") && Directory.Exists(Path.Combine(home, "notizen")) && !Directory.Exists(Path.Combine(home, "NOTIZEN")),
-                "mv auf denselben Namen in anderer Schreibweise fasst nichts an");
+            Check(Last().Text.StartsWith("Auf der Platte ist das derselbe Name") && Directory.Exists(Path.Combine(home, "notizen")) && !Directory.Exists(Path.Combine(home, "NOTIZEN")),
+                "mv auf denselben Namen in anderer Schreibweise fasst nichts an und sagt, warum");
             Type("mv notizen/neu.txt notizen\n");
             Check(Last().Text.StartsWith("Quelle und Ziel sind dasselbe") && File.Exists(Path.Combine(home, "notizen", "neu.txt")), "mv einer Datei in ihren eigenen Ordner fasst nichts an");
             Type("cp notizen/neu.txt notizen/NEU.TXT\n");
-            Check(Last().Text.StartsWith("Quelle und Ziel sind dasselbe") && !File.Exists(Path.Combine(home, "notizen", "NEU.TXT")), "cp kopiert eine Datei nicht auf sich selbst");
+            Check(Last().Text.StartsWith("Auf der Platte ist das derselbe Name") && !File.Exists(Path.Combine(home, "notizen", "NEU.TXT")), "cp kopiert eine Datei nicht auf sich selbst");
+            // Unter dem FAT-Kurznamen erkennt mv denselben Ordner nicht wieder und schöbe ihn sonst in sich selbst.
+            Type("mv notizen NOTIZE~1/innen\n");
+            Check(Last().Text.StartsWith("Ordner verschiebt mv nicht über einen Pfad mit ~") && Directory.Exists(Path.Combine(home, "notizen")),
+                "mv verschiebt keinen Ordner über einen FAT-Kurznamen");
             Check(Vfs.Combine(Vfs.Root, "x") == Vfs.Root + "x" && Vfs.Combine(Vfs.Root + "home", "x") == Vfs.Root + "home" + Vfs.Separator + "x",
                 "Ein Name hängt mit genau einem Trenner am Ordner, auch an der Wurzel");
             Type("cp notizen/plan.txt /\ncp notizen/plan.txt /\n");
@@ -663,8 +667,18 @@ namespace VibanOS.Preview
             ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("notizen")));
             Check(files.Folder.EndsWith("notizen") && files.IndexOf("plan.txt") >= 0, "Ein zweiter Klick öffnet den Ordner");
             File.WriteAllText(Path.Combine(home, "notizen", "liste.txt"), "\uFEFFMilch\r\nBrot\n\tButter"); // mit UTF-8-Kennung, wie sie der Windows-Editor schreibt
-            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("plan.txt"))); // ein Klick ins Fenster liest den Ordner neu
-            Check(files.IndexOf("liste.txt") >= 0, "Was im Terminal entsteht, zeigt Dateien nach dem nächsten Klick");
+            int[] blank = { files.X + T.Size.Sidebar + 200, files.Y + files.Height - 80 }; // freie Fläche unter der Liste
+            ClickAt(blank);
+            Check(files.IndexOf("liste.txt") >= 0, "Was im Terminal entsteht, zeigt Dateien nach einem Klick ins Leere");
+            File.WriteAllText(Path.Combine(home, "notizen", "weg.txt"), "x");
+            ClickAt(blank);
+            File.Delete(Path.Combine(home, "notizen", "weg.txt"));
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("weg.txt")));
+            bool stale = files.IndexOf("weg.txt") >= 0; // Auswählen liest den Ordner nicht neu, das wäre auf FAT bei jedem Klick teuer
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("weg.txt")));
+            Check(stale && files.IndexOf("weg.txt") < 0 && files.OpenFile == null && files.Message.StartsWith("Datei lässt sich nicht lesen"),
+                "Lässt sich ein Eintrag nicht mehr öffnen, sagt Dateien es und liest den Ordner neu");
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("plan.txt")));
             files.OnKey(Key.Down, '\0');
             files.OnKey(Key.Enter, '\0');
             Check(files.OpenFile != null && files.OpenFile.EndsWith("plan.txt") && files.Lines[0] == "Erster Eintrag", "Pfeil und Eingabe öffnen eine Datei");

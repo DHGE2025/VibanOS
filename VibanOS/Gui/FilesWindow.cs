@@ -129,7 +129,7 @@ namespace VibanOS.Gui
         }
 
         // Den freien Platz beim Wechsel des Ordners holen und merken, nicht bei jedem Zeichnen oder Klick:
-        // Das Dateisystem muss dafür womöglich seine ganze Belegungstabelle durchgehen.
+        // Der FAT-Treiber von COSMOS liest dafür jedes Mal die ganze Belegungstabelle von der Platte.
         private void ReadSpace()
         {
             ulong total, free;
@@ -146,8 +146,9 @@ namespace VibanOS.Gui
                 long size = -1;
                 if (!isFolder)
                 {
-                    // ponytail: je Datei eine eigene Anfrage an das Dateisystem. Bei tausenden Dateien in einem Ordner
-                    // wird das zäh, dann die Größe nur für die sichtbaren Zeilen holen.
+                    // ponytail: je Datei eine eigene Anfrage an das Dateisystem, und der FAT-Treiber von COSMOS liest dafür
+                    // jedes Mal alle Ordner auf dem Pfad neu (200 Dateien: rund 1400 Lesezugriffe). Wird das bei großen
+                    // Ordnern zäh, die Größe nur für die sichtbaren Zeilen holen.
                     try { size = new FileInfo(Vfs.Combine(folder, names[i])).Length; }
                     catch (Exception) { }
                 }
@@ -161,20 +162,25 @@ namespace VibanOS.Gui
         {
             if (index < 0 || index >= entries.Count) return;
             string path = PathOf(index);
-            if (entries[index].Folder) { Go(path); return; }
-            if (!Vfs.CanAccess(OS.Users.Current, path, Access.Read)) { message = "Zugriff verweigert: " + path; return; }
-            lines.Clear();
-            try
+            if (entries[index].Folder) Go(path);
+            else if (!Vfs.CanAccess(OS.Users.Current, path, Access.Read)) message = "Zugriff verweigert: " + path;
+            else
             {
-                bool more;
-                string[] split = Vfs.ReadStart(path, PreviewBytes, out more).Split('\n');
-                for (int i = 0; i < split.Length; i++) lines.Add(split[i].Replace("\r", "").Replace("\t", "    "));
-                if (more) lines.Add("...");
+                lines.Clear();
+                try
+                {
+                    bool more;
+                    string[] split = Vfs.ReadStart(path, PreviewBytes, out more).Split('\n');
+                    for (int i = 0; i < split.Length; i++) lines.Add(split[i].Replace("\r", "").Replace("\t", "    "));
+                    if (more) lines.Add("...");
+                    file = path;
+                    scroll = 0;
+                    message = "";
+                }
+                catch (Exception e) { lines.Clear(); message = "Datei lässt sich nicht lesen: " + e.Message; }
             }
-            catch (Exception e) { lines.Clear(); message = "Datei lässt sich nicht lesen: " + e.Message; return; }
-            file = path;
-            scroll = 0;
-            message = "";
+            // Ging es nicht, stimmt die Liste womöglich nicht mehr, etwa weil der Eintrag im Terminal gelöscht wurde.
+            if (message != "") Reload();
         }
 
         private void GoBack()
@@ -232,8 +238,9 @@ namespace VibanOS.Gui
             else if (action >= Item)
             {
                 int index = action - Item;
+                // Nur auswählen, nicht neu lesen: Auf FAT kostet das Lesen je Datei einen eigenen Suchlauf über die Platte.
                 if (index == selected) Open(index);
-                else { selected = index; message = ""; Reload(); }
+                else { selected = index; message = ""; }
             }
         }
 

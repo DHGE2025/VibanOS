@@ -177,7 +177,12 @@ namespace VibanOS.Cli.Commands
                 to = Vfs.Combine(to, Vfs.NameOf(from));
                 same = string.Equals(from, to, StringComparison.OrdinalIgnoreCase);
             }
-            if (same) { shell.Error("Quelle und Ziel sind dasselbe: " + from); return false; }
+            if (same)
+            {
+                shell.Error(from == to ? "Quelle und Ziel sind dasselbe: " + from
+                    : "Auf der Platte ist das derselbe Name, Groß- und Kleinschreibung zählt dort nicht: " + to);
+                return false;
+            }
             // Der Name kommt aus der Quelle und könnte ein Kurzname mit ~ sein: noch einmal prüfen.
             if (!Vfs.CanAccess(OS.Users.Current, to, Access.Write)) { shell.Error("Zugriff verweigert: " + to); return false; }
             if (File.Exists(to) || Directory.Exists(to)) { shell.Error("Gibt es schon: " + to); return false; }
@@ -219,6 +224,9 @@ namespace VibanOS.Cli.Commands
             if (!Paths(args, shell, Access.Write, out from, out to)) return;
             if (Vfs.IsFixed(from)) { shell.Error("Das braucht das System an seinem Platz: " + from); return; }
             if (File.Exists(from)) { File.Move(from, to); return; }
+            // Unter seinem FAT-Kurznamen (daten ist auch DATEN~1) erkennen die Prüfungen hier denselben Ordner nicht wieder.
+            // 'mv /daten /DATEN~1/innen' schöbe ihn in sich selbst, und der Treiber ließe ihn dann verschwinden.
+            if (from.IndexOf('~') >= 0 || to.IndexOf('~') >= 0) { shell.Error("Ordner verschiebt mv nicht über einen Pfad mit ~. Bitte die langen Namen verwenden."); return; }
             string inside = from.ToLowerInvariant() + Vfs.Separator;
             if (Text.HasPrefix(shell.CurrentDirectory.ToLowerInvariant() + Vfs.Separator, inside)) { shell.Error("Darin steht gerade die Shell. Erst mit 'cd' hinausgehen."); return; }
             if (Text.HasPrefix(to.ToLowerInvariant() + Vfs.Separator, inside)) { shell.Error("Ein Ordner passt nicht in sich selbst."); return; }
