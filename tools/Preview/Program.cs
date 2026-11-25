@@ -245,6 +245,15 @@ namespace VibanOS.Preview
             Check(Last().Text.StartsWith("Zu viele Namen") && File.Exists(Path.Combine(home, "Neuer")) && Directory.Exists(Path.Combine(home, "Neuer Ordner")),
                 "rm mit einem Namen zu viel löscht nichts: Ohne Anführungszeichen träfe es sonst still die Datei Neuer");
             Type("rm Neuer\nrm \"Neuer Ordner\"\n");
+            // Die Sperre sitzt in FileCommand.Target und gilt damit für jeden Befehl, der seine Argumente ganz hereinreicht, nicht nur für rm.
+            bool allRefuse = true;
+            foreach (string command in new[] { "ls", "cd", "mkdir", "touch", "cat" })
+            {
+                Type(command + " eins zwei\n");
+                allRefuse &= Last().Text.StartsWith("Zu viele Namen");
+            }
+            Check(allRefuse && !File.Exists(Path.Combine(home, "eins")) && !Directory.Exists(Path.Combine(home, "eins")),
+                "Auch ls, cd, mkdir, touch und cat nehmen keinen Namen zu viel");
             Type("df\n");
             Check(Last().Text.Contains("64 MB gesamt") && Last().Text.Contains("60 MB frei"), "df zeigt Größe und freien Platz der Platte");
             Platform.Hardware.DiskSpaceFails = true;
@@ -745,6 +754,7 @@ namespace VibanOS.Preview
             ShowFile(files, "ende.txt");
             bool two = files.Lines.Count == 2 && files.Lines[1] == "zwei" && files.Info == "2 Zeilen";
             long twoLines = Region(statusBar);
+            int twoInk = Ink(statusBar);
             ShowFile(files, "zeile.txt");
             long oneEmptyLine = Region(middle);
             ShowFile(files, "nichts.txt");
@@ -764,7 +774,8 @@ namespace VibanOS.Preview
             Picture(files);
             Check(files.Lines.Count == 2 && files.Lines[0].Length == 8192 && files.Lines[1] == "..." && files.Info == "Die ersten 8 KB der Datei",
                 "Von einer großen Datei liest die Vorschau nur den Anfang und sagt das in der Statusleiste");
-            Check(Region(statusBar) != twoLines, "Die Statusleiste zeigt bei einer großen Datei den gelesenen Anfang, nicht die Zeilenzahl");
+            // Anders als bei "2 Zeilen" und mit mehr Farbe: Der längere Text steht wirklich da, eine leere Statusleiste fiele hier auf.
+            Check(Region(statusBar) != twoLines && Ink(statusBar) > twoInk, "Die Statusleiste zeigt bei einer großen Datei den gelesenen Anfang, nicht die Zeilenzahl");
             long lineStart = Picture(files);
             for (int i = 0; i < 100; i++) files.OnKey(Key.PageDown, '\0');
             Check(Picture(files) != lineStart && files.Top > 0, "Eine sehr lange Zeile bricht in der Vorschau um: Mit Bild ab kommt man bis an ihr Ende");
@@ -1097,6 +1108,15 @@ namespace VibanOS.Preview
         }
 
         // Zeichnet neu und fasst den Inhalt eines Fensters zu einer Zahl zusammen, um zwei Bilder zu vergleichen.
+        /// <summary>Wie viel im Ausschnitt des zuletzt gezeichneten Bildes steht: Bildpunkte, die nicht die Farbe seiner linken oberen Ecke haben.</summary>
+        private static int Ink(int[] r)
+        {
+            int ink = 0;
+            for (int y = r[1]; y < r[3]; y++)
+                for (int x = r[0]; x < r[2]; x++)
+                    if (screen.Pixels[y * screen.Width + x] != screen.Pixels[r[1] * screen.Width + r[0]]) ink++;
+            return ink;
+        }
         private static long Picture(Window w)
         {
             animTime += 1000;
