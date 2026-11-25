@@ -129,6 +129,12 @@ namespace VibanOS.Platform
         /// <summary>Name der Grafikkarte, wie COSMOS sie meldet, z. B. "firmware framebuffer" oder "vmware-svga ...".</summary>
         public static string ScreenName() { return Canvas.GetFullScreen().Name; }
 
+        public static Resolution ScreenSize()
+        {
+            Canvas canvas = Canvas.GetFullScreen();
+            return new Resolution(canvas.Width, canvas.Height);
+        }
+
         /// <summary>
         /// Die Auflösungen, auf die der Bildschirm umschalten kann. Das Startbild von Limine (firmware framebuffer)
         /// kann nicht umschalten und meldet nur seine eine Auflösung. Umschalten kann unter COSMOS 3 nur

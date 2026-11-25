@@ -20,7 +20,8 @@ namespace VibanOS.Gui
             T.Color.AccentBlue, T.Color.AccentPurple, T.Color.AccentPink, T.Color.AccentOrange, T.Color.AccentGreen, T.Color.AccentGraphite
         };
 
-        // Was klickbar ist, merkt sich DrawContent. Seiten 0..2, sonst Bereich plus Index.
+        // Was klickbar ist, merkt sich DrawContent, relativ zum Inhaltsbereich. So stimmt es auch, wenn eine Animation
+        // das Fenster an anderer Stelle in ein Standbild zeichnet. Seiten 0..2, sonst Bereich plus Index.
         internal const int PickMode = 100, PickAccent = 200, ToggleSeconds = 300, ToggleCursor = 301, PickGerman = 400, PickUs = 401;
 
         // Auswahl der Auflösungen: kleiner passen die Fenster nicht, größer wird das Zeichnen ohne Grafikbeschleunigung zäh.
@@ -32,6 +33,7 @@ namespace VibanOS.Gui
         private struct Hot { public int X, Y, W, H, Action; }
 
         private readonly List<Hot> hot = new List<Hot>();
+        private int originX, originY; // linke obere Ecke des Inhalts beim Zeichnen
         private readonly List<Resolution> modes = new List<Resolution>();
         private int page;
         private string error = "";
@@ -55,6 +57,8 @@ namespace VibanOS.Gui
             for (int i = 0; i < hot.Count; i++)
             {
                 Hot h = hot[i];
+                h.X += X;
+                h.Y += Y + T.Size.TitleBar;
                 if (px < h.X || py < h.Y || px >= h.X + h.W || py >= h.Y + h.H) continue;
                 Do(h.Action);
                 OS.Changed = true;
@@ -85,7 +89,7 @@ namespace VibanOS.Gui
         internal int[] CenterOf(int action)
         {
             for (int i = 0; i < hot.Count; i++)
-                if (hot[i].Action == action) return new[] { hot[i].X + hot[i].W / 2, hot[i].Y + hot[i].H / 2 };
+                if (hot[i].Action == action) return new[] { X + hot[i].X + hot[i].W / 2, Y + T.Size.TitleBar + hot[i].Y + hot[i].H / 2 };
             return null;
         }
 
@@ -97,12 +101,14 @@ namespace VibanOS.Gui
 
         private void AddHot(int x, int y, int w, int h, int action)
         {
-            hot.Add(new Hot { X = x, Y = y, W = w, H = h, Action = action });
+            hot.Add(new Hot { X = x - originX, Y = y - originY, W = w, H = h, Action = action });
         }
 
         protected override void DrawContent(Surface s, int x, int y, int w, int h)
         {
             hot.Clear();
+            originX = x;
+            originY = y;
             DrawSidebar(s, x, y, h);
 
             int left = x + T.Size.Sidebar + T.Space.XL, inner = w - T.Size.Sidebar - 2 * T.Space.XL;
@@ -157,13 +163,14 @@ namespace VibanOS.Gui
             s.DrawText(Fonts.Caption, "AUFLÖSUNG", left, ty, T.Color.TextSecondary);
             ty += Fonts.Caption.LineHeight + T.Space.S;
 
+            // Nicht die Zeichenfläche fragen: Beim Öffnen zeichnet die Animation das Fenster in ein Standbild seiner Größe.
+            Resolution screen = Hardware.ScreenSize();
             int chipW = (inner - (ModeColumns - 1) * T.Space.S) / ModeColumns;
             for (int i = 0; i < modes.Count; i++)
             {
                 Resolution r = modes[i];
                 int cx = left + i % ModeColumns * (chipW + T.Space.S), cy = ty + i / ModeColumns * (T.Size.Field + T.Space.S);
-                // Die Zeichenfläche ist so groß wie der Bildschirm, ihre Größe ist also die aktuelle Auflösung.
-                bool current = r.Width == s.Width && r.Height == s.Height;
+                bool current = r.Width == screen.Width && r.Height == screen.Height;
                 string label = r.Width + " × " + r.Height;
                 int textY = cy + (T.Size.Field - Fonts.Body.LineHeight) / 2;
                 if (current)

@@ -115,5 +115,16 @@ namespace VibanOS.Design
             public const int DockOffset = 6;
             public const int DockAlpha = 80;
         }
+
+        /// <summary>Bewegung: Dauer der Fenster-Animationen in Millisekunden und ihre Eckwerte.</summary>
+        public static class Motion
+        {
+            public const int Open = 200;        // Fenster erscheint
+            public const int Close = 150;       // Fenster verschwindet
+            public const int Minimize = 300;    // ins Dock und zurück
+            public const int Zoom = 250;        // grüner Knopf
+            public const int StartScale = 90;   // Größe in Prozent am Anfang des Öffnens und am Ende des Schließens
+            public const int DockAlpha = 90;    // Deckkraft (0–255) als Symbol im Dock
+        }
     }
 }
