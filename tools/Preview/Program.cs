@@ -60,11 +60,16 @@ namespace VibanOS.Platform
 
         public static void SetKeyboardLayout(bool german) { GermanKeyboard = german; }
 
+        /// <summary>Wie oft der freie Platz abgefragt wurde, und ob die Abfrage scheitern soll.</summary>
+        public static int DiskSpaceCalls;
+        public static bool DiskSpaceFails;
+
         public static bool DiskSpace(out ulong total, out ulong free)
         {
+            DiskSpaceCalls++;
             total = 64UL * 1024 * 1024;
             free = 60UL * 1024 * 1024;
-            return Vfs.Available;
+            return Vfs.Available && !DiskSpaceFails;
         }
 
         public static string FormatDisk()
@@ -184,14 +189,43 @@ namespace VibanOS.Preview
             Type("cd archiv\nmv /home/root/archiv /x\n");
             Check(Last().Style == LineStyle.Error && Directory.Exists(Path.Combine(home, "archiv")), "mv verschiebt nicht den Ordner, in dem die Shell steht");
             Type("cd /\nmv /home/root /verlegt\n");
-            Check(Last().Text.StartsWith("Home-Ordner") && Directory.Exists(home), "mv verschiebt keinen Home-Ordner");
+            Check(Last().Text.StartsWith("Das braucht das System") && Directory.Exists(home), "mv verschiebt keinen Home-Ordner");
+            Type("mv /system /verlegt\n");
+            Check(Last().Text.StartsWith("Das braucht das System") && File.Exists(userFile), "mv verschiebt den Systemordner nicht, auch nicht für root");
+            Type("mv /home /verlegt\n");
+            Check(Last().Text.StartsWith("Das braucht das System") && Directory.Exists(home), "mv verschiebt den Ordner home nicht");
+            Type("mv /system/users.txt /home/root/users.bak\n");
+            Check(Last().Text.StartsWith("Das braucht das System") && File.Exists(userFile) && !File.Exists(Path.Combine(home, "users.bak")),
+                "mv holt die Nutzerdatei nicht aus dem Systemordner");
+            Type("write /home/zettel.txt x\nmv /home/zettel.txt /home/root/zettel.txt\n");
+            Check(File.Exists(Path.Combine(home, "zettel.txt")), "Eine Datei direkt in home lässt sich verschieben, nur die Ordner dort sind fest");
+            Type("rm /home/root/zettel.txt\n");
+            Type("mv / /verlegt\n");
+            Check(Last().Style == LineStyle.Error && Directory.Exists(home) && !Directory.Exists(Path.Combine(disk, "verlegt")), "mv verschiebt die Wurzel nicht");
             Type("cd /home/root\n");
             Type("mv neu.txt archiv\nmv archiv notizen\n");
             Check(File.Exists(Path.Combine(home, "notizen", "neu.txt")), "mv in einen Ordner legt die Datei hinein");
+            // FAT unterscheidet Groß- und Kleinschreibung nicht. Dort wäre das Ziel die Quelle selbst.
+            Type("mv notizen NOTIZEN\n");
+            Check(Last().Text.StartsWith("Quelle und Ziel sind dasselbe") && Directory.Exists(Path.Combine(home, "notizen")) && !Directory.Exists(Path.Combine(home, "NOTIZEN")),
+                "mv auf denselben Namen in anderer Schreibweise fasst nichts an");
+            Type("mv notizen/neu.txt notizen\n");
+            Check(Last().Text.StartsWith("Quelle und Ziel sind dasselbe") && File.Exists(Path.Combine(home, "notizen", "neu.txt")), "mv einer Datei in ihren eigenen Ordner fasst nichts an");
+            Type("cp notizen/neu.txt notizen/NEU.TXT\n");
+            Check(Last().Text.StartsWith("Quelle und Ziel sind dasselbe") && !File.Exists(Path.Combine(home, "notizen", "NEU.TXT")), "cp kopiert eine Datei nicht auf sich selbst");
+            Check(Vfs.Combine(Vfs.Root, "x") == Vfs.Root + "x" && Vfs.Combine(Vfs.Root + "home", "x") == Vfs.Root + "home" + Vfs.Separator + "x",
+                "Ein Name hängt mit genau einem Trenner am Ordner, auch an der Wurzel");
+            Type("cp notizen/plan.txt /\ncp notizen/plan.txt /\n");
+            Check(File.Exists(Path.Combine(disk, "plan.txt")) && Last().Text == "Gibt es schon: " + Vfs.Root + "plan.txt", "cp in die Wurzel bildet den Pfad ohne doppelten Trenner");
+            Type("rm /plan.txt\n");
             Type("mv fehlt.txt x.txt\n");
             Check(Last().Text.StartsWith("Nicht gefunden"), "mv meldet eine fehlende Quelle");
             Type("df\n");
             Check(Last().Text.Contains("64 MB gesamt") && Last().Text.Contains("60 MB frei"), "df zeigt Größe und freien Platz der Platte");
+            Platform.Hardware.DiskSpaceFails = true;
+            Type("df\n");
+            Check(Last().Style == LineStyle.Error && Last().Text.StartsWith("Der freie Platz"), "df sagt, wenn sich der freie Platz nicht ermitteln lässt");
+            Platform.Hardware.DiskSpaceFails = false;
             Check(Text.Bytes(0) == "0 Byte" && Text.Bytes(1536) == "1,5 KB" && Text.Bytes(10 * 1024) == "10 KB" && Text.Bytes(5UL << 30) == "5 GB",
                 "Größen werden lesbar ausgegeben");
             Type("cd ..\ncd ..\ncd ..\n");
@@ -367,6 +401,9 @@ namespace VibanOS.Preview
             Check(Last().Text.StartsWith("Zugriff verweigert"), "Der FAT-Kurzname des Systemordners (SYSTEM~1) ist normalen Nutzern gesperrt");
             Type("rm /system/users.txt\n");
             Check(Last().Text.StartsWith("Zugriff verweigert") && File.Exists(userFile), "Normale Nutzer löschen nichts im Systemordner");
+            Type("touch system\ncp system /\n");
+            Check(Last().Text == "Zugriff verweigert: " + Vfs.SystemDirectory, "Auch mit der Wurzel als Ziel landet nichts unter dem Namen des Systemordners");
+            Type("rm system\n");
             Type("logout\n\tgeheim\n");
             Check(OS.Users.Current.Name == "root", "root meldet sich wieder an");
             Type("cat /system/users.txt\n");
@@ -427,6 +464,10 @@ namespace VibanOS.Preview
             small.Frame(new Surface(800, 600));
             Check(small.Active != null && small.Active.X >= 0, "Auch bei 800x600 beginnt das Terminal auf dem Bildschirm");
             OS.Processes.Kill(small.Active.Process.Id); // Der zweite Schreibtisch soll im Bild keinen Prozess hinterlassen.
+            small.Open(Icons.Files);
+            Check(small.Active is FilesWindow && small.Active.Y >= T.Size.MenuBar && small.Active.Y + small.Active.Height <= 600 - (T.Size.ScreenHeight - dockTop),
+                "Auch bei 800x600 liegt ein neues Fenster ganz über dem Dock");
+            OS.Processes.Kill(small.Active.Process.Id);
             Check(ActivityWindow.Fit(Fonts.Body, "root", 82) == "root" && Fonts.Body.Measure(ActivityWindow.Fit(Fonts.Body, "max_mustermann12", 82)) <= 82,
                 "Lange Nutzernamen werden für die Prozesstabelle gekürzt");
             Surface plain = new Surface(200, 120);
@@ -479,29 +520,61 @@ namespace VibanOS.Preview
             Check(screen.Width == T.Size.ScreenWidth && settings.Error.Contains("schafft die Grafikkarte nicht"),
                 "Lehnt die Grafikkarte eine Auflösung ab, bleibt alles, wie es war, und das Fenster sagt es");
             Platform.Hardware.MaxPixels = 2048 * 1536;
+            string settingsFile = Path.Combine(home, Settings.FileName);
+            Check(Settings.Width == T.Size.ScreenWidth && File.ReadAllText(settingsFile).Contains("breite=" + T.Size.ScreenWidth) && !File.ReadAllText(settingsFile).Contains("1920"),
+                "Gespeichert wird die gewählte Auflösung, eine abgelehnte nicht");
             ClickAt(settings.CenterOf(1));
             Check(settings.CenterOf(SettingsWindow.PickMode) == null && settings.CenterOf(SettingsWindow.PickAccent) != null, "Die Seitenleiste wechselt die Seite");
             ClickAt(settings.CenterOf(SettingsWindow.PickAccent + 3));
             Check(T.Color.Accent == T.Color.AccentOrange, "Ein Farbpunkt setzt die Akzentfarbe");
             ClickAt(settings.CenterOf(SettingsWindow.PickAccent));
             Check(T.Color.Accent == T.Color.AccentBlue, "Und zurück auf Blau");
+            Vfs.Available = false;
+            ClickAt(settings.CenterOf(SettingsWindow.PickAccent + 3));
+            Check(T.Color.Accent == T.Color.AccentOrange && settings.Note.StartsWith("Ohne Festplatte") && settings.Error == "",
+                "Ohne Festplatte gilt eine Einstellung trotzdem, das Fenster weist nur darauf hin");
+            Vfs.Available = true;
+            File.Delete(settingsFile);
+            Directory.CreateDirectory(settingsFile); // ein Ordner im Weg: Schreiben scheitert
+            ClickAt(settings.CenterOf(SettingsWindow.PickAccent));
+            Check(settings.Error.StartsWith("Die Einstellungen ließen sich nicht speichern") && settings.Note == "", "Scheitert das Speichern, sagt es das Fenster");
+            Directory.Delete(settingsFile);
+            ClickAt(settings.CenterOf(SettingsWindow.PickAccent));
+            Check(settings.Error == "" && File.Exists(settingsFile), "Der nächste Klick speichert wieder");
             ClickAt(settings.CenterOf(SettingsWindow.ToggleSeconds));
             Check(Settings.ShowSeconds, "Der Schalter zeigt Sekunden in der Menüleiste");
             long withSeconds = MenuBar();
             System.Threading.Thread.Sleep(1100);
             Check(desktop.Frame(screen) && MenuBar() != withSeconds, "Mit Sekunden zeichnet die Menüleiste jede Sekunde neu");
             Shot(output, "7-einstellungen-erscheinungsbild");
-            string settingsFile = Path.Combine(home, Settings.FileName);
             Check(File.ReadAllText(settingsFile).Contains("sekunden=1"), "Die Einstellungen landen im Home-Ordner");
             ClickAt(settings.CenterOf(SettingsWindow.PickAccent + 3));
+            string annaFile = Path.Combine(disk, "home", "anna", Settings.FileName);
             Settings.Load(OS.Users.Find("anna"));
-            Check(T.Color.Accent == T.Color.AccentBlue && !Settings.ShowSeconds, "Ein anderer Nutzer ohne eigene Einstellungen bekommt die Grundwerte");
+            Check(T.Color.Accent == T.Color.AccentBlue && !Settings.ShowSeconds && Settings.Width == 0, "Ein anderer Nutzer ohne eigene Einstellungen bekommt die Grundwerte");
+            Check(Settings.Save(OS.Users.Find("anna")) && !File.ReadAllText(annaFile).Contains("breite"), "Wer keine Auflösung gewählt hat, bekommt auch keine gespeichert");
+            File.Delete(annaFile);
             Settings.Load(OS.Users.Current);
-            Check(T.Color.Accent == T.Color.AccentOrange && Settings.ShowSeconds, "Die eigenen Einstellungen kommen nach dem Anmelden zurück");
+            Check(T.Color.Accent == T.Color.AccentOrange && Settings.ShowSeconds && Settings.Width == T.Size.ScreenWidth, "Die eigenen Einstellungen kommen nach dem Anmelden zurück");
             string savedSettings = File.ReadAllText(settingsFile);
             File.WriteAllText(settingsFile, "akzent=zz\nbreite=abc\nsekunden");
             Settings.Load(OS.Users.Current);
-            Check(T.Color.Accent == T.Color.AccentBlue && screen.Width == T.Size.ScreenWidth, "Eine kaputte Einstellungsdatei ergibt Grundwerte statt eines Fehlers");
+            Check(T.Color.Accent == T.Color.AccentBlue && Platform.Hardware.ScreenWidth == T.Size.ScreenWidth, "Eine kaputte Einstellungsdatei ergibt Grundwerte statt eines Fehlers");
+            // Im Home-Ordner darf bisher jeder schreiben: Aus der Datei gilt nur, was auch die Einstellungen zur Wahl stellen.
+            File.WriteAllText(settingsFile, "akzent=ff123456\nbreite=640\nhoehe=480\n"); // 640x480 bietet die Karte an, die Oberfläche nicht
+            Settings.Load(OS.Users.Current);
+            bool refused = T.Color.Accent == T.Color.AccentBlue && Platform.Hardware.ScreenWidth == T.Size.ScreenWidth && Settings.Width == 0;
+            File.WriteAllText(settingsFile, "breite=1000\nhoehe=700\n"); // groß genug, aber kein Modus der Karte
+            Settings.Load(OS.Users.Current);
+            Check(refused && Platform.Hardware.ScreenWidth == T.Size.ScreenWidth && Settings.Width == 0,
+                "Eine Farbe oder Auflösung, die nicht zur Wahl steht, übernimmt das Laden nicht");
+            File.WriteAllText(settingsFile, new string('x', 4096) + "\nsekunden=1\n");
+            Settings.Load(OS.Users.Current);
+            bool bounded = !Settings.ShowSeconds;
+            Platform.Hardware.SetKeyboardLayout(false); // die Belegung des Vorgängers
+            using (new FileStream(settingsFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) Settings.Load(OS.Users.Current); // gesperrt: Lesen scheitert
+            Check(bounded && T.Color.Accent == T.Color.AccentBlue && Platform.Hardware.GermanKeyboard,
+                "Eine riesige oder unlesbare Einstellungsdatei ergibt Grundwerte, auch für die Tastatur");
             File.WriteAllText(settingsFile, savedSettings);
             Settings.Load(OS.Users.Current);
             ClickAt(settings.CenterOf(SettingsWindow.PickAccent));
@@ -589,7 +662,7 @@ namespace VibanOS.Preview
             Check(files.Folder == OS.Users.Current.HomeDirectory, "Ein Klick wählt nur aus");
             ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("notizen")));
             Check(files.Folder.EndsWith("notizen") && files.IndexOf("plan.txt") >= 0, "Ein zweiter Klick öffnet den Ordner");
-            File.WriteAllText(Path.Combine(home, "notizen", "liste.txt"), "Milch\r\nBrot\n\tButter");
+            File.WriteAllText(Path.Combine(home, "notizen", "liste.txt"), "\uFEFFMilch\r\nBrot\n\tButter"); // mit UTF-8-Kennung, wie sie der Windows-Editor schreibt
             ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("plan.txt"))); // ein Klick ins Fenster liest den Ordner neu
             Check(files.IndexOf("liste.txt") >= 0, "Was im Terminal entsteht, zeigt Dateien nach dem nächsten Klick");
             files.OnKey(Key.Down, '\0');
@@ -600,7 +673,15 @@ namespace VibanOS.Preview
             Picture(files); // neu zeichnen, die Liste ist wieder da
             ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("liste.txt")));
             files.OnKey(Key.Enter, '\0');
-            Check(files.Lines.Count == 3 && files.Lines[1] == "Brot" && files.Lines[2] == "    Butter", "Die Vorschau zeigt Windows-Zeilenenden und Tabulatoren sauber");
+            Check(files.Lines.Count == 3 && files.Lines[0] == "Milch" && files.Lines[1] == "Brot" && files.Lines[2] == "    Butter",
+                "Die Vorschau zeigt Windows-Zeilenenden, Tabulatoren und die UTF-8-Kennung sauber");
+            File.WriteAllText(Path.Combine(home, "notizen", "lang.txt"), new string('x', 10000)); // eine einzige, sehr lange Zeile
+            files.OnKey(Key.Backspace, '\0');
+            Picture(files);
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("lang.txt")));
+            files.OnKey(Key.Enter, '\0');
+            Picture(files);
+            Check(files.Lines.Count == 2 && files.Lines[0].Length == 8192 && files.Lines[1] == "...", "Von einer großen Datei liest die Vorschau nur den Anfang");
             ClickAt(files.CenterOf(FilesWindow.Back));
             ClickAt(files.CenterOf(FilesWindow.Back));
             Check(files.Folder == OS.Users.Current.HomeDirectory && files.OpenFile == null, "Zurück geht von der Datei zum Ordner und weiter nach oben");
@@ -609,6 +690,31 @@ namespace VibanOS.Preview
             ClickAt(files.CenterOf(FilesWindow.PlaceHome));
             Check(files.Folder == OS.Users.Current.HomeDirectory, "Der eigene Ordner in der Seitenleiste führt nach Hause");
             Shot(output, "9-dateien");
+            int spaceCalls = Platform.Hardware.DiskSpaceCalls;
+            Picture(files);
+            Picture(files);
+            Check(Platform.Hardware.DiskSpaceCalls == spaceCalls, "Dateien fragt den freien Platz nicht bei jedem Zeichnen ab");
+            OS.Shell.Submit("mkdir /home/root/wand");
+            ClickAt(files.CenterOf(FilesWindow.PlaceHome)); // liest den Ordner neu
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("wand")));
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("wand")));
+            OS.Shell.Submit("mv /home/root/wand /home/root/wand2");
+            ClickAt(files.CenterOf(FilesWindow.NewFolder));
+            Check(!Directory.Exists(Path.Combine(home, "wand")) && files.Folder == OS.Users.Current.HomeDirectory && files.Message.StartsWith("Ordner nicht gefunden"),
+                "Ist der gezeigte Ordner inzwischen verschoben, legt Neuer Ordner ihn nicht wieder an");
+            OS.Shell.Submit("rm /home/root/wand2");
+            ClickAt(files.CenterOf(FilesWindow.PlaceHome));
+            files.OnKey(Key.PageDown, '\0');
+            files.OnKey(Key.PageDown, '\0');
+            files.OnKey(Key.Enter, '\0');
+            Check(files.OpenFile != null && files.OpenFile.EndsWith("windows.txt"), "Bild ab geht höchstens bis zum letzten Eintrag");
+            files.OnKey(Key.Backspace, '\0');
+            files.OnKey(Key.PageUp, '\0');
+            files.OnKey(Key.PageUp, '\0');
+            files.OnKey(Key.Enter, '\0');
+            Check(files.Folder.EndsWith("Neuer Ordner"), "Bild auf geht höchstens bis zum ersten Eintrag");
+            files.OnKey(Key.Backspace, '\0');
+            Picture(files);
             ClickAt(files.CenterOf(FilesWindow.PlaceDisk));
             ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("system")));
             ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("system")));
@@ -616,8 +722,13 @@ namespace VibanOS.Preview
             ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("users.txt")));
             Check(files.OpenFile != null && files.Lines[0].Contains("root"), "Administratoren sehen die Nutzerdatei");
             OS.Shell.Submit("logout");
+            File.WriteAllText(annaFile, "akzent=" + Text.Hex(T.Color.AccentGreen, 8) + "\ntastatur=us\nbreite=1024\nhoehe=768\n");
             Type("\ttopsecret\n");
             Check(OS.Users.Current.Name == "anna", "anna meldet sich an, das Fenster von root ist noch offen");
+            Check(T.Color.Accent == T.Color.AccentGreen && !Platform.Hardware.GermanKeyboard && Settings.Width == 1024
+                && Platform.Hardware.ScreenWidth == 1024 && Platform.Hardware.ScreenHeight == 768,
+                "Die Anmeldung übernimmt die Einstellungen des Nutzers samt Auflösung");
+            ScreenChanged();
             desktop.Open(Icons.Files);
             Picture(files);
             Check(files.OpenFile == null && files.Folder == OS.Users.Current.HomeDirectory && files.Lines.Count == 0,
@@ -628,9 +739,15 @@ namespace VibanOS.Preview
             Check(files.Folder == Vfs.Root && files.Message.StartsWith("Zugriff verweigert"), "Normale Nutzer kommen auch in Dateien nicht in den Systemordner");
             Click(ControlX(files, Window.CloseButton), files.Y + T.Size.TitleBar / 2);
             Settle();
-            OS.Shell.Submit("logout");
+            desktop.Open(Icons.Terminal);
+            Type("logout\n");
+            Check(OS.Users.Current == null && Platform.Hardware.GermanKeyboard && T.Color.Accent == T.Color.AccentBlue,
+                "Nach der Abmeldung gelten wieder die Grundwerte: Niemand tippt sein Passwort mit der Tastaturbelegung des Vorgängers");
             Type("\tgeheim\n");
             Check(OS.Users.Current.Name == "root", "Zurück zu root");
+            ScreenChanged();
+            Check(screen.Width == T.Size.ScreenWidth && screen.Height == T.Size.ScreenHeight && T.Color.Accent == T.Color.AccentBlue,
+                "Nach dem Nutzerwechsel gelten wieder die eigenen Einstellungen");
             terminal = desktop.Active is TerminalWindow ? desktop.Active : terminal;
 
             // Bild für die Vorschau herrichten

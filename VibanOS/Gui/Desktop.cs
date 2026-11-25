@@ -124,8 +124,14 @@ namespace VibanOS.Gui
 
         public void OnKey(Key key, char c)
         {
+            bool was = Locked;
             if (Locked) login.OnKey(key, c);
             else if (Active != null) Active.OnKey(key, c);
+            // Gerade an- oder abgemeldet: Akzentfarbe, Uhr, Tastatur und Auflösung des Nutzers übernehmen, nach der
+            // Abmeldung die Grundwerte. Sonst tippte der Nächste sein Passwort mit der Tastaturbelegung des Vorgängers.
+            // Hier und nicht erst beim Zeichnen: So ist eine andere Auflösung da, bevor das nächste Bild entsteht, wie
+            // nach einem Klick in den Einstellungen. Mitten im Zeichnen bekäme der Bildschirm einen neuen Puffer.
+            if (was != Locked) Settings.Load(OS.Users.Current);
             OS.Changed = true;
         }
 
@@ -193,6 +199,9 @@ namespace VibanOS.Gui
             // Auf einem kleinen Bildschirm bleiben Fensterknöpfe und Zeilenanfänge sichtbar.
             if (w.X + w.Width > scene.Width - T.Space.M) w.X = scene.Width - T.Space.M - w.Width;
             if (w.X < T.Space.M) w.X = T.Space.M;
+            // Und nach unten: Ein hohes Fenster reichte sonst unter das Dock, sein Fuß wäre verdeckt.
+            if (w.Y + w.Height > DockY - T.Space.S) w.Y = DockY - T.Space.S - w.Height;
+            if (w.Y < T.Size.MenuBar + T.Space.S) w.Y = T.Size.MenuBar + T.Space.S;
             apps[icon] = w;
             windows.Add(w);
             Animate(w, Motion.Open, icon);
@@ -303,7 +312,6 @@ namespace VibanOS.Gui
                 if (p != null && (p.State == ProcessState.Terminated || OS.Processes.Get(p.Id) != p)) Close(apps[i]);
             }
             if (Locked && login.LockExpired(now)) OS.Changed = true;
-            if (wasLocked && !Locked) Settings.Load(OS.Users.Current); // Akzentfarbe, Uhr, Tastatur, Auflösung des Nutzers
             if (wasLocked && !Locked && windows.Count == 0) Open(Icons.Terminal);
             wasLocked = Locked;
 

@@ -38,6 +38,7 @@ namespace VibanOS.Gui
         private readonly List<string> lines = new List<string>();
         private int selected = -1, scroll, visibleRows = 1;
         private string message = "";
+        private string space = "";  // freier Platz für die Statuszeile, siehe ReadSpace
 
         public FilesWindow()
         {
@@ -61,6 +62,9 @@ namespace VibanOS.Gui
             lines.Clear();
             folder = "";
             file = null;
+            message = space = "";
+            selected = -1;
+            scroll = 0;
             Go(Home);
         }
 
@@ -90,12 +94,13 @@ namespace VibanOS.Gui
             selected = -1;
             scroll = 0;
             Reload();
+            ReadSpace();
         }
 
         /// <summary>Liest den Ordner neu, etwa nachdem im Terminal etwas angelegt wurde. Die Auswahl bleibt am Namen.</summary>
         private void Reload()
         {
-            if (!Vfs.Available || folder == "" || file != null) return;
+            if (!Vfs.Available || folder == "" || file != null || Gone()) return;
             string keep = selected >= 0 && selected < entries.Count ? entries[selected].Name : null;
             entries.Clear();
             try
@@ -110,6 +115,27 @@ namespace VibanOS.Gui
                 if (entries[i].Name == keep) selected = i;
         }
 
+        // Der gezeigte Ordner wurde inzwischen im Terminal verschoben oder gelöscht: nach Hause gehen und es sagen.
+        // Sonst legte "Neuer Ordner" den alten Pfad stillschweigend wieder an.
+        private bool Gone()
+        {
+            if (Directory.Exists(folder)) return false;
+            string gone = folder;
+            entries.Clear();
+            folder = "";
+            Go(Home);
+            message = "Ordner nicht gefunden: " + gone;
+            return true;
+        }
+
+        // Den freien Platz beim Wechsel des Ordners holen und merken, nicht bei jedem Zeichnen oder Klick:
+        // Das Dateisystem muss dafür womöglich seine ganze Belegungstabelle durchgehen.
+        private void ReadSpace()
+        {
+            ulong total, free;
+            space = Hardware.DiskSpace(out total, out free) ? ", " + Text.Bytes(free) + " verfügbar" : "";
+        }
+
         private void Add(string[] paths, bool isFolder)
         {
             string[] names = new string[paths.Length];
@@ -120,17 +146,16 @@ namespace VibanOS.Gui
                 long size = -1;
                 if (!isFolder)
                 {
-                    try { size = new FileInfo(folder + Vfs.Separator + names[i]).Length; }
+                    // ponytail: je Datei eine eigene Anfrage an das Dateisystem. Bei tausenden Dateien in einem Ordner
+                    // wird das zäh, dann die Größe nur für die sichtbaren Zeilen holen.
+                    try { size = new FileInfo(Vfs.Combine(folder, names[i])).Length; }
                     catch (Exception) { }
                 }
                 entries.Add(new Entry { Name = names[i], Folder = isFolder, Size = size });
             }
         }
 
-        private string PathOf(int index)
-        {
-            return IsRoot(folder) ? folder + entries[index].Name : folder + Vfs.Separator + entries[index].Name;
-        }
+        private string PathOf(int index) { return Vfs.Combine(folder, entries[index].Name); }
 
         private void Open(int index)
         {
@@ -141,15 +166,12 @@ namespace VibanOS.Gui
             lines.Clear();
             try
             {
-                byte[] data = new byte[PreviewBytes];
-                int read;
-                using (FileStream f = File.OpenRead(path)) read = f.Read(data, 0, data.Length);
-                string text = System.Text.Encoding.UTF8.GetString(data, 0, read);
-                string[] split = text.Split('\n');
+                bool more;
+                string[] split = Vfs.ReadStart(path, PreviewBytes, out more).Split('\n');
                 for (int i = 0; i < split.Length; i++) lines.Add(split[i].Replace("\r", "").Replace("\t", "    "));
-                if (entries[index].Size > PreviewBytes) lines.Add("...");
+                if (more) lines.Add("...");
             }
-            catch (Exception e) { message = "Datei lässt sich nicht lesen: " + e.Message; return; }
+            catch (Exception e) { lines.Clear(); message = "Datei lässt sich nicht lesen: " + e.Message; return; }
             file = path;
             scroll = 0;
             message = "";
@@ -158,7 +180,7 @@ namespace VibanOS.Gui
         private void GoBack()
         {
             message = "";
-            if (file != null) { file = null; Reload(); return; }
+            if (file != null) { file = null; lines.Clear(); Reload(); return; }
             if (folder == "" || IsRoot(folder)) return;
             string from = Vfs.NameOf(folder);
             Go(Vfs.Resolve(folder, ".."));
@@ -169,13 +191,14 @@ namespace VibanOS.Gui
         private void MakeFolder()
         {
             message = "";
-            if (folder == "" || file != null) return;
-            string name = "Neuer Ordner", path = Vfs.Resolve(folder, name);
-            for (int n = 2; Directory.Exists(path) || File.Exists(path); n++) path = Vfs.Resolve(folder, name + " " + n);
+            if (folder == "" || file != null || Gone()) return;
+            string name = "Neuer Ordner", path = Vfs.Combine(folder, name);
+            for (int n = 2; Directory.Exists(path) || File.Exists(path); n++) path = Vfs.Combine(folder, name + " " + n);
             if (!Vfs.CanAccess(OS.Users.Current, path, Access.Write)) { message = "Zugriff verweigert: " + folder; return; }
             try { Directory.CreateDirectory(path); }
             catch (Exception e) { message = "Ordner ließ sich nicht anlegen: " + e.Message; return; }
             Reload();
+            ReadSpace();
             for (int i = 0; i < entries.Count; i++)
                 if (entries[i].Name == Vfs.NameOf(path)) selected = i;
             Show(selected);
@@ -229,10 +252,16 @@ namespace VibanOS.Gui
                 if (scroll < 0) scroll = 0;
                 return;
             }
-            if (key == Key.Up && selected > 0) selected--;
-            else if (key == Key.Down && selected < entries.Count - 1) selected++;
-            else if (key == Key.Enter) Open(selected);
-            else if (key == Key.Backspace) GoBack();
+            int step = visibleRows > 1 ? visibleRows - 1 : 1; // Bild auf und ab: eine Seite, eine Zeile bleibt als Anschluss
+            if (key == Key.Up) selected--;
+            else if (key == Key.Down) selected++;
+            else if (key == Key.PageUp) selected -= step;
+            else if (key == Key.PageDown) selected += step;
+            else if (key == Key.Enter) { Open(selected); return; }
+            else if (key == Key.Backspace) { GoBack(); return; }
+            else return;
+            if (selected > entries.Count - 1) selected = entries.Count - 1;
+            if (selected < 0) selected = entries.Count > 0 ? 0 : -1;
             Show(selected);
         }
 
@@ -293,10 +322,8 @@ namespace VibanOS.Gui
             if (message != "") s.DrawText(Fonts.Body, ActivityWindow.Fit(Fonts.Body, message, inner - 2 * T.Space.L), left + T.Space.L, textY, T.Color.Danger);
             else if (Vfs.Available)
             {
-                ulong total, free;
                 string info = file != null ? lines.Count + (lines.Count == 1 ? " Zeile" : " Zeilen") : entries.Count + (entries.Count == 1 ? " Objekt" : " Objekte");
-                if (Hardware.DiskSpace(out total, out free)) info += ", " + Text.Bytes(free) + " verfügbar";
-                s.DrawTextCentered(Fonts.Body, info, left + inner / 2, textY, T.Color.TextSecondary);
+                s.DrawTextCentered(Fonts.Body, info + space, left + inner / 2, textY, T.Color.TextSecondary);
             }
         }
 
@@ -312,7 +339,7 @@ namespace VibanOS.Gui
             s.DrawText(Fonts.Caption, "ORTE", rowX + T.Space.S, ty, T.Color.TextTertiary);
             ty += Fonts.Caption.LineHeight + T.Space.XS;
             string user = OS.Users.Current != null ? OS.Users.Current.Name : "Benutzer";
-            ty = Place(s, rowX, ty, rowW, user, true, Vfs.Available && file == null && folder == Home, PlaceHome);
+            ty = Place(s, rowX, ty, rowW, user, true, Vfs.Available && file == null && string.Equals(folder, Home, StringComparison.OrdinalIgnoreCase), PlaceHome);
             Place(s, rowX, ty, rowW, "VIBANOS", false, Vfs.Available && file == null && IsRoot(folder), PlaceDisk);
         }
 
@@ -409,9 +436,12 @@ namespace VibanOS.Gui
             int lh = Fonts.Mono.LineHeight, ty = y + T.Space.M;
             visibleRows = (bottom - ty - T.Space.M) / lh;
             if (visibleRows < 1) visibleRows = 1;
+            // Nur so viele Zeichen, wie in die Breite passen: Eine Datei ohne Zeilenenden ist eine einzige, sehr lange Zeile.
+            int columns = (w - 2 * T.Space.L) / Fonts.Mono.Measure("M");
             for (int i = scroll; i < lines.Count && i < scroll + visibleRows; i++)
             {
-                s.DrawText(Fonts.Mono, lines[i], x + T.Space.L, ty, T.Color.TextPrimary);
+                string line = lines[i].Length > columns ? lines[i].Substring(0, columns) : lines[i];
+                s.DrawText(Fonts.Mono, line, x + T.Space.L, ty, T.Color.TextPrimary);
                 ty += lh;
             }
         }

@@ -170,8 +170,15 @@ namespace VibanOS.Cli.Commands
             to = Target(new[] { args[1] }, shell, Access.Write);
             if (to == null) return false;
             if (!File.Exists(from) && !Directory.Exists(from)) { shell.Error("Nicht gefunden: " + from); return false; }
-            if (Directory.Exists(to)) to = to + Vfs.Separator + Vfs.NameOf(from);
-            // Der Ordnername kommt aus der Quelle und könnte ein Kurzname mit ~ sein: noch einmal prüfen.
+            // FAT unterscheidet Groß- und Kleinschreibung nicht: "mv a.txt A.txt" träfe dieselbe Datei.
+            bool same = string.Equals(from, to, StringComparison.OrdinalIgnoreCase);
+            if (!same && Directory.Exists(to))
+            {
+                to = Vfs.Combine(to, Vfs.NameOf(from));
+                same = string.Equals(from, to, StringComparison.OrdinalIgnoreCase);
+            }
+            if (same) { shell.Error("Quelle und Ziel sind dasselbe: " + from); return false; }
+            // Der Name kommt aus der Quelle und könnte ein Kurzname mit ~ sein: noch einmal prüfen.
             if (!Vfs.CanAccess(OS.Users.Current, to, Access.Write)) { shell.Error("Zugriff verweigert: " + to); return false; }
             if (File.Exists(to) || Directory.Exists(to)) { shell.Error("Gibt es schon: " + to); return false; }
             return true;
@@ -189,7 +196,14 @@ namespace VibanOS.Cli.Commands
             string from, to;
             if (!Paths(args, shell, Access.Read, out from, out to)) return;
             if (Directory.Exists(from)) { shell.Error("Ordner kopiert cp nicht, nur Dateien."); return; }
-            File.Copy(from, to, false);
+            try { File.Copy(from, to, false); }
+            catch (Exception)
+            {
+                // Kein halbes Ziel zurücklassen, etwa wenn die Platte voll ist. Das Ziel gab es vorher nicht (Paths),
+                // was jetzt dort liegt, stammt also von diesem Versuch. Den Fehler meldet die Shell.
+                try { File.Delete(to); } catch (Exception) { }
+                throw;
+            }
         }
     }
 
@@ -203,17 +217,11 @@ namespace VibanOS.Cli.Commands
         {
             string from, to;
             if (!Paths(args, shell, Access.Write, out from, out to)) return;
+            if (Vfs.IsFixed(from)) { shell.Error("Das braucht das System an seinem Platz: " + from); return; }
             if (File.Exists(from)) { File.Move(from, to); return; }
-            string home = (Vfs.Root + "home").ToLowerInvariant(), lower = from.ToLowerInvariant();
-            // Die Nutzer finden ihre Ordner über den festen Pfad home/<name>. Verschoben fände niemand sie wieder.
-            if (lower == home || (Text.HasPrefix(lower, home + Vfs.Separator) && lower.IndexOf(Vfs.Separator, home.Length + 1) < 0))
-            {
-                shell.Error("Home-Ordner lassen sich nicht verschieben: " + from);
-                return;
-            }
-            string cwd = shell.CurrentDirectory.ToLowerInvariant() + Vfs.Separator;
-            if (Text.HasPrefix(cwd, lower + Vfs.Separator)) { shell.Error("Darin steht gerade die Shell. Erst mit 'cd' hinausgehen."); return; }
-            if (Text.HasPrefix(to.ToLowerInvariant() + Vfs.Separator, lower + Vfs.Separator)) { shell.Error("Ein Ordner passt nicht in sich selbst."); return; }
+            string inside = from.ToLowerInvariant() + Vfs.Separator;
+            if (Text.HasPrefix(shell.CurrentDirectory.ToLowerInvariant() + Vfs.Separator, inside)) { shell.Error("Darin steht gerade die Shell. Erst mit 'cd' hinausgehen."); return; }
+            if (Text.HasPrefix(to.ToLowerInvariant() + Vfs.Separator, inside)) { shell.Error("Ein Ordner passt nicht in sich selbst."); return; }
             Directory.Move(from, to);
         }
     }
@@ -226,7 +234,8 @@ namespace VibanOS.Cli.Commands
         public override void Execute(string[] args, Shell shell)
         {
             ulong total, free;
-            if (!Vfs.Available || !Hardware.DiskSpace(out total, out free)) { shell.Error("Kein Dateisystem eingebunden."); return; }
+            if (!Vfs.Available) { shell.Error("Kein Dateisystem eingebunden."); return; }
+            if (!Hardware.DiskSpace(out total, out free)) { shell.Error("Der freie Platz lässt sich nicht ermitteln."); return; }
             shell.WriteLine(Vfs.Root + "  " + Text.Bytes(total) + " gesamt, " + Text.Bytes(total - free) + " belegt, " + Text.Bytes(free) + " frei");
         }
     }

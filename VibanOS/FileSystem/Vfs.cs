@@ -97,6 +97,44 @@ namespace VibanOS.FileSystem
             return path.Substring(cut + 1);
         }
 
+        /// <summary>Hängt einen Namen an einen Ordnerpfad. Nur die Wurzel endet schon mit dem Trenner.</summary>
+        public static string Combine(string directory, string name)
+        {
+            return directory.Length > 0 && directory[directory.Length - 1] == Separator ? directory + name : directory + Separator + name;
+        }
+
+        /// <summary>
+        /// Pfade, auf die sich das System verlässt: die Wurzel, der Ordner system samt Inhalt (die Nutzerdatei), home und
+        /// die Ordner direkt darin, also die Home-Ordner. Verschoben fände sie niemand wieder. Ohne die Nutzerdatei
+        /// begänne der nächste Start mit der Ersteinrichtung, und außerhalb von system könnte sie jeder lesen.
+        /// </summary>
+        public static bool IsFixed(string path)
+        {
+            string p = path.ToLowerInvariant(), system = SystemDirectory.ToLowerInvariant(), home = (Root + "home").ToLowerInvariant();
+            if (p == Root.ToLowerInvariant() || p == home || p == system || Text.HasPrefix(p, system + Separator)) return true;
+            return Text.HasPrefix(p, home + Separator) && p.IndexOf(Separator, home.Length + 1) < 0 && Directory.Exists(path);
+        }
+
+        /// <summary>
+        /// Liest höchstens max Bytes vom Anfang einer Datei als Text. Für Stellen, an denen nur der Anfang zählt und eine
+        /// riesige Datei nicht den Arbeitsspeicher füllen darf. more: Die Datei geht danach noch weiter.
+        /// </summary>
+        public static string ReadStart(string path, int max, out bool more)
+        {
+            byte[] data = new byte[max];
+            int count = 0;
+            using (FileStream file = File.OpenRead(path))
+            {
+                // Ein einzelner Aufruf darf weniger liefern, als da ist. Erst 0 heißt Dateiende.
+                int n;
+                while (count < max && (n = file.Read(data, count, max - count)) > 0) count += n;
+                more = count == max && file.ReadByte() >= 0;
+            }
+            // Wie File.ReadAllText: Die drei Bytes, mit denen manche Editoren UTF-8 kennzeichnen, gehören nicht zum Text.
+            int start = count >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF ? 3 : 0;
+            return System.Text.Encoding.UTF8.GetString(data, start, count - start);
+        }
+
         /// <summary>
         /// Zentrale Rechteprüfung für Dateien. Alle Dateibefehle fragen hier nach.
         /// Der Systemordner mit der Nutzerdatei ist Administratoren vorbehalten, sonst könnte sich

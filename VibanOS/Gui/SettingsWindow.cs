@@ -16,17 +16,12 @@ namespace VibanOS.Gui
         private const int Display = 0, Appearance = 1, Input = 2;
         private static readonly string[] Pages = { "Anzeige", "Erscheinungsbild", "Tastatur & Maus" };
         private static readonly uint[] PageColors = { T.Color.WallBlob4, T.Color.WallBlob1, T.Color.Raised };
-        private static readonly uint[] Accents =
-        {
-            T.Color.AccentBlue, T.Color.AccentPurple, T.Color.AccentPink, T.Color.AccentOrange, T.Color.AccentGreen, T.Color.AccentGraphite
-        };
+        private static readonly uint[] Accents = Settings.Accents;
 
         // Was klickbar ist, merkt sich DrawContent, relativ zum Inhaltsbereich. So stimmt es auch, wenn eine Animation
         // das Fenster an anderer Stelle in ein Standbild zeichnet. Seiten 0..2, sonst Bereich plus Index.
         internal const int PickMode = 100, PickAccent = 200, ToggleSeconds = 300, ToggleCursor = 301, PickGerman = 400, PickUs = 401;
 
-        // Auswahl der Auflösungen: kleiner passen die Fenster nicht, größer wird das Zeichnen ohne Grafikbeschleunigung zäh.
-        private const int MinWidth = 800, MinHeight = 600, MaxPixels = 1920 * 1200;
         private const int ModeColumns = 3;
         private const int SegmentWidth = 72;  // ein Feld der Auswahl Deutsch/US
         private const int RowHeight = T.Size.Field + T.Space.M;
@@ -37,7 +32,8 @@ namespace VibanOS.Gui
         private int originX, originY; // linke obere Ecke des Inhalts beim Zeichnen
         private readonly List<Resolution> modes = new List<Resolution>();
         private int page;
-        private string error = "";
+        private string error = "";   // etwas ist gescheitert
+        private string note = "";    // Hinweis, kein Fehler
 
         public SettingsWindow()
         {
@@ -49,7 +45,7 @@ namespace VibanOS.Gui
             for (int i = 0; i < all.Count; i++)
             {
                 Resolution r = all[i];
-                if (all.Count == 1 || (r.Width >= MinWidth && r.Height >= MinHeight && r.Width * r.Height <= MaxPixels)) modes.Add(r);
+                if (all.Count == 1 || Settings.Usable(r)) modes.Add(r);
             }
         }
 
@@ -69,13 +65,16 @@ namespace VibanOS.Gui
 
         private void Do(int action)
         {
-            error = "";
+            error = note = "";
             if (action < Pages.Length) { page = action; return; }
             if (action >= PickAccent && action < PickAccent + Accents.Length) T.Color.Accent = Accents[action - PickAccent];
             else if (action >= PickMode && action < PickMode + modes.Count)
             {
                 Resolution r = modes[action - PickMode];
-                if (!Hardware.SetScreenMode(r.Width, r.Height)) error = "Diese Auflösung schafft die Grafikkarte nicht.";
+                // Nichts speichern, was die Grafikkarte abgelehnt hat: Sonst versuchte es jede Anmeldung wieder.
+                if (!Hardware.SetScreenMode(r.Width, r.Height)) { error = "Diese Auflösung schafft die Grafikkarte nicht."; return; }
+                Settings.Width = r.Width;
+                Settings.Height = r.Height;
             }
             else if (action == ToggleSeconds) Settings.ShowSeconds = !Settings.ShowSeconds;
             else if (action == ToggleCursor) Settings.LargeCursor = !Settings.LargeCursor;
@@ -85,8 +84,9 @@ namespace VibanOS.Gui
                 Hardware.SetKeyboardLayout(Settings.GermanKeyboard);
             }
             else return;
-            if (!Settings.Save(OS.Users.Current) && error == "") error = Vfs.Available
-                ? "Die Einstellungen ließen sich nicht speichern." : "Ohne Festplatte gelten die Einstellungen nur bis zum Ausschalten.";
+            if (Settings.Save(OS.Users.Current)) return;
+            if (Vfs.Available) error = "Die Einstellungen ließen sich nicht speichern.";
+            else note = "Ohne Festplatte gelten die Einstellungen nur bis zur Abmeldung.";
         }
 
         /// <summary>Für den Selbsttest: Mitte der Klickfläche einer Aktion beim letzten Zeichnen, oder null.</summary>
@@ -97,8 +97,9 @@ namespace VibanOS.Gui
             return null;
         }
 
-        /// <summary>Für den Selbsttest: die Fehlermeldung unter den Auflösungen.</summary>
+        /// <summary>Für den Selbsttest: Fehlermeldung und Hinweis unter dem Inhalt der Seite.</summary>
         internal string Error { get { return error; } }
+        internal string Note { get { return note; } }
 
         /// <summary>Für den Selbsttest: die angebotenen Auflösungen.</summary>
         internal List<Resolution> Modes { get { return modes; } }
@@ -120,7 +121,7 @@ namespace VibanOS.Gui
             s.DrawText(Fonts.Display, Pages[page], left, ty, T.Color.TextPrimary);
             ty += Fonts.Display.LineHeight + T.Space.L;
 
-            if (page == Display) DrawDisplay(s, left, ty, inner);
+            if (page == Display) ty = DrawDisplay(s, left, ty, inner);
             else if (page == Appearance)
             {
                 Group(s, left, ty, inner, 2);
@@ -137,7 +138,10 @@ namespace VibanOS.Gui
                 Label(s, "Großer Mauszeiger", left, ty + RowHeight);
                 Toggle(s, left + inner - T.Space.L - T.Size.ToggleWidth, ty + RowHeight, Settings.LargeCursor, ToggleCursor);
             }
-            if (error != "") s.DrawText(Fonts.Body, error, left, y + h - T.Space.XL - Fonts.Body.LineHeight, T.Color.Danger);
+            // Meldung unter dem Inhalt der Seite, nie darüber: Fehler rot, Hinweise gelb.
+            if (page != Display) ty += 2 * RowHeight + T.Space.M;
+            if (error != "") s.DrawText(Fonts.Body, error, left, ty, T.Color.Danger);
+            else if (note != "") s.DrawText(Fonts.Body, note, left, ty, T.Color.Warning);
         }
 
         private void DrawSidebar(Surface s, int x, int y, int h)
@@ -163,7 +167,8 @@ namespace VibanOS.Gui
             }
         }
 
-        private void DrawDisplay(Surface s, int left, int ty, int inner)
+        // Gibt zurück, wo der Inhalt endet.
+        private int DrawDisplay(Surface s, int left, int ty, int inner)
         {
             s.DrawText(Fonts.Caption, "AUFLÖSUNG", left, ty, T.Color.TextSecondary);
             ty += Fonts.Caption.LineHeight + T.Space.S;
@@ -202,6 +207,7 @@ namespace VibanOS.Gui
                 s.DrawText(Fonts.Body, "Dazu VibanOS mit -vga vmware starten (siehe README).", left, ty, T.Color.TextSecondary);
                 ty += Fonts.Body.LineHeight + T.Space.XS;
             }
+            return ty;
         }
 
         private void DrawAccents(Surface s, int right, int centerY)
