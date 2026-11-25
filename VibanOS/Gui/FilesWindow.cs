@@ -36,7 +36,9 @@ namespace VibanOS.Gui
         private string folder = "";
         private string file;       // geöffnete Datei oder null
         private readonly List<string> lines = new List<string>();
-        private int selected = -1, scroll, visibleRows = 1;
+        // Liste und Vorschau blättern getrennt: Sonst stünde die Liste nach dem Schließen einer Datei woanders.
+        private int selected = -1, scroll, visibleRows = 1; // Liste: gewählte Zeile, erste gezeigte, so viele passen
+        private int top, previewRows = 1;                   // Vorschau: erste gezeigte Zeile, so viele passen
         private string message = "";
         private string space = "";  // freier Platz für die Statuszeile, siehe ReadSpace
 
@@ -81,6 +83,7 @@ namespace VibanOS.Gui
         internal string Message { get { return message; } }
         internal int Count { get { return entries.Count; } }
         internal List<string> Lines { get { return lines; } }
+        internal int Top { get { return top; } }
 
         /// <summary>Zeigt einen Ordner. Ohne Recht oder wenn es ihn nicht gibt, bleibt alles, wie es war.</summary>
         private void Go(string path)
@@ -174,7 +177,7 @@ namespace VibanOS.Gui
                     for (int i = 0; i < split.Length; i++) lines.Add(split[i].Replace("\r", "").Replace("\t", "    "));
                     if (more) lines.Add("...");
                     file = path;
-                    scroll = 0;
+                    top = 0;
                     message = "";
                 }
                 catch (Exception e) { lines.Clear(); message = "Datei lässt sich nicht lesen: " + e.Message; }
@@ -207,7 +210,6 @@ namespace VibanOS.Gui
             ReadSpace();
             for (int i = 0; i < entries.Count; i++)
                 if (entries[i].Name == Vfs.NameOf(path)) selected = i;
-            Show(selected);
         }
 
         public override void OnClick(int px, int py)
@@ -249,14 +251,13 @@ namespace VibanOS.Gui
             Sync();
             if (file != null)
             {
-                int page = visibleRows > 1 ? visibleRows - 1 : 1;
-                if (key == Key.Up) scroll--;
-                else if (key == Key.Down) scroll++;
-                else if (key == Key.PageUp) scroll -= page;
-                else if (key == Key.PageDown) scroll += page;
+                // Die Grenzen zieht DrawPreview: Erst dort steht fest, wie viele Zeilen es umbrochen sind.
+                int page = previewRows > 1 ? previewRows - 1 : 1;
+                if (key == Key.Up) top--;
+                else if (key == Key.Down) top++;
+                else if (key == Key.PageUp) top -= page;
+                else if (key == Key.PageDown) top += page;
                 else if (key == Key.Backspace) GoBack();
-                if (scroll > lines.Count - visibleRows) scroll = lines.Count - visibleRows;
-                if (scroll < 0) scroll = 0;
                 return;
             }
             int step = visibleRows > 1 ? visibleRows - 1 : 1; // Bild auf und ab: eine Seite, eine Zeile bleibt als Anschluss
@@ -269,15 +270,6 @@ namespace VibanOS.Gui
             else return;
             if (selected > entries.Count - 1) selected = entries.Count - 1;
             if (selected < 0) selected = entries.Count > 0 ? 0 : -1;
-            Show(selected);
-        }
-
-        // Blättert so, dass die gewählte Zeile zu sehen ist.
-        private void Show(int index)
-        {
-            if (index < 0) return;
-            if (index < scroll) scroll = index;
-            if (index >= scroll + visibleRows) scroll = index - visibleRows + 1;
         }
 
         /// <summary>Für den Selbsttest: Mitte der Klickfläche einer Aktion beim letzten Zeichnen, oder null.</summary>
@@ -399,6 +391,10 @@ namespace VibanOS.Gui
 
             visibleRows = (bottom - ty - T.Space.XS) / T.Size.Row;
             if (visibleRows < 1) visibleRows = 1;
+            // Die gewählte Zeile ist immer zu sehen. Geblättert wird hier und nicht beim Tastendruck: Erst jetzt steht fest,
+            // wie viele Zeilen passen, auch nach dem Vergrößern des Fensters oder dem Weg zurück aus einem Unterordner.
+            if (selected >= 0 && selected < scroll) scroll = selected;
+            if (selected >= scroll + visibleRows) scroll = selected - visibleRows + 1;
             if (scroll > entries.Count - visibleRows) scroll = entries.Count - visibleRows;
             if (scroll < 0) scroll = 0;
             if (entries.Count == 0)
@@ -428,30 +424,46 @@ namespace VibanOS.Gui
             }
         }
 
-        private static string Kind(string name)
+        internal static string Kind(string name)
         {
             int dot = name.LastIndexOf('.');
             string ext = dot >= 0 ? name.Substring(dot + 1).ToLowerInvariant() : "";
             if (ext == "txt" || ext == "md" || ext == "log") return "Text";
             if (ext == "csv") return "Tabelle";
-            return ext == "" ? "Datei" : ext.ToUpperInvariant() + "-Datei";
+            // Nur kurze Endungen ohne Leerzeichen sind welche: "Bericht v1.2 final" hat keine, und die Spalte ist schmal.
+            return ext == "" || ext.Length > 4 || ext.IndexOf(' ') >= 0 ? "Datei" : ext.ToUpperInvariant() + "-Datei";
         }
 
         private void DrawPreview(Surface s, int x, int y, int w, int bottom)
         {
             s.FillRect(x, y, w, bottom - y, T.Color.Sunken);
             int lh = Fonts.Mono.LineHeight, ty = y + T.Space.M;
-            visibleRows = (bottom - ty - T.Space.M) / lh;
-            if (visibleRows < 1) visibleRows = 1;
-            // Nur so viele Zeichen, wie in die Breite passen: Eine Datei ohne Zeilenenden ist eine einzige, sehr lange Zeile.
+            previewRows = (bottom - ty - T.Space.M) / lh;
+            if (previewRows < 1) previewRows = 1;
+            // Lange Zeilen brechen um wie im Terminal: Eine Datei ohne Zeilenenden ist eine einzige, sehr lange Zeile.
             int columns = (w - 2 * T.Space.L) / Fonts.Mono.Measure("M");
-            for (int i = scroll; i < lines.Count && i < scroll + visibleRows; i++)
+            if (columns < 1) columns = 1;
+            int total = 0;
+            for (int i = 0; i < lines.Count; i++) total += Rows(lines[i], columns);
+            if (top > total - previewRows) top = total - previewRows;
+            if (top < 0) top = 0;
+            int row = 0, end = top + previewRows;
+            for (int i = 0; i < lines.Count && row < end; i++)
             {
-                string line = lines[i].Length > columns ? lines[i].Substring(0, columns) : lines[i];
-                s.DrawText(Fonts.Mono, line, x + T.Space.L, ty, T.Color.TextPrimary);
-                ty += lh;
+                int n = Rows(lines[i], columns);
+                if (row + n <= top) { row += n; continue; } // ganz über dem Ausschnitt
+                for (int k = 0; k < n && row < end; k++, row++)
+                {
+                    if (row < top) continue;
+                    int at = k * columns;
+                    s.DrawText(Fonts.Mono, lines[i].Substring(at, Math.Min(columns, lines[i].Length - at)), x + T.Space.L, ty, T.Color.TextPrimary);
+                    ty += lh;
+                }
             }
         }
+
+        // So viele Bildschirmzeilen braucht eine Zeile der Datei. Auch eine leere braucht eine.
+        private static int Rows(string line, int columns) { return line.Length <= columns ? 1 : (line.Length + columns - 1) / columns; }
 
         private static void Empty(Surface s, int x, int w, int top, int bottom, string first, string second)
         {

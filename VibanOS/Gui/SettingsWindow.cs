@@ -81,7 +81,7 @@ namespace VibanOS.Gui
             else if (action == PickGerman || action == PickUs)
             {
                 Settings.GermanKeyboard = action == PickGerman;
-                Hardware.SetKeyboardLayout(Settings.GermanKeyboard);
+                Settings.ApplyKeyboard();
             }
             else return;
             if (Settings.Save(OS.Users.Current)) return;

@@ -197,6 +197,8 @@ namespace VibanOS.Preview
             Type("mv /system/users.txt /home/root/users.bak\n");
             Check(Last().Text.StartsWith("Das braucht das System") && File.Exists(userFile) && !File.Exists(Path.Combine(home, "users.bak")),
                 "mv holt die Nutzerdatei nicht aus dem Systemordner");
+            Type("rm /system/users.txt\n");
+            Check(Last().Text.StartsWith("Das braucht das System") && File.Exists(userFile), "rm löscht die Nutzerdatei nicht, auch nicht für root");
             Type("write /home/zettel.txt x\nmv /home/zettel.txt /home/root/zettel.txt\n");
             Check(File.Exists(Path.Combine(home, "zettel.txt")), "Eine Datei direkt in home lässt sich verschieben, nur die Ordner dort sind fest");
             Type("rm /home/root/zettel.txt\n");
@@ -696,6 +698,30 @@ namespace VibanOS.Preview
             files.OnKey(Key.Enter, '\0');
             Picture(files);
             Check(files.Lines.Count == 2 && files.Lines[0].Length == 8192 && files.Lines[1] == "...", "Von einer großen Datei liest die Vorschau nur den Anfang");
+            long lineStart = Picture(files);
+            for (int i = 0; i < 100; i++) files.OnKey(Key.PageDown, '\0');
+            Check(Picture(files) != lineStart && files.Top > 0, "Eine sehr lange Zeile bricht in der Vorschau um: Mit Bild ab kommt man bis an ihr Ende");
+            string[] sixty = new string[60];
+            for (int i = 0; i < sixty.Length; i++) sixty[i] = "Zeile " + (i + 1);
+            File.WriteAllText(Path.Combine(home, "notizen", "zeilen.txt"), string.Join("\n", sixty));
+            files.OnKey(Key.Backspace, '\0');
+            Picture(files);
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("zeilen.txt")));
+            files.OnKey(Key.Enter, '\0');
+            Picture(files);
+            Check(files.Lines.Count == 60 && files.Top == 0, "Jede Datei beginnt in der Vorschau oben, auch wenn die vorige weit geblättert war");
+            files.OnKey(Key.Down, '\0');
+            Picture(files);
+            bool oneDown = files.Top == 1;
+            for (int i = 0; i < 100; i++) files.OnKey(Key.PageDown, '\0');
+            Picture(files);
+            int lastTop = files.Top;
+            files.OnKey(Key.Down, '\0');
+            Picture(files);
+            bool held = files.Top == lastTop && lastTop > 1 && lastTop < sixty.Length;
+            for (int i = 0; i < 100; i++) files.OnKey(Key.PageUp, '\0');
+            Picture(files);
+            Check(oneDown && held && files.Top == 0, "In der Vorschau blättern Pfeiltasten und Bild auf und ab, aber nicht über Anfang und Ende hinaus");
             ClickAt(files.CenterOf(FilesWindow.Back));
             ClickAt(files.CenterOf(FilesWindow.Back));
             Check(files.Folder == OS.Users.Current.HomeDirectory && files.OpenFile == null, "Zurück geht von der Datei zum Ordner und weiter nach oben");
@@ -708,6 +734,39 @@ namespace VibanOS.Preview
             Picture(files);
             Picture(files);
             Check(Platform.Hardware.DiskSpaceCalls == spaceCalls, "Dateien fragt den freien Platz nicht bei jedem Zeichnen ab");
+            // Ein Ordner mit mehr Einträgen, als ins Fenster passen: 20 Ordner, dahinter 10 Dateien.
+            string many = Path.Combine(home, "viele");
+            for (int i = 1; i <= 20; i++) Directory.CreateDirectory(Path.Combine(many, "o" + Text.Two(i)));
+            for (int i = 1; i <= 10; i++) File.WriteAllText(Path.Combine(many, "d" + Text.Two(i) + ".txt"), "Inhalt " + i);
+            ClickAt(files.CenterOf(FilesWindow.PlaceHome)); // liest den Ordner neu
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("viele")));
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("viele")));
+            for (int i = 0; i < 28; i++) files.OnKey(Key.Down, '\0');
+            Picture(files); // wie im Kernel: Zwischen den Tasten wird gezeichnet
+            for (int i = 0; i < 5; i++) files.OnKey(Key.Up, '\0');
+            Picture(files);
+            int firstRow = FirstRow(files);
+            Check(firstRow > 0 && files.CenterOf(FilesWindow.Item + files.IndexOf("d03.txt")) != null, "Die Liste blättert mit der Auswahl mit");
+            files.OnKey(Key.Enter, '\0');
+            Picture(files);
+            bool opened = files.OpenFile != null && files.OpenFile.EndsWith("d03.txt") && files.Top == 0 && files.Lines[0] == "Inhalt 3";
+            files.OnKey(Key.Backspace, '\0');
+            Picture(files);
+            Check(opened && FirstRow(files) == firstRow, "Nach dem Schließen einer Datei steht die Liste, wo sie war");
+            for (int i = 0; i < 5; i++) files.OnKey(Key.PageUp, '\0');
+            for (int i = 0; i < 17; i++) files.OnKey(Key.Down, '\0');
+            files.OnKey(Key.Enter, '\0');
+            bool inside = files.Folder.EndsWith("o18");
+            files.OnKey(Key.Backspace, '\0');
+            Picture(files);
+            bool shown = files.CenterOf(FilesWindow.Item + files.IndexOf("o18")) != null;
+            files.OnKey(Key.Enter, '\0');
+            Check(inside && shown && files.Folder.EndsWith("o18"), "Zurück aus einem Unterordner ist er ausgewählt und zu sehen, auch weit unten in der Liste");
+            Directory.Delete(many, true);
+            ClickAt(files.CenterOf(FilesWindow.PlaceHome));
+            Check(FilesWindow.Kind("bild.png") == "PNG-Datei" && FilesWindow.Kind("NOTIZ.TXT") == "Text" && FilesWindow.Kind("ohne") == "Datei"
+                && FilesWindow.Kind("sicherung.backup2024") == "Datei" && FilesWindow.Kind("Bericht v1.2 final") == "Datei",
+                "Die Spalte Art nennt nur kurze Endungen, alles andere heißt Datei");
             OS.Shell.Submit("mkdir /home/root/wand");
             ClickAt(files.CenterOf(FilesWindow.PlaceHome)); // liest den Ordner neu
             ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("wand")));
@@ -754,6 +813,13 @@ namespace VibanOS.Preview
             Click(ControlX(files, Window.CloseButton), files.Y + T.Size.TitleBar / 2);
             Settle();
             desktop.Open(Icons.Terminal);
+            Type("passwd\n");
+            bool askedGerman = OS.Shell.Masked && Platform.Hardware.GermanKeyboard;
+            Type("topsecret\n");
+            askedGerman &= OS.Shell.Masked && Platform.Hardware.GermanKeyboard; // auch bei der zweiten Frage
+            Type("topsecret\n");
+            Check(askedGerman && !Platform.Hardware.GermanKeyboard && Last().Text == "Passwort geändert.",
+                "Passwörter tippt man auch mit US-Belegung deutsch wie am Anmeldebildschirm, danach gilt wieder die eigene");
             Type("logout\n");
             Check(OS.Users.Current == null && Platform.Hardware.GermanKeyboard && T.Color.Accent == T.Color.AccentBlue,
                 "Nach der Abmeldung gelten wieder die Grundwerte: Niemand tippt sein Passwort mit der Tastaturbelegung des Vorgängers");
@@ -856,6 +922,14 @@ namespace VibanOS.Preview
             screen = new Surface(Platform.Hardware.ScreenWidth, Platform.Hardware.ScreenHeight);
             desktop.Resize(screen.Width, screen.Height);
             desktop.Frame(screen);
+        }
+
+        // Der erste Eintrag, den die Liste von Dateien gerade zeigt, oder -1.
+        private static int FirstRow(FilesWindow files)
+        {
+            for (int i = 0; i < files.Count; i++)
+                if (files.CenterOf(FilesWindow.Item + i) != null) return i;
+            return -1;
         }
 
         // Mitte eines Dock-Symbols bei Entwurfsgröße.

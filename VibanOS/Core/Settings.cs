@@ -62,6 +62,13 @@ namespace VibanOS.Core
         private static string PathOf(User user) { return Vfs.Combine(user.HomeDirectory, FileName); }
 
         /// <summary>
+        /// Stellt die Tastatur auf die Belegung des Nutzers. Solange das Terminal ein Passwort abfragt, gilt die deutsche wie
+        /// am Anmeldebildschirm: Sonst passte ein Passwort, das jemand mit US-Belegung setzt, bei der nächsten Anmeldung
+        /// nicht mehr, denn y, z und die Sonderzeichen liegen dort anders.
+        /// </summary>
+        public static void ApplyKeyboard() { Hardware.SetKeyboardLayout(GermanKeyboard || OS.Shell.Masked); }
+
+        /// <summary>
         /// Nach der Anmeldung: die Einstellungen des Nutzers übernehmen. Was in der Datei fehlt oder nicht stimmt,
         /// steht auf dem Grundwert. Die Auflösung bleibt ohne Eintrag, wie sie ist. Nach der Abmeldung (user null)
         /// gelten die Grundwerte.
@@ -99,7 +106,7 @@ namespace VibanOS.Core
             try
             {
                 // Auch nach einem Lesefehler: Sonst bliebe die Belegung des Vorgängers an der Tastatur.
-                Hardware.SetKeyboardLayout(GermanKeyboard);
+                ApplyKeyboard();
 
                 // Nur eine Auflösung, die die Grafikkarte jetzt anbietet und die auch die Einstellungen zur Wahl stellen.
                 // Eine andere Zahl aus der Datei erreicht die Grafikkarte nie. Ohne Eintrag wird sie gar nicht erst gefragt.

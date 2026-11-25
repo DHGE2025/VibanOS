@@ -141,6 +141,8 @@ namespace VibanOS.Cli.Commands
         {
             string path = Target(args, shell, Access.Write);
             if (path == null) return;
+            // Wie bei mv: Ohne die Nutzerdatei begänne der nächste Start mit der Ersteinrichtung.
+            if (Vfs.IsFixed(path)) { shell.Error("Das braucht das System an seinem Platz: " + path); return; }
             if (File.Exists(path)) File.Delete(path);
             else if (!Directory.Exists(path)) shell.Error("Nicht gefunden: " + path);
             else if (Directory.GetFiles(path).Length + Directory.GetDirectories(path).Length > 0) shell.Error("Ordner ist nicht leer: " + path);
