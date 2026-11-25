@@ -113,8 +113,9 @@ namespace VibanOS.FileSystem
             string p = path.ToLowerInvariant(), system = SystemDirectory.ToLowerInvariant();
             if (p == Root.ToLowerInvariant() || p == (Root + "home").ToLowerInvariant() || p == system || Text.HasPrefix(p, system + Separator)) return true;
             // Nur die Ordner der Nutzer, nicht jeder Ordner, den jemand in home anlegt: Den würde sonst niemand wieder los.
+            // Dasselbe gilt für eine Datei, die an der Stelle eines Home-Ordners liegt: Sie ist keiner und muss weg können.
             for (int i = 0; i < OS.Users.All.Count; i++)
-                if (p == OS.Users.All[i].HomeDirectory.ToLowerInvariant()) return true;
+                if (p == OS.Users.All[i].HomeDirectory.ToLowerInvariant()) return !File.Exists(path);
             return false;
         }
 

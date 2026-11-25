@@ -12,7 +12,8 @@ namespace VibanOS.Cli.Commands
     {
         /// <summary>
         /// Löst args[0] zu einem vollständigen Pfad auf und prüft das Recht. Gibt null zurück und
-        /// meldet den Grund im Terminal, wenn etwas fehlt.
+        /// meldet den Grund im Terminal, wenn etwas fehlt. args enthält nur den einen Namen: Wer mehr Argumente hat
+        /// (write, cp, mv), reicht ihn einzeln herein.
         /// </summary>
         protected string Target(string[] args, Shell shell, Access access)
         {
@@ -24,6 +25,13 @@ namespace VibanOS.Cli.Commands
             if (args.Length == 0 && Usage != Name)
             {
                 shell.Error("Aufruf: " + Usage);
+                return null;
+            }
+            // Ohne Anführungszeichen zerfällt "Neuer Ordner" in zwei Namen. Den zweiten still zu übergehen hieße bei rm:
+            // "Neuer" löschen und "Neuer Ordner" stehen lassen.
+            if (args.Length > 1)
+            {
+                shell.Error("Zu viele Namen. Ein Name mit Leerzeichen gehört in Anführungszeichen.");
                 return null;
             }
             string path = Vfs.Resolve(shell.CurrentDirectory, args.Length > 0 ? args[0] : "");
@@ -124,7 +132,7 @@ namespace VibanOS.Cli.Commands
         {
             // Ohne Text bliebe eine leere Datei zurück. Wer das will, schreibt ausdrücklich "".
             if (args.Length < 2) { shell.Error("Aufruf: " + Usage); return; }
-            string path = Target(args, shell, Access.Write);
+            string path = Target(new[] { args[0] }, shell, Access.Write);
             if (path == null) return;
             if (Directory.Exists(path)) { shell.Error("Das ist ein Ordner: " + path); return; }
             File.WriteAllText(path, Shell.Join(args, 1));
@@ -168,7 +176,7 @@ namespace VibanOS.Cli.Commands
             from = to = null;
             // Genau zwei: Ein Name mit Leerzeichen ohne Anführungszeichen zerfiele sonst still in Ziel und Rest.
             if (args.Length != 2) { shell.Error("Aufruf: " + Usage + " (Namen mit Leerzeichen in Anführungszeichen)"); return false; }
-            from = Target(args, shell, source);
+            from = Target(new[] { args[0] }, shell, source);
             if (from == null) return false;
             to = Target(new[] { args[1] }, shell, Access.Write);
             if (to == null) return false;

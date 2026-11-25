@@ -241,6 +241,10 @@ namespace VibanOS.Preview
             bool renamed = Directory.Exists(Path.Combine(home, "drei kurze worte")) && !Directory.Exists(Path.Combine(home, "zwei worte"));
             Type("rm \"drei kurze worte\"\n");
             Check(renamed && !Directory.Exists(Path.Combine(home, "drei kurze worte")), "In Anführungszeichen gehen auch Namen mit Leerzeichen");
+            Type("touch Neuer\nmkdir \"Neuer Ordner\"\nrm Neuer Ordner\n");
+            Check(Last().Text.StartsWith("Zu viele Namen") && File.Exists(Path.Combine(home, "Neuer")) && Directory.Exists(Path.Combine(home, "Neuer Ordner")),
+                "rm mit einem Namen zu viel löscht nichts: Ohne Anführungszeichen träfe es sonst still die Datei Neuer");
+            Type("rm Neuer\nrm \"Neuer Ordner\"\n");
             Type("df\n");
             Check(Last().Text.Contains("64 MB gesamt") && Last().Text.Contains("60 MB frei"), "df zeigt Größe und freien Platz der Platte");
             Platform.Hardware.DiskSpaceFails = true;
@@ -251,6 +255,8 @@ namespace VibanOS.Preview
                 && Text.Bytes(10 * 1024) == "10 KB" && Text.Bytes(5UL << 30) == "5 GB" && Text.Bytes(ulong.MaxValue) == "16777216 TB",
                 "Größen werden lesbar ausgegeben");
             Check(Text.Bytes((1UL << 20) - 1) == "1 MB" && Text.Bytes((1UL << 30) - 1) == "1 GB", "Knapp unter der nächsten Einheit steht 1 MB und nicht 1024 KB");
+            Check(Text.Bytes(10968105) == "10 MB" && Text.Bytes(11010048) == "11 MB" && Text.Bytes(1073112678) == "1023 MB" && Text.Bytes(1073217536) == "1 GB",
+                "Größen werden einmal gerundet, nicht zweimal: 10,46 MB sind 10 MB, erst 10,5 MB sind 11 MB");
             Type("cd ..\ncd ..\ncd ..\n");
             Check(OS.Shell.CurrentDirectory == Vfs.Root, "cd .. verlässt die Wurzel nicht");
             Type("cd home/root\n");
@@ -568,6 +574,21 @@ namespace VibanOS.Preview
             OS.Users.Logout();
             OS.Users.Login(UserManager.Root, "geheim");
             Check(forgotten && OS.Users.Current.Name == UserManager.Root, "Die Meldung des Vorgängers steht nach einem Nutzerwechsel nicht mehr in den Einstellungen");
+            // Klickt der Neue, bevor das Fenster für ihn gezeichnet wurde (Anmeldung und Klick im selben Bild), gilt die Meldung ihm.
+            string annaFile = Path.Combine(disk, "home", "anna", Settings.FileName);
+            Directory.CreateDirectory(annaFile); // auch bei anna scheitert das Speichern
+            Picture(settings);
+            int[] accent = settings.CenterOf(SettingsWindow.PickAccent);
+            OS.Users.Logout();
+            OS.Users.Login("anna", "topsecret");
+            Click(accent[0], accent[1]);
+            Picture(settings);
+            bool own = settings.Error != "";
+            OS.Users.Logout();
+            OS.Users.Login(UserManager.Root, "geheim");
+            Directory.Delete(annaFile);
+            Picture(settings);
+            Check(own && settings.Error == "", "Die eigene Meldung übersteht das erste Zeichnen nach dem Nutzerwechsel");
             Directory.Delete(settingsFile);
             ClickAt(settings.CenterOf(SettingsWindow.PickAccent));
             Check(settings.Error == "" && File.Exists(settingsFile), "Der nächste Klick speichert wieder");
@@ -579,7 +600,6 @@ namespace VibanOS.Preview
             Shot(output, "7-einstellungen-erscheinungsbild");
             Check(File.ReadAllText(settingsFile).Contains("sekunden=1"), "Die Einstellungen landen im Home-Ordner");
             ClickAt(settings.CenterOf(SettingsWindow.PickAccent + 3));
-            string annaFile = Path.Combine(disk, "home", "anna", Settings.FileName);
             Settings.Load(OS.Users.Find("anna"));
             Check(T.Color.Accent == T.Color.AccentBlue && !Settings.ShowSeconds && Settings.Width == 0, "Ein anderer Nutzer ohne eigene Einstellungen bekommt die Grundwerte");
             Check(Settings.Save(OS.Users.Find("anna")) && !File.ReadAllText(annaFile).Contains("breite"), "Wer keine Auflösung gewählt hat, bekommt auch keine gespeichert");
@@ -717,20 +737,25 @@ namespace VibanOS.Preview
                 "Die Vorschau zeigt Windows-Zeilenenden, Tabulatoren und die UTF-8-Kennung sauber");
             File.WriteAllText(Path.Combine(home, "notizen", "ende.txt"), "eins\r\nzwei\r\n");
             File.WriteAllText(Path.Combine(home, "notizen", "nichts.txt"), "");
-            files.OnKey(Key.Backspace, '\0');
-            Picture(files);
-            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("ende.txt")));
-            files.OnKey(Key.Enter, '\0');
+            File.WriteAllText(Path.Combine(home, "notizen", "zeile.txt"), "\n"); // eine einzige, leere Zeile
+            File.WriteAllText(Path.Combine(home, "notizen", "rand.txt"), new string('x', 8191) + "\nweiter"); // der gelesene Anfang endet am Zeilenende
+            // Ausschnitte des Fensters (links, oben, rechts, unten): die Statusleiste und die Mitte der Vorschau.
+            int[] statusBar = { files.X + T.Size.Sidebar + 10, files.Y + files.Height - 26, files.X + files.Width - 10, files.Y + files.Height - 3 };
+            int[] middle = { files.X + T.Size.Sidebar + 20, files.Y + T.Size.TitleBar + 60, files.X + files.Width - 20, files.Y + files.Height - 50 };
+            ShowFile(files, "ende.txt");
             bool two = files.Lines.Count == 2 && files.Lines[1] == "zwei" && files.Info == "2 Zeilen";
-            files.OnKey(Key.Backspace, '\0');
-            Picture(files);
-            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("nichts.txt")));
-            files.OnKey(Key.Enter, '\0');
-            Picture(files);
+            long twoLines = Region(statusBar);
+            ShowFile(files, "zeile.txt");
+            long oneEmptyLine = Region(middle);
+            ShowFile(files, "nichts.txt");
             for (int i = 0; i < 3; i++) files.OnKey(Key.PageDown, '\0');
             Picture(files);
             Check(two && files.OpenFile != null && files.Lines.Count == 0 && files.Info == "0 Zeilen" && files.Top == 0,
                 "Ein Zeilenende am Schluss zählt nicht als weitere Zeile, und eine leere Datei hat keine");
+            Check(Region(middle) != oneEmptyLine, "Eine leere Datei sagt in der Vorschau, dass sie leer ist");
+            ShowFile(files, "rand.txt");
+            Check(files.Lines.Count == 2 && files.Lines[0].Length == 8191 && files.Lines[1] == "...",
+                "Endet der gelesene Anfang an einem Zeilenende, steht keine Leerzeile vor den Auslassungspunkten");
             File.WriteAllText(Path.Combine(home, "notizen", "lang.txt"), new string('x', 10000)); // eine einzige, sehr lange Zeile
             files.OnKey(Key.Backspace, '\0');
             Picture(files);
@@ -739,6 +764,7 @@ namespace VibanOS.Preview
             Picture(files);
             Check(files.Lines.Count == 2 && files.Lines[0].Length == 8192 && files.Lines[1] == "..." && files.Info == "Die ersten 8 KB der Datei",
                 "Von einer großen Datei liest die Vorschau nur den Anfang und sagt das in der Statusleiste");
+            Check(Region(statusBar) != twoLines, "Die Statusleiste zeigt bei einer großen Datei den gelesenen Anfang, nicht die Zeilenzahl");
             long lineStart = Picture(files);
             for (int i = 0; i < 100; i++) files.OnKey(Key.PageDown, '\0');
             Check(Picture(files) != lineStart && files.Top > 0, "Eine sehr lange Zeile bricht in der Vorschau um: Mit Bild ab kommt man bis an ihr Ende");
@@ -861,6 +887,19 @@ namespace VibanOS.Preview
             ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("users.txt")));
             ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("users.txt")));
             Check(files.OpenFile != null && files.Lines[0].Contains("root"), "Administratoren sehen die Nutzerdatei");
+            string annaHome = Path.Combine(disk, "home", "anna");
+            OS.Shell.Submit("mv /home/anna /home/anna2");
+            bool kept = Last().Text.StartsWith("Das braucht das System") && Directory.Exists(annaHome);
+            OS.Shell.Submit("rm /home/anna");
+            Check(kept && Last().Text.StartsWith("Das braucht das System") && Vfs.IsFixed(Vfs.Root + "HOME/ANNA"),
+                "Auch der Home-Ordner eines anderen Nutzers ist fest, in jeder Schreibweise");
+            Directory.Move(annaHome, annaHome + ".weg");
+            File.WriteAllText(annaHome, "x"); // eine Datei liegt, wo der Home-Ordner hingehört
+            OS.Shell.Submit("rm /home/anna");
+            bool removed = !File.Exists(annaHome);
+            File.Delete(annaHome);
+            Directory.Move(annaHome + ".weg", annaHome);
+            Check(removed, "Eine Datei an der Stelle eines Home-Ordners ist nicht fest und lässt sich löschen");
             OS.Shell.Submit("logout");
             File.WriteAllText(annaFile, "akzent=" + Text.Hex(T.Color.AccentGreen, 8) + "\ntastatur=us\nbreite=1024\nhoehe=768\n");
             Type("\ttopsecret\n");
@@ -1031,6 +1070,30 @@ namespace VibanOS.Preview
         {
             desktop.OnMouse(x, y, true);
             desktop.OnMouse(x, y, false);
+        }
+
+        // Öffnet eine Datei des gezeigten Ordners in der Vorschau, auch aus einer offenen Vorschau heraus.
+        private static void ShowFile(FilesWindow files, string name)
+        {
+            if (files.OpenFile != null) files.OnKey(Key.Backspace, '\0');
+            Picture(files);
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf(name)));
+            files.OnKey(Key.Enter, '\0');
+            Picture(files);
+        }
+
+        // Zeichnet neu und fasst einen Ausschnitt des Bildschirms (links, oben, rechts, unten) zu einer Zahl zusammen.
+        // Der Mauszeiger liegt dabei abseits, sonst unterschieden sich zwei Bilder schon durch ihn.
+        private static long Region(int[] r)
+        {
+            desktop.OnMouse(2, 300, false);
+            animTime += 1000;
+            OS.Changed = true;
+            desktop.Frame(screen);
+            long sum = 17;
+            for (int y = r[1]; y < r[3]; y++)
+                for (int x = r[0]; x < r[2]; x++) sum = sum * 31 + screen.Pixels[y * screen.Width + x];
+            return sum;
         }
 
         // Zeichnet neu und fasst den Inhalt eines Fensters zu einer Zahl zusammen, um zwei Bilder zu vergleichen.

@@ -188,7 +188,7 @@ namespace VibanOS.Gui
                     bool more;
                     string[] split = Vfs.ReadStart(path, PreviewBytes, out more).Split('\n');
                     // Ein Zeilenende am Schluss beginnt keine weitere Zeile, und eine leere Datei hat keine.
-                    int count = !more && split[split.Length - 1] == "" ? split.Length - 1 : split.Length;
+                    int count = split[split.Length - 1] == "" ? split.Length - 1 : split.Length;
                     for (int i = 0; i < count; i++) lines.Add(split[i].Replace("\r", "").Replace("\t", "    "));
                     if (more) lines.Add("...");
                     cut = more;
