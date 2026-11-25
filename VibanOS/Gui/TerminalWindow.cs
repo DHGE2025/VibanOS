@@ -29,6 +29,8 @@ namespace VibanOS.Gui
 
         protected override uint Background { get { return T.Color.Sunken; } }
 
+        public override bool CanZoom { get { return true; } }
+
         public override void OnKey(Key key, char c)
         {
             Shell shell = OS.Shell;

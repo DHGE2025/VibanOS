@@ -87,7 +87,7 @@ Eine neue, leere Platte hat weder Partitionstabelle noch Dateisystem. Der Befehl
 
 **Einen Treiber:** Klasse von `Driver` ableiten, in `OS.Boot()` registrieren. Portzugriffe laufen über `Hardware.In` und `Hardware.Out`.
 
-**Ein Fenster:** Klasse von `Window` ableiten und `DrawContent` schreiben, Symbol in `Gui/Icons.cs`, Eintrag in `Desktop.Open`. Für das Aussehen gilt das [Designsheet](design/designsheet.md).
+**Ein Fenster:** Klasse von `Window` ableiten und `DrawContent` schreiben, Symbol in `Gui/Icons.cs`, Eintrag in `Desktop.Open`. Wächst der Inhalt mit der Fenstergröße, `CanZoom` auf `true` setzen, dann vergrößert der grüne Knopf das Fenster. Öffnen, Schließen und Minimieren sind automatisch animiert (`Gui/Transition.cs`). Für das Aussehen gilt das [Designsheet](design/designsheet.md).
 
 ## Was unter COSMOS zu beachten ist
 

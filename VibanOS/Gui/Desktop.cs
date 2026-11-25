@@ -41,6 +41,11 @@ namespace VibanOS.Gui
         private readonly LoginScreen login = new LoginScreen();
         private readonly Window[] apps = new Window[Icons.Count];   // offenes Fenster je App oder null
         private readonly List<Window> windows = new List<Window>(); // hinten nach vorn, das letzte ist aktiv
+        private readonly List<Transition> transitions = new List<Transition>();
+
+        /// <summary>Uhr der Animationen in Millisekunden. Der Selbsttest setzt hier eine eigene ein.</summary>
+        public Func<long> Clock = Transition.Milliseconds;
+        private long ms;
 
         private int mouseX, mouseY, drawnX = -1, drawnY = -1;
         private bool mouseDown;
@@ -55,6 +60,9 @@ namespace VibanOS.Gui
             scene = new Surface(width, height);
             Wallpaper.Render(wallpaper);
         }
+
+        /// <summary>true, solange eine Fenster-Animation läuft.</summary>
+        public bool Animating { get { return transitions.Count > 0; } }
 
         private static bool Locked { get { return OS.Users.Current == null; } }
 
@@ -99,7 +107,10 @@ namespace VibanOS.Gui
             {
                 Window w = windows[i];
                 if (!w.Contains(x, y)) continue;
-                if (w.OnClose(x, y)) { Close(w); return; }
+                int control = w.ControlAt(x, y);
+                if (control == Window.CloseButton) { Close(w); return; }
+                if (control == Window.MinimizeButton) { Minimize(w); return; }
+                if (control == Window.ZoomButton && w.CanZoom) { Zoom(w); return; }
                 Focus(w);
                 if (w.InTitleBar(x, y))
                 {
@@ -111,10 +122,17 @@ namespace VibanOS.Gui
             }
         }
 
-        /// <summary>Öffnet eine App aus dem Dock oder holt ihr Fenster nach vorn.</summary>
+        /// <summary>Öffnet eine App aus dem Dock, holt ihr Fenster nach vorn oder aus dem Dock zurück.</summary>
         public void Open(int icon)
         {
-            if (apps[icon] != null) { Focus(apps[icon]); return; }
+            Window open = apps[icon];
+            if (open != null && IndexOf(open) >= 0) { Focus(open); return; }
+            if (open != null)
+            {
+                windows.Add(open);
+                Animate(open, Motion.Restore, icon);
+                return;
+            }
             Window w;
             string name;
             if (icon == Icons.Terminal) { w = new TerminalWindow(); name = "terminal"; }
@@ -129,7 +147,7 @@ namespace VibanOS.Gui
             if (w.X < T.Space.M) w.X = T.Space.M;
             apps[icon] = w;
             windows.Add(w);
-            OS.Changed = true;
+            Animate(w, Motion.Open, icon);
         }
 
         private void Focus(Window w)
@@ -143,16 +161,78 @@ namespace VibanOS.Gui
         {
             if (w.Process != null) OS.Processes.Kill(w.Process.Id);
             w.Process = null;
+            int icon = IconOf(w);
+            Animate(w, Motion.Close, icon);
             Remove(w);
-            for (int i = 0; i < apps.Length; i++)
-                if (apps[i] == w) apps[i] = null;
+            if (icon >= 0) apps[icon] = null;
+        }
+
+        /// <summary>Gelber Knopf: Das Fenster wandert ins Dock, ein Klick auf das Symbol holt es zurück.</summary>
+        private void Minimize(Window w)
+        {
+            Animate(w, Motion.Minimize, IconOf(w));
+            Remove(w);
+        }
+
+        /// <summary>Grüner Knopf: füllt die Fläche zwischen Menüleiste und Dock, ein zweiter Klick stellt die alte Größe her.</summary>
+        private void Zoom(Window w)
+        {
+            Focus(w);
+            Cancel(w);
+            int x, y, width, height;
+            if (w.Zoomed)
+            {
+                x = w.NormalX; y = w.NormalY; width = w.NormalWidth; height = w.NormalHeight;
+            }
+            else
+            {
+                w.NormalX = w.X; w.NormalY = w.Y; w.NormalWidth = w.Width; w.NormalHeight = w.Height;
+                x = T.Space.S;
+                y = T.Size.MenuBar + T.Space.S;
+                width = scene.Width - 2 * T.Space.S;
+                height = DockY - T.Space.S - y;
+            }
+            w.Zoomed = !w.Zoomed;
+            transitions.Add(new Transition(w, Motion.Zoom, Clock(), true, x, y, width, height));
             OS.Changed = true;
+        }
+
+        // Startet eine Animation für w. Eine laufende desselben Fensters endet sofort. icon: App des Fensters, für den Weg ins Dock.
+        private void Animate(Window w, Motion kind, int icon)
+        {
+            Cancel(w);
+            int x = icon >= 0 ? DockX + T.Space.S + icon * (T.Size.DockIcon + T.Space.M) : scene.Width / 2;
+            transitions.Add(new Transition(w, kind, Clock(), kind == Motion.Open || kind == Motion.Restore || w == Active,
+                x, DockY + T.Space.S, T.Size.DockIcon, T.Size.DockIcon));
+            OS.Changed = true;
+        }
+
+        // Beendet eine laufende Animation von w sofort.
+        private void Cancel(Window w)
+        {
+            for (int i = transitions.Count - 1; i >= 0; i--)
+                if (transitions[i].Window == w) { transitions[i].Finish(); transitions.RemoveAt(i); }
+        }
+
+        private int IconOf(Window w)
+        {
+            for (int i = 0; i < apps.Length; i++)
+                if (apps[i] == w) return i;
+            return -1;
+        }
+
+        private int IndexOf(Window w)
+        {
+            for (int i = 0; i < windows.Count; i++)
+                if (windows[i] == w) return i;
+            return -1;
         }
 
         private void Remove(Window w)
         {
-            for (int i = 0; i < windows.Count; i++)
-                if (windows[i] == w) { windows.RemoveAt(i); return; }
+            int i = IndexOf(w);
+            if (i >= 0) windows.RemoveAt(i);
+            OS.Changed = true;
         }
 
         /// <summary>
@@ -170,15 +250,24 @@ namespace VibanOS.Gui
                 for (int i = 0; i < windows.Count; i++)
                     if (windows[i].Live) OS.Changed = true;
             }
-            // Wurde der Prozess einer App beendet (kill, Signal), geht ihr Fenster zu.
-            for (int i = windows.Count - 1; i >= 0; i--)
+            // Wurde der Prozess einer App beendet (kill, Signal), geht ihr Fenster zu, auch wenn es im Dock liegt.
+            for (int i = 0; i < apps.Length; i++)
             {
-                Process p = windows[i].Process;
-                if (p != null && (p.State == ProcessState.Terminated || OS.Processes.Get(p.Id) != p)) Close(windows[i]);
+                Process p = apps[i] != null ? apps[i].Process : null;
+                if (p != null && (p.State == ProcessState.Terminated || OS.Processes.Get(p.Id) != p)) Close(apps[i]);
             }
             if (Locked && login.LockExpired(now)) OS.Changed = true;
             if (wasLocked && !Locked && windows.Count == 0) Open(Icons.Terminal);
             wasLocked = Locked;
+
+            // Laufende Animationen brauchen jedes Mal ein neues Bild, auch das erste nach ihrem Ende.
+            ms = Clock();
+            for (int i = transitions.Count - 1; i >= 0; i--)
+            {
+                transitions[i].Step(ms);
+                if (transitions[i].Done(ms)) transitions.RemoveAt(i);
+                OS.Changed = true;
+            }
 
             if (!OS.Changed && mouseX == drawnX && mouseY == drawnY) return false;
             if (OS.Changed)
@@ -205,9 +294,24 @@ namespace VibanOS.Gui
                 login.Draw(scene);
                 return;
             }
-            for (int i = 0; i < windows.Count; i++) windows[i].Draw(scene, windows[i] == Active);
+            for (int i = 0; i < windows.Count; i++)
+            {
+                Transition t = IncomingFor(windows[i]);
+                if (t != null) t.Draw(scene, ms);
+                else windows[i].Draw(scene, windows[i] == Active);
+            }
             DrawMenuBar(now);
             DrawDock();
+            // Was geht, liegt obenauf: Beim Minimieren taucht das Fenster so sichtbar ins Dock.
+            for (int i = 0; i < transitions.Count; i++)
+                if (!transitions[i].Incoming) transitions[i].Draw(scene, ms);
+        }
+
+        private Transition IncomingFor(Window w)
+        {
+            for (int i = 0; i < transitions.Count; i++)
+                if (transitions[i].Window == w && transitions[i].Incoming) return transitions[i];
+            return null;
         }
 
         private void DrawMenuBar(DateTime now)
