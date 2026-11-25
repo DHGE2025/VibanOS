@@ -11,6 +11,8 @@ So sieht es zusammengesetzt aus:
 
 ![Anmeldebildschirm](anmeldung.png)
 
+![Systemeinstellungen](einstellungen.png)
+
 ## Regeln
 
 1. **Nur Tokens.** In `VibanOS/Gui/` stehen keine rohen Farbwerte. Abstände, Radien und Maße kommen aus `T.Space.…`, `T.Radius.…` und `T.Size.…` (`using T = VibanOS.Design.Tokens;`). Maße, die nur ein einzelner Baustein kennt (etwa die Kästchengröße der Speicherkarte), stehen dort als benannte Konstante.
@@ -27,7 +29,9 @@ Alle Farben sind `0xAARRGGBB`. Werte mit Deckkraft unter `FF` scheinen durch.
 
 | Token | Wert | Einsatz |
 | -- | -- | -- |
-| `Accent` | `#0A84FF` | Einfügemarke, Hauptknopf, Hervorhebung |
+| `Accent` | eine der Akzentfarben, anfangs `AccentBlue` | Einfügemarke, Hauptknopf, Hervorhebung. Als einzige Farbe veränderlich: Die Systemeinstellungen setzen sie |
+| `AccentBlue`, `AccentPurple`, `AccentPink` | `#0A84FF`, `#BF5AF2`, `#FF375F` | zur Wahl in den Systemeinstellungen |
+| `AccentOrange`, `AccentGreen`, `AccentGraphite` | `#FF9F0A`, `#32D74B`, `#8E8E93` | zur Wahl in den Systemeinstellungen |
 | `Success` | `#30D158` | läuft, bereit, erfolgreich |
 | `Warning` | `#FFD60A` | blockiert, Achtung |
 | `Danger` | `#FF453A` | Fehler, abgelehnt |
@@ -39,7 +43,9 @@ Alle Farben sind `0xAARRGGBB`. Werte mit Deckkraft unter `FF` scheinen durch.
 | `Window` | `#1E1E20` | Fensterinhalt |
 | `TitleBar` | `#2C2C2F` | Titelleiste |
 | `Sunken` | `#161618` | vertiefte Flächen: Terminal, Eingabefelder |
-| `Raised` | `#3A3A3D` | erhöhte Flächen: Kacheln, freie Speicherrahmen |
+| `Raised` | `#3A3A3D` | erhöhte Flächen: Kacheln, freie Speicherrahmen, gewähltes Feld einer Auswahl |
+| `Grouped` | `#2A2A2D` | Gruppen und nicht gewählte Auflösungen in den Systemeinstellungen |
+| `Track` | `#48484C` | ausgeschalteter Schalter |
 | `MenuBar` | `#161618`, 55 % | Menüleiste, durchscheinend |
 | `Dock` | `#303034`, 45 % | Dock, Avatar und Feld auf dem Anmeldebildschirm |
 | `Scrim` | `#000000`, 40 % | Abdunklung des Hintergrunds beim Anmelden |
@@ -103,7 +109,7 @@ Eingabefelder sind Pillen: Der Radius ist die halbe Höhe.
 
 | Maß | px | Einsatz |
 | -- | -- | -- |
-| `Size.ScreenWidth` × `Size.ScreenHeight` | 1280 × 720 | Entwurfsgröße: Wunschauflösung beim Start und Größe der Vorschaubilder. Bietet die Grafikkarte sie nicht, richtet sich die Oberfläche nach der echten Größe |
+| `Size.ScreenWidth` × `Size.ScreenHeight` | 1280 × 720 | Entwurfsgröße: Wunschauflösung beim Start und Größe der Vorschaubilder. Bietet die Grafikkarte sie nicht, richtet sich die Oberfläche nach der echten Größe. Die Systemeinstellungen bieten 800 × 600 bis 1920 × 1200 an |
 | `Size.MenuBar` | 28 | Höhe der Menüleiste |
 | `Size.TitleBar` | 34 | Höhe der Titelleiste |
 | `Size.Control`, `Size.ControlGap` | 12, 8 | Durchmesser und Abstand der Fensterknöpfe |
@@ -111,6 +117,10 @@ Eingabefelder sind Pillen: Der Radius ist die halbe Höhe.
 | `Size.Field` | 30 | Höhe von Eingabefeldern und Knöpfen |
 | `Size.Row` | 24 | Zeilenhöhe in Listen und Tabellen |
 | `Size.Avatar` | 88 | Nutzerbild auf dem Anmeldebildschirm |
+| `Size.Sidebar` | 180 | Seitenleiste der Systemeinstellungen |
+| `Size.ToggleWidth`, `Size.ToggleHeight` | 38, 22 | Schalter an/aus, die Höhe gilt auch für die Auswahl Deutsch/US |
+| `Size.Swatch` | 20 | Farbpunkt der Akzentfarbe und Symbol in der Seitenleiste |
+| `Size.CursorScale` | 2 | Vergrößerung des großen Mauszeigers |
 
 ## Schatten
 
@@ -132,6 +142,10 @@ Der Schatten zeigt, was vorn liegt. Das aktive Fenster hat den kräftigsten. Gez
 - **Tabelle**: Kopfzeile in `Fonts.Caption` und `TextSecondary`, darunter eine Linie in `Separator`. Zeilen in `Size.Row`. Ein farbiger Punkt vor dem Zustand.
 - **Terminal**: Fläche `Sunken`, Schrift `Fonts.Mono`, Rand `M`. Ausgaben in `TextPrimary`, frühere Eingaben und Hinweise in `TextSecondary`, Fehler in `Danger`, Einfügemarke in `Accent`.
 - **Eingabefeld**: Höhe `Size.Field`, Pillenform, 1-px-Rahmen. Platzhalter in `TextSecondary`.
+- **Systemeinstellungen** (`Gui/SettingsWindow.cs`): links eine Seitenleiste in `TitleBar`, Breite `Size.Sidebar`, die gewählte Seite als Fläche in `Accent` mit Radius `S`. Rechts der Seitentitel in `Fonts.Display`, darunter Gruppen in `Grouped` mit Radius `M` und Rahmen, Zeilen von `Size.Field` + `Space.M`, getrennt durch `Separator`. Beschriftung links in `Fonts.Body`, das Bedienelement rechtsbündig mit Abstand `L`.
+- **Schalter**: Pille `Size.ToggleWidth` × `Size.ToggleHeight`, an in `Accent`, aus in `Track`, weißer Knopf (`TextOnAccent`).
+- **Auswahl** (zwei Felder, z. B. Deutsch/US): Pille in `Sunken`, das gewählte Feld in `Raised` und `Fonts.Strong`, das andere in `TextSecondary`.
+- **Auflösungen**: Felder in drei Spalten, Höhe `Size.Field`, Radius `S`. Die aktuelle Auflösung in `Accent`, die übrigen in `Grouped` mit Rahmen.
 
 ## Nicht vorgesehen
 
@@ -144,4 +158,4 @@ Der Schatten zeigt, was vorn liegt. Das aktive Fenster hat den kräftigsten. Gez
 dotnet run --project tools/Preview
 ```
 
-Das schreibt die Bilder nach `preview/`. Nach einer Änderung am Design `designsheet.png`, `4-schreibtisch.png` (als `schreibtisch.png`) und `1-anmeldung.png` (als `anmeldung.png`) von dort nach `docs/design/` kopieren.
+Das schreibt die Bilder nach `preview/`. Nach einer Änderung am Design `designsheet.png`, `4-schreibtisch.png` (als `schreibtisch.png`), `1-anmeldung.png` (als `anmeldung.png`) und `5-einstellungen.png` (als `einstellungen.png`) von dort nach `docs/design/` kopieren.

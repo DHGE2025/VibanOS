@@ -43,6 +43,14 @@ Zwei Stolpersteine von COSMOS 3.0.99:
 - Der Pfad zum Projekt darf **keine Leerzeichen** enthalten (also nicht `C:\Users\Max Mustermann\...`). `cosmos build` reicht ihn ohne Anführungszeichen weiter und scheitert sonst.
 - Scheitert der Bau, zeigt `cosmos build -v` die vollständige Ausgabe des Compilers.
 
+Wer in den Einstellungen die Auflösung umschalten will, startet mit der VMware-Grafik von QEMU:
+
+```sh
+cosmos run --disk disk.img -- -vga vmware
+```
+
+Ohne den Zusatz läuft VibanOS auf dem Startbild des Bootloaders (1280 × 720). Das kann COSMOS 3.0.99 nicht umschalten, die Einstellungen zeigen dann nur diese eine Auflösung.
+
 VibanOS ist für x64 gedacht, die Projektdatei legt das fest. Die I/O-Ports für den Treiber `com1` gibt es nur dort.
 
 ### Die Festplatte
@@ -61,10 +69,11 @@ Nach dem Start erscheint der Anmeldebildschirm. Beim allerersten Start legt man 
 Danach öffnet sich der Schreibtisch mit Menüleiste, Dock und einem Terminal. `help` zeigt alle Befehle.
 
 - Fenster zieht man an der Titelleiste, der rote Knopf schließt sie.
-- Das Dock öffnet Terminal, Aktivitätsanzeige (Prozesse und Speicher) und „Über VibanOS“.
+- Das Dock öffnet Terminal, Aktivitätsanzeige (Prozesse und Speicher), Systemeinstellungen und „Über VibanOS“.
+- In den Systemeinstellungen stellt man Auflösung, Akzentfarbe, Sekunden in der Menüleiste, Tastaturbelegung (Deutsch oder US) und einen großen Mauszeiger ein. Alles gilt sofort und bis zum Ausschalten.
 - Im Terminal blättern Bild auf und Bild ab, Pfeil auf und ab holen frühere Eingaben zurück.
 - `shutdown` und `reboot` hängen die Festplatte vorher sauber aus. Am besten so beenden, statt das QEMU-Fenster einfach zu schließen. Unter `cosmos run` bleibt das Fenster danach mit dem letzten Bild stehen und kann geschlossen werden. Auch nach `reboot` startet dort nichts neu, dafür ruft man `cosmos run` noch einmal auf.
-- Die Tastatur ist auf das deutsche Layout eingestellt. Ein anderes setzt man in `Kernel.BeforeRun()`. Das deutsche Layout von COSMOS 3.0.99 hat Lücken: `#` und `'` lassen sich nicht tippen, und `<`, `>` und `|` liegen auf der Taste `#` (allein, mit Umschalt, mit AltGr). Die Num-Taste bleibt am besten aus, sonst liefern die Pfeiltasten Ziffern.
+- Die Tastatur ist auf das deutsche Layout eingestellt, die Systemeinstellungen schalten auf US um. Das deutsche Layout von COSMOS 3.0.99 hat Lücken: `#` und `'` lassen sich nicht tippen, und `<`, `>` und `|` liegen auf der Taste `#` (allein, mit Umschalt, mit AltGr). Die Num-Taste bleibt am besten aus, sonst liefern die Pfeiltasten Ziffern.
 - Die Uhr zeigt die Zeit der virtuellen Maschine. QEMU stellt sie auf Weltzeit (UTC), sie geht also gegenüber der deutschen Zeit ein bis zwei Stunden nach.
 
 ![Schreibtisch](docs/design/schreibtisch.png)

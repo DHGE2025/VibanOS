@@ -5,6 +5,7 @@ using Cosmos.Kernel.System.Graphics;
 using Cosmos.Kernel.System.Input;
 using Cosmos.Kernel.System.Input.Layouts;
 using VibanOS.Core;
+using VibanOS.Design;
 using VibanOS.FileSystem;
 using VibanOS.Graphics;
 using VibanOS.Gui;
@@ -41,12 +42,15 @@ namespace VibanOS
             Fonts.Load();
             OS.Boot();
 
-            // Die Auflösung legt der Bootloader fest (Bootloader/limine.conf), deshalb hier nachfragen statt annehmen.
-            canvas = Canvas.GetFullScreen();
+            // Auf dem Startbild von Limine legt der Bootloader die Auflösung fest (Bootloader/limine.conf), der Wunsch
+            // wird dort übergangen. Eine umschaltbare Grafik (VMware SVGA) startet sonst mit 1024x768, deshalb die
+            // Entwurfsgröße erbitten. Danach immer die echte Größe nehmen, nicht annehmen.
+            try { canvas = Canvas.GetFullScreen(new Mode(Tokens.Size.ScreenWidth, Tokens.Size.ScreenHeight, ColorDepth.ColorDepth32)); }
+            catch (ArgumentOutOfRangeException) { canvas = Canvas.GetFullScreen(); }
             // Die Zeichenfläche schreibt direkt in den Puffer des Canvas, Display() bringt ihn auf den Bildschirm.
             front = new Surface(canvas.Width, canvas.Height, canvas.GetBuffer());
             MouseManager.SetScreenSize(canvas.Width, canvas.Height);
-            // Deutsche Tastatur. Für ein anderes Layout hier z. B. new USStandardLayout() einsetzen.
+            // Deutsche Tastatur, in den Einstellungen umschaltbar.
             KeyboardManager.SetLayout(new DEStandardLayout());
             desktop = new Desktop(canvas.Width, canvas.Height);
         }
@@ -88,6 +92,13 @@ namespace VibanOS
             }
             desktop.OnMouse(MouseManager.X, MouseManager.Y, MouseManager.LeftButton);
             OS.Tick();
+            // Die Einstellungen haben die Auflösung umgeschaltet: Der Canvas hat jetzt einen neuen, anders großen Puffer.
+            if (canvas.Width != front.Width || canvas.Height != front.Height)
+            {
+                front = new Surface(canvas.Width, canvas.Height, canvas.GetBuffer());
+                MouseManager.SetScreenSize(canvas.Width, canvas.Height);
+                desktop.Resize(canvas.Width, canvas.Height);
+            }
             // Nur wenn sich etwas geändert hat, geht ein neues Bild an den Bildschirm.
             if (desktop.Frame(front)) canvas.Display();
         }

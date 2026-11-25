@@ -25,6 +25,9 @@ namespace VibanOS.Gui
 
         public virtual void OnKey(Key key, char c) { }
 
+        /// <summary>Mausklick in den Inhalt (Bildschirmkoordinaten). Titelleiste und Knöpfe erledigt der Schreibtisch.</summary>
+        public virtual void OnClick(int px, int py) { }
+
         public bool Contains(int px, int py)
         {
             return px >= X && py >= Y && px < X + Width && py < Y + Height;

@@ -5,7 +5,11 @@ using Cosmos.Kernel.HAL.Devices.Storage;
 using Cosmos.Kernel.System;
 using Cosmos.Kernel.System.FileSystem;
 using Cosmos.Kernel.System.FileSystem.Fat;
+using Cosmos.Kernel.System.Graphics;
+using Cosmos.Kernel.System.Input;
+using Cosmos.Kernel.System.Input.Layouts;
 using Cosmos.Kernel.System.Storage;
+using VibanOS.Core;
 
 namespace VibanOS.Platform
 {
@@ -118,6 +122,47 @@ namespace VibanOS.Platform
         {
             try { VfsManager.TryUnmount(MountPoint); }
             catch (Exception) { }
+        }
+
+        // ---- Bildschirm und Tastatur (Einstellungen) ----
+
+        /// <summary>Name der Grafikkarte, wie COSMOS sie meldet, z. B. "firmware framebuffer" oder "vmware-svga ...".</summary>
+        public static string ScreenName() { return Canvas.GetFullScreen().Name; }
+
+        /// <summary>
+        /// Die Auflösungen, auf die der Bildschirm umschalten kann. Das Startbild von Limine (firmware framebuffer)
+        /// kann nicht umschalten und meldet nur seine eine Auflösung. Umschalten kann unter COSMOS 3 nur
+        /// die VMware-SVGA-Grafik, in QEMU mit -vga vmware.
+        /// </summary>
+        public static List<Resolution> ScreenModes()
+        {
+            List<Resolution> list = new List<Resolution>();
+            IReadOnlyList<Mode> modes = Canvas.GetFullScreen().AvailableModes;
+            for (int i = 0; i < modes.Count; i++) list.Add(new Resolution(modes[i].Width, modes[i].Height));
+            return list;
+        }
+
+        /// <summary>
+        /// Schaltet den Bildschirm um. Danach hat der Canvas einen neuen Puffer, Kernel.cs bemerkt die neue Größe
+        /// im nächsten Durchlauf. false: Die Grafikkarte lehnt die Auflösung ab oder kann gar nicht umschalten.
+        /// </summary>
+        public static bool SetScreenMode(int width, int height)
+        {
+            try
+            {
+                Canvas canvas = Canvas.GetFullScreen(new Mode(width, height, ColorDepth.ColorDepth32));
+                return canvas.Width == width && canvas.Height == height;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return false; // zu groß für den Grafikspeicher oder nicht in der Liste
+            }
+        }
+
+        public static void SetKeyboardLayout(bool german)
+        {
+            if (german) KeyboardManager.SetLayout(new DEStandardLayout());
+            else KeyboardManager.SetLayout(new USStandardLayout());
         }
 
         // ---- I/O-Ports (VIB-9) ----
