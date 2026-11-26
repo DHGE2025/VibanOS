@@ -7,6 +7,8 @@ title: Implementierung
 
 So baust du ein neues Feature in VibanOS ein, vom Klonen bis zum Merge. Mehr Details stehen im [README](https://github.com/DHGE2025/VibanOS#readme).
 
+Arbeitest du mit Claude oder ChatGPT? Dann lies zuerst den Abschnitt [Mit Claude oder ChatGPT arbeiten](#mit-claude-oder-chatgpt-arbeiten) unten.
+
 ## 1. Einmalig: Werkzeuge installieren
 
 Du brauchst **.NET SDK 10**, **COSMOS 3.0.99** und **git**. Auf dem Mac zusätzlich QEMU aus Homebrew:
@@ -88,3 +90,24 @@ Auf GitHub einen Pull Request **gegen `development`** öffnen (nicht gegen `main
 Antonio ([TheScoutSky](https://github.com/TheScoutSky)) prüft jeden PR. Wünscht er Änderungen, machst du sie auf demselben Branch und pushst noch einmal, der PR aktualisiert sich von selbst. Nach seiner Freigabe merged er, und die Aufgabe in Linear springt auf „Done“.
 
 Fällt nach dem Merge ein Fehler auf, gibt es dafür eine neue Aufgabe und einen neuen `fix/`-Branch. Ein gemergter PR wird nicht wieder geöffnet.
+
+## Mit Claude oder ChatGPT arbeiten
+
+Im Repo liegt [`AGENTS.md`](https://github.com/DHGE2025/VibanOS/blob/development/AGENTS.md) mit den Regeln für jede KI: Branchnamen, Designsheet, Code-Regeln für COSMOS, Prüfen vor dem PR. So bekommt die KI sie mit:
+
+| Werkzeug | Was du tust |
+| -- | -- |
+| **Claude Code** (Terminal, App, Web) | Nichts. Es liest `CLAUDE.md`, und die verweist auf `AGENTS.md`. |
+| **Codex** (ChatGPT) | Nichts. Codex liest `AGENTS.md` von selbst. |
+| **Claude oder ChatGPT im Browser** | Lege ein Projekt an und kopiere den Inhalt von `AGENTS.md` in die Projektanweisungen. Oder häng die Datei am Anfang jedes Chats an. |
+| **Cursor, Copilot und andere** | Die meisten lesen `AGENTS.md` auch. Sonst wie im Browser die Regeln mitgeben. |
+
+### So klappt es gut
+
+1. **Branch selbst anlegen.** Leg den Branch wie in Schritt 5 an, bevor die KI loslegt. Dann landet nichts auf `development`.
+2. **Die Aufgabe ganz mitgeben.** Kopiere Titel und Text der Linear-Aufgabe in den Chat, mit Kennung. Zum Beispiel:
+   > Aufgabe VIB-23: Papierkorb im Dock. *(Text aus Linear)* Halte dich an AGENTS.md und das Designsheet. Erklär mir erst kurz deinen Plan, dann bau es.
+3. **Erst den Plan, dann den Code.** Lass dir sagen, welche Dateien sie ändern will. Passt das nicht zur [Architektur](architektur.html), korrigier sie früh.
+4. **Kleine Schritte.** Ein Feature pro Chat. Nach jedem Schritt bauen und testen (Schritt 7). Fehlermeldungen aus `cosmos build` oder der seriellen Ausgabe kopierst du einfach in den Chat.
+5. **Selbst prüfen.** Schau dir den Code an, bevor du committest. Achte vor allem auf rohe Farbwerte in `VibanOS/Gui/`, COSMOS-Aufrufe außerhalb von `Kernel.cs` und `Hardware.cs` und Code aus alten COSMOS-Beispielen (`Cosmos.System2`).
+6. **Ehrlich im PR.** Schreib rein, dass du mit KI gearbeitet hast und wie du getestet hast. Die KI merged nie selbst, das macht Antonio nach dem Review.
