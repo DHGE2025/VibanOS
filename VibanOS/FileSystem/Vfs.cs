@@ -148,7 +148,8 @@ namespace VibanOS.FileSystem
         /// </summary>
         public static bool CanAccess(User user, string path, Access access)
         {
-            if (OS.Users.HasPermission(user, Permission.UserManage)) return true;
+            // Wie /etc/shadow unter Unix: Auch Administratoren außer root kommen nur mit sudo in den Systemordner.
+            if (OS.Users.Allowed(user, Permission.UserManage)) return true;
             // FAT gibt jedem langen Namen einen zweiten, kurzen (aus "system" wird SYSTEM~1) und findet
             // Dateien unter beiden. Die Prüfung unten kennt nur den langen Namen. Damit sie sich über den
             // kurzen nicht umgehen lässt, sind Namen mit ~ Administratoren vorbehalten.

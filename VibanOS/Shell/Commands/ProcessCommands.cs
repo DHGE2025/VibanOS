@@ -18,9 +18,9 @@ namespace VibanOS.Cli.Commands
             if (args.Length == 0 || !int.TryParse(args[0], out id)) { shell.Error("Aufruf: " + Usage); return null; }
             Process p = OS.Processes.Get(id);
             if (p == null) { shell.Error("Kein Prozess mit der ID " + id + "."); return null; }
-            if (p.Owner != OS.Users.Current.Name && !OS.Users.HasPermission(OS.Users.Current, Permission.ProcessKillAny))
+            if (p.Owner != OS.Users.Current.Name && !OS.Users.Allowed(OS.Users.Current, Permission.ProcessKillAny))
             {
-                shell.Error("Keine Berechtigung: Prozess " + id + " gehört " + p.Owner + ".");
+                shell.Error(Shell.Denied("Prozess " + id + " gehört " + p.Owner + ".", Permission.ProcessKillAny, Name + " " + Shell.Join(args, 0)));
                 return null;
             }
             return p;
