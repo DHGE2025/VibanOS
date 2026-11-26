@@ -368,7 +368,7 @@ async Task RunVm(string kernel)
     int code;
     if (OperatingSystem.IsMacOS())
     {
-        log.Add("    Vollbild an und aus: Cmd+F. Maus aus dem Fenster holen: Ctrl+Alt+G.");
+        log.Add("    Vollbild: Cmd+F. Maus aus dem Fenster holen: Ctrl+Alt+G. Im Vollbild gehen Cmd-Tasten an VibanOS, zum Verlassen erst Ctrl+Alt+G, dann Cmd+F.");
         string[] display = ["-vga", "vmware"], hint = [];
         if (MacScreen() is not { } s)
             log.Add("    Bildschirmgröße nicht erkannt, VibanOS startet mit 1280x720.");
