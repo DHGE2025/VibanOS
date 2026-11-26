@@ -143,6 +143,8 @@ namespace VibanOS.Preview
 
         public static int Main(string[] args)
         {
+            // Windows schriebe die Umlaute sonst in der Codepage der Konsole, die Werkstatt liest UTF-8.
+            try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch (IOException) { }
             string output = Path.GetFullPath(args.Length > 0 ? args[0] : "preview");
             Directory.CreateDirectory(output);
 
@@ -264,12 +266,14 @@ namespace VibanOS.Preview
             Check(File.Exists(Path.Combine(home, "notizen", "neu.txt")), "mv in einen Ordner legt die Datei hinein");
             // FAT unterscheidet Groß- und Kleinschreibung nicht. Dort wäre das Ziel die Quelle selbst.
             Type("mv notizen NOTIZEN\n");
-            Check(Last().Text.StartsWith("Auf der Platte ist das derselbe Name") && Directory.Exists(Path.Combine(home, "notizen")) && !Directory.Exists(Path.Combine(home, "NOTIZEN")),
+            Check(Last().Text.StartsWith("Auf der Platte ist das derselbe Name") && Listed(home, "notizen") && !Listed(home, "NOTIZEN"),
                 "mv auf denselben Namen in anderer Schreibweise fasst nichts an und sagt, warum");
             Type("mv notizen/neu.txt notizen\n");
             Check(Last().Text.StartsWith("Quelle und Ziel sind dasselbe") && File.Exists(Path.Combine(home, "notizen", "neu.txt")), "mv einer Datei in ihren eigenen Ordner fasst nichts an");
             Type("cp notizen/neu.txt notizen/NEU.TXT\n");
-            Check(Last().Text.StartsWith("Auf der Platte ist das derselbe Name") && !File.Exists(Path.Combine(home, "notizen", "NEU.TXT")), "cp kopiert eine Datei nicht auf sich selbst");
+            // Der Inhalt zählt mit: Wo die Schreibweise nicht zählt, schriebe ein Kopieren auf sich selbst die Quelle leer.
+            Check(Last().Text.StartsWith("Auf der Platte ist das derselbe Name") && !Listed(Path.Combine(home, "notizen"), "NEU.TXT")
+                && File.ReadAllText(Path.Combine(home, "notizen", "neu.txt")) == "Erster Eintrag", "cp kopiert eine Datei nicht auf sich selbst");
             // Unter dem FAT-Kurznamen erkennt mv denselben Ordner nicht wieder und schöbe ihn sonst in sich selbst.
             Type("mv notizen NOTIZE~1/innen\n");
             Check(Last().Text.StartsWith("Ordner verschiebt mv nicht über einen Pfad mit ~") && Directory.Exists(Path.Combine(home, "notizen")),
@@ -608,11 +612,15 @@ namespace VibanOS.Preview
             Check(Settings.ParseSize("1512x945\n").Width == 1512 && Settings.ParseSize("x945").Width == 0 && Settings.ParseSize("-5x3").Width == 0
                 && Settings.ParseSize(null).Width == 0, "Nur eine Angabe wie 1512x945 gilt als Bildschirmgröße");
             Draw(); // die Maus steht jetzt, wo sie gezeichnet ist
+            int minute = DateTime.Now.Minute;
             desktop.Redraw();
             Check(desktop.Frame(screen) && desktop.DirtyCount == 1 && desktop.Dirty[0] == 0 && desktop.Dirty[1] == 0
                 && desktop.Dirty[2] >= screen.Width && desktop.Dirty[3] >= screen.Height, "Nach einem ganzen Neuzeichnen geht der ganze Bildschirm hinaus");
             OS.Changed = true;
-            Check(!desktop.Frame(screen), "Sieht das neue Bild aus wie das alte, geht nichts an den Bildschirm");
+            bool same = !desktop.Frame(screen);
+            // Springt genau zwischen den zwei Bildern die Minute um, zeichnet die Menüleiste die Uhr neu: dann zählt erst das nächste Bild.
+            if (!same && DateTime.Now.Minute != minute) { OS.Changed = true; same = !desktop.Frame(screen); }
+            Check(same, "Sieht das neue Bild aus wie das alte, geht nichts an den Bildschirm");
             Settle();
             Check(CursorOnly(screen), "Bewegt sich nur die Maus, geht nur ihr Ausschnitt an den Bildschirm");
 
@@ -1091,7 +1099,9 @@ namespace VibanOS.Preview
             Pieces();
 
             Directory.SetCurrentDirectory(output);
-            Directory.Delete(temp, true);
+            // Aufräumen kippt den bestandenen Test nicht: Unter Windows lässt sich ein Ordner nicht löschen, solange ein
+            // anderes Programm (Virenscanner) darin noch eine Datei offen hält.
+            try { Directory.Delete(temp, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             Console.WriteLine(checks + " Prüfungen bestanden. Bilder liegen in " + output);
             return 0;
         }
@@ -1399,6 +1409,17 @@ namespace VibanOS.Preview
         }
 
         private static ShellLine Last() { return OS.Shell.Lines[OS.Shell.Lines.Count - 1]; }
+
+        /// <summary>
+        /// Steht im Ordner ein Eintrag mit genau diesem Namen? Anders als File.Exists und Directory.Exists gilt die Antwort
+        /// auch auf einem Wirt, der Groß- und Kleinschreibung nicht unterscheidet (Mac, Windows): Dort fände "NOTIZEN" den Ordner "notizen".
+        /// </summary>
+        private static bool Listed(string folder, string name)
+        {
+            foreach (string entry in Directory.GetFileSystemEntries(folder))
+                if (Path.GetFileName(entry) == name) return true;
+            return false;
+        }
 
         // Steht der Text irgendwo im Terminal oder im Verlauf der Shell?
         private static bool Shown(string text)
