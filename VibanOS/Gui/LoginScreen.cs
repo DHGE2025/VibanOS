@@ -22,7 +22,7 @@ namespace VibanOS.Gui
         private enum Mode { Password, Picker, Create }
 
         // Schritte beim Anlegen eines neuen Nutzers, in dieser Reihenfolge.
-        private enum Step { Name, Password, Repeat, Admin }
+        private enum Step { Name, Password, Repeat }
 
         private Mode mode = Mode.Password;
         private int userIndex;
@@ -37,7 +37,7 @@ namespace VibanOS.Gui
         // Nutzerwahl: das markierte Feld. Die Nutzer in der Reihenfolge der Nutzerdatei, danach das Plus.
         private int pickIndex;
 
-        // Neuer Nutzer: Schritt, Name und das festgelegte Passwort, bis ein Administrator bestätigt hat.
+        // Neuer Nutzer: Schritt, Name und das festgelegte Passwort, bis es wiederholt wurde.
         private Step step;
         private string newName = "";
         private string newPassword;
@@ -61,8 +61,9 @@ namespace VibanOS.Gui
         }
 
         /// <summary>
-        /// Neue Nutzer nur, wenn die Nutzerdatei gelesen wurde und root schon ein Passwort hat. Vorher gäbe es
-        /// keinen Administrator, der bestätigen könnte.
+        /// Neue Nutzer legt jeder am Anmeldebildschirm selbst an, ohne Bestätigung, aber nur in der Gruppe users.
+        /// Erst wenn die Nutzerdatei gelesen wurde (sonst würde sie nicht gespeichert) und root ein Passwort hat:
+        /// Der erste Start richtet zuerst den Administrator ein.
         /// </summary>
         private static bool CanCreate { get { return OS.Users.LoadError == null && !OS.Users.NeedsSetup; } }
 
@@ -234,20 +235,16 @@ namespace VibanOS.Gui
                 step = Step.Repeat;
                 error = "";
             }
-            else if (step == Step.Repeat)
+            else if (password != newPassword)
             {
                 // Wie bei der Ersteinrichtung: Bei einem Tippfehler käme der neue Nutzer nie hinein.
-                if (password == newPassword) { step = Step.Admin; error = ""; }
-                else { step = Step.Password; newPassword = null; error = "Die Passwörter stimmen nicht überein. Bitte noch einmal."; }
-            }
-            else if (users.FindAdmin(password) == null)
-            {
-                // Zählt wie ein falsches Passwort beim Anmelden, sonst ließe sich das Admin-Passwort hier durchprobieren.
-                Failed("Das ist nicht das Passwort eines Administrators.");
+                step = Step.Password;
+                newPassword = null;
+                error = "Die Passwörter stimmen nicht überein. Bitte noch einmal.";
             }
             else
             {
-                tries = 0;
+                // Neue Nutzer kommen immer in die Gruppe users. Administratoren macht nur ein Administrator.
                 User created = users.Add(newName, newPassword, UserManager.UserGroup);
                 if (created == null) error = "Der Nutzer konnte nicht angelegt werden.";
                 else
@@ -360,8 +357,7 @@ namespace VibanOS.Gui
             else if (password == "" || (creating && step == Step.Name))
             {
                 string placeholder;
-                if (creating) placeholder = step == Step.Name ? "Name des neuen Nutzers" : step == Step.Password ? "Passwort festlegen"
-                    : step == Step.Repeat ? "Passwort wiederholen" : "Passwort eines Administrators";
+                if (creating) placeholder = step == Step.Name ? "Name des neuen Nutzers" : step == Step.Password ? "Passwort festlegen" : "Passwort wiederholen";
                 else placeholder = !setup ? "Passwort eingeben" : firstEntry == null ? "Neues Passwort festlegen" : "Passwort wiederholen";
                 s.DrawText(Fonts.Body, placeholder, fx + T.Space.M, textY, T.Color.TextSecondary);
             }
@@ -376,8 +372,7 @@ namespace VibanOS.Gui
             ty += T.Size.Field + T.Space.M;
 
             string hint;
-            if (creating) hint = step == Step.Admin ? "Ein Administrator bestätigt den neuen Nutzer. Esc bricht ab."
-                : step == Step.Name ? "Erlaubt sind a-z, 0-9, - und _. Esc bricht ab." : "Esc bricht ab.";
+            if (creating) hint = step == Step.Name ? "Erlaubt sind a-z, 0-9, - und _. Esc bricht ab." : "Esc bricht ab.";
             else if (setup) hint = "Erster Start: Das Passwort gilt für den Administrator root.";
             else hint = "Eingabetaste meldet an. Ein Klick auf das Bild wechselt den Nutzer.";
             if (users.LoadError != null)

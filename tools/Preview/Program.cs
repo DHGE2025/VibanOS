@@ -560,25 +560,17 @@ namespace VibanOS.Preview
             ClickAt(screenLogin.TileCenter(OS.Users.All.Count));
             Type("Dora\nblume\nblüte\n");
             Check(screenLogin.Creating && OS.Users.Find("dora") == null, "Zwei verschiedene Passwörter legen niemanden an");
-            Type("blume\nblume\n");
+            Type("blume\n");
             Shot(output, "2-neuer-nutzer");
-            Type("topsecret\n");
-            Check(OS.Users.Current == null && OS.Users.Find("dora") == null, "Ohne das Passwort eines Administrators entsteht kein Nutzer");
-            Type("geheim\n");
+            Type("blume\n");
             User dora = OS.Users.Find("dora");
             Check(dora != null && OS.Users.Current == dora && UserManager.InGroup(dora, UserManager.UserGroup) && !UserManager.InGroup(dora, UserManager.AdminGroup)
                 && OS.Shell.CurrentDirectory == dora.HomeDirectory && Directory.Exists(dora.HomeDirectory),
-                "Mit dem Passwort eines Administrators entsteht ein normaler Nutzer mit eigenem Ordner und ist gleich angemeldet");
+                "Am Anmeldebildschirm entsteht ohne Admin ein normaler Nutzer mit eigenem Ordner und ist gleich angemeldet");
             Check(!File.ReadAllText(userFile).Contains("blume"), "In der Nutzerdatei steht kein Passwort im Klartext");
             reloaded = new UserManager();
             reloaded.Load();
             Check(reloaded.CheckPassword(reloaded.Find("dora"), "blume"), "Der neue Nutzer übersteht einen Neustart");
-            LoginScreen guarded = new LoginScreen();
-            guarded.OpenPicker();
-            guarded.OnKey(Key.Left, '\0');
-            guarded.OnKey(Key.Enter, '\0');
-            foreach (char ch in "eve\nx\nx\n1\n2\n3\ngeheim\n") guarded.OnKey(ch == '\n' ? Key.Enter : Key.None, ch);
-            Check(OS.Users.Find("eve") == null && OS.Users.Current == dora, "Falsche Admin-Passwörter zählen als Fehlversuche, danach hilft auch das richtige nicht");
             Type("logout\n");
             ClickAt(screenLogin.AvatarCenter());
             ClickAt(screenLogin.TileCenter(0));

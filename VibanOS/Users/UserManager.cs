@@ -115,17 +115,6 @@ namespace VibanOS.Users
             return true;
         }
 
-        /// <summary>
-        /// Der Administrator mit diesem Passwort oder null. Damit bestätigt ein Administrator am Anmeldebildschirm
-        /// einen neuen Nutzer, ohne dass jemand angemeldet ist.
-        /// </summary>
-        public User FindAdmin(string password)
-        {
-            for (int i = 0; i < All.Count; i++)
-                if (HasPermission(All[i], Permission.UserManage) && CheckPassword(All[i], password)) return All[i];
-            return null;
-        }
-
         public void Logout()
         {
             Current = null;
