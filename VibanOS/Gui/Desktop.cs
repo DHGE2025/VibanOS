@@ -48,6 +48,7 @@ namespace VibanOS.Gui
         private long ms;
 
         private int mouseX, mouseY, drawnX = -1, drawnY = -1;
+        private bool drawnLarge; // so groß steht der Mauszeiger gerade auf dem Bildschirm
 
         /// <summary>
         /// Nach Frame() mit true: Nur diese Ausschnitte haben sich geändert und müssen an den Bildschirm.
@@ -55,6 +56,23 @@ namespace VibanOS.Gui
         /// </summary>
         public readonly int[] Dirty = new int[4 * (Surface.MaxDamage + 1)];
         public int DirtyCount;
+
+        /// <summary>Das kleinste Rechteck um alle Ausschnitte in Dirty. Nur nach Frame() mit true.</summary>
+        public void DirtyBounds(out int x, out int y, out int width, out int height)
+        {
+            int right = Dirty[0] + Dirty[2], bottom = Dirty[1] + Dirty[3];
+            x = Dirty[0];
+            y = Dirty[1];
+            for (int i = 4; i < 4 * DirtyCount; i += 4)
+            {
+                x = Math.Min(x, Dirty[i]);
+                y = Math.Min(y, Dirty[i + 1]);
+                right = Math.Max(right, Dirty[i] + Dirty[i + 2]);
+                bottom = Math.Max(bottom, Dirty[i + 1] + Dirty[i + 3]);
+            }
+            width = right - x;
+            height = bottom - y;
+        }
 
         /// <summary>So lange hat Frame bisher vermessen und gezeichnet, in Einheiten von Stopwatch. Der Kernel schreibt das ins Protokoll.</summary>
         public long Measured, Painted;
@@ -343,7 +361,9 @@ namespace VibanOS.Gui
                 OS.Changed = true;
             }
 
-            bool moved = mouseX != drawnX || mouseY != drawnY;
+            // Als bewegt gilt auch ein Zeiger, der anders aussehen soll, als er auf dem Bildschirm steht (Größe umgeschaltet):
+            // Er liegt nur auf front und geht in keine Kachel ein, sein Ausschnitt muss also eigens an den Bildschirm.
+            bool moved = mouseX != drawnX || mouseY != drawnY || Settings.LargeCursor != drawnLarge;
             if (!OS.Changed && !moved) return false;
             DirtyCount = 0;
             if (OS.Changed)
@@ -388,6 +408,7 @@ namespace VibanOS.Gui
                 Dirty[n + 3] = Math.Max(drawnY, mouseY) + size - Dirty[n + 1];
                 drawnX = mouseX;
                 drawnY = mouseY;
+                drawnLarge = Settings.LargeCursor;
             }
             return DirtyCount > 0;
         }

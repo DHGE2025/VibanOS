@@ -33,7 +33,7 @@ COSMOS ruft erst `Kernel.BeforeRun()` auf (Festplatte einhängen, Teilsysteme st
 2. `OS.Tick()`: Timer-Tick zählen und einen Prozess einen Schritt arbeiten lassen.
 3. `Desktop.Frame()`: Hat sich etwas geändert, werden die geänderten Bereiche neu gezeichnet und angezeigt.
 
-Danach pausiert die Schleife 10 ms, damit sie die CPU nicht ständig voll auslastet. Scheitert ein Durchlauf mit einer Ausnahme, steht die Meldung im Terminal und im seriellen Protokoll, und es geht weiter. Erst nach drei Fehlern in Folge gibt der Kernel auf, COSMOS zeigt den Fehler dann an und hält an.
+Danach pausiert die Schleife 10 ms, damit sie die CPU nicht ständig voll auslastet. Hat der Durchlauf selbst schon so lange gebraucht, weil er ein großes Stück neu gezeichnet hat, entfällt die Pause. Scheitert ein Durchlauf mit einer Ausnahme, steht die Meldung im Terminal und im seriellen Protokoll, und es geht weiter. Erst nach drei Fehlern in Folge gibt der Kernel auf, COSMOS zeigt den Fehler dann an und hält an.
 
 Daraus folgt die wichtigste Regel: **Nichts darf blockieren.** Kein `Console.ReadLine`, keine Warteschleifen. Ein Befehl, der eine Antwort braucht, nutzt `shell.Ask(...)`. Ein Prozess, der lange rechnet, erledigt pro `Step()` nur ein kleines Stück.
 

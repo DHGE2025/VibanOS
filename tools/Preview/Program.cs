@@ -568,6 +568,14 @@ namespace VibanOS.Preview
                 && ShadowMatches(2, 40, 50, 60, 20, 0, 12, 0, 255) && ShadowMatches(1, 50, 50, 40, 20, 18, 9, 4, 70)
                 && ShadowMatches(2, -15, 100, 70, 60, 12, 25, 10, 130),
                 "Der Schatten aus der Tabelle gleicht Pixel für Pixel dem mit Kommazahlen gerechneten");
+            // Dieselbe Form mit je einem anderen Wert: Für jeden gilt eine eigene Tabelle. Es sind mehr, als gemerkt werden,
+            // die erste entsteht am Ende also neu.
+            Check(ShadowMatches(1, 20, 20, 100, 60, T.Radius.L, T.Shadow.DockBlur, T.Shadow.DockOffset, 200)
+                && ShadowMatches(1, 20, 20, 100, 60, T.Radius.M, T.Shadow.DockBlur, T.Shadow.DockOffset, 200)
+                && ShadowMatches(1, 20, 20, 100, 60, T.Radius.M, T.Shadow.WindowBlur, T.Shadow.DockOffset, 200)
+                && ShadowMatches(1, 20, 20, 100, 60, 3, 7, 2, 90)
+                && ShadowMatches(1, 20, 20, 100, 60, T.Radius.L, T.Shadow.DockBlur, T.Shadow.DockOffset, T.Shadow.DockAlpha),
+                "Schatten mit anderem Radius, anderer Unschärfe oder anderer Deckkraft teilen sich keine Tabelle");
             Tiles();
 
             // Auflösung passend zum Bildschirm des Rechners, nur geänderte Ausschnitte an den Bildschirm (VIB-37)
@@ -738,13 +746,21 @@ namespace VibanOS.Preview
             Check(!Settings.GermanKeyboard && !Platform.Hardware.GermanKeyboard, "US-Tastaturbelegung lässt sich wählen");
             ClickAt(settings.CenterOf(SettingsWindow.PickGerman));
             Check(Settings.GermanKeyboard && Platform.Hardware.GermanKeyboard, "Und zurück auf Deutsch");
-            ClickAt(settings.CenterOf(SettingsWindow.ToggleCursor));
+            // Die Maus steht schon auf dem Schalter, wenn der Klick kommt: Der Zeiger wechselt die Größe, ohne sich zu
+            // bewegen. Draw prüft, dass auch dann alles Geänderte in einem gemeldeten Ausschnitt liegt.
+            int[] toggle = settings.CenterOf(SettingsWindow.ToggleCursor);
+            desktop.OnMouse(toggle[0], toggle[1], false);
+            Draw();
+            ClickAt(toggle);
             desktop.OnMouse(200, 200, false);
             Draw();
             Shot(output, "8-einstellungen-tastatur");
             // Zeile 10 des Zeigers beginnt mit einem Randpixel. Doppelt so groß liegt es bei y + 20 statt y + 10.
             bool large = screen.Pixels[(200 + 2 * 10 + 1) * screen.Width + 200 + 1] == unchecked((int)T.Color.CursorEdge);
-            ClickAt(settings.CenterOf(SettingsWindow.ToggleCursor));
+            toggle = settings.CenterOf(SettingsWindow.ToggleCursor);
+            desktop.OnMouse(toggle[0], toggle[1], false);
+            Draw();
+            ClickAt(toggle);
             desktop.OnMouse(200, 200, false);
             Draw();
             bool small2 = screen.Pixels[(200 + 2 * 10 + 1) * screen.Width + 200 + 1] != unchecked((int)T.Color.CursorEdge);
@@ -1183,10 +1199,25 @@ namespace VibanOS.Preview
         private static bool Draw(Surface front)
         {
             int second = DateTime.Now.Second;
+            int[] before = (int[])front.Pixels.Clone();
             bool shown = desktop.Frame(front);
             dirtyArea = 0;
             for (int i = 0; shown && i < 4 * desktop.DirtyCount; i += 4)
                 dirtyArea += (long)Math.Min(desktop.Dirty[i + 2], front.Width - desktop.Dirty[i]) * Math.Min(desktop.Dirty[i + 3], front.Height - desktop.Dirty[i + 1]);
+            // Der Kernel schickt nur die gemeldeten Ausschnitte an den Bildschirm. Was Frame außerhalb davon ändert, käme
+            // dort nie an.
+            int scale = front.Scale;
+            for (int i = 0; i < before.Length; i++)
+            {
+                if (before[i] == front.Pixels[i]) continue;
+                int px = i % front.PixelWidth, py = i / front.PixelWidth;
+                bool inside = false;
+                for (int d = 0; shown && d < 4 * desktop.DirtyCount && !inside; d += 4)
+                    inside = px >= desktop.Dirty[d] * scale && px < (desktop.Dirty[d] + desktop.Dirty[d + 2]) * scale
+                        && py >= desktop.Dirty[d + 1] * scale && py < (desktop.Dirty[d + 1] + desktop.Dirty[d + 3]) * scale;
+                if (!inside)
+                    throw new Exception("Prüfung fehlgeschlagen: Frame hat ein Pixel geändert, das in keinem gemeldeten Ausschnitt liegt (" + px + "," + py + ")");
+            }
             int[] pieces = (int[])front.Pixels.Clone();
             desktop.Redraw();
             desktop.Frame(front);
@@ -1283,7 +1314,10 @@ namespace VibanOS.Preview
                 for (int i = 0; i < 114 && mirrored; i++)
                     mirrored = round.Pixels[(4 + j) * 128 + 6 + i] == round.Pixels[(4 + 85 - j) * 128 + 6 + 113 - i]
                         && round.Pixels[(4 + j) * 128 + 6 + i] == round.Pixels[(4 + j) * 128 + 6 + 113 - i];
-            Check(mirrored, "Abgerundete Ecken und ihr Rahmen sind oben und unten, links und rechts gleich");
+            for (int j = 0; j < 18 && mirrored; j++) // und jede Ecke in sich, entlang ihrer Schräge
+                for (int i = 0; i < j && mirrored; i++)
+                    mirrored = round.Pixels[(4 + j) * 128 + 6 + i] == round.Pixels[(4 + i) * 128 + 6 + j];
+            Check(mirrored, "Abgerundete Ecken und ihr Rahmen sind oben und unten, links und rechts gleich und in sich gespiegelt");
             Surface twice = new Surface(64, 64, 2);
             twice.Measure();
             twice.Damage(r);
@@ -1325,6 +1359,12 @@ namespace VibanOS.Preview
             desktop.OnMouse(gripX + 12, gripY + 7, true);
             Check(Draw(front) && dirtyArea >= (long)w.Width * w.Height && dirtyArea < (long)(w.Width + 200) * (w.Height + 200),
                 "Ein gezogenes Fenster zeichnet nur sich und seinen Schatten neu (" + dirtyArea * 100 / all + " % des Bildes)");
+            int[] three = { 10, 20, 30, 40, 5, 50, 10, 10, 100, 0, 20, 30 };
+            Array.Copy(three, desktop.Dirty, three.Length);
+            desktop.DirtyCount = 3;
+            int bx, by, bw, bh;
+            desktop.DirtyBounds(out bx, out by, out bw, out bh);
+            Check(bx == 5 && by == 0 && bw == 115 && bh == 60, "Das Rechteck um alle geänderten Ausschnitte umfasst genau sie");
 
             // Zeiten: je 20 Bilder
             var watch = System.Diagnostics.Stopwatch.StartNew();

@@ -132,8 +132,19 @@ namespace VibanOS
             if (desktop.Frame(front))
             {
                 long drawnAt = Stopwatch.GetTimestamp();
-                for (int i = 0; i < 4 * desktop.DirtyCount; i += 4)
-                    Hardware.Present(front, desktop.Dirty[i], desktop.Dirty[i + 1], desktop.Dirty[i + 2], desktop.Dirty[i + 3], stretched);
+                if (stretched)
+                {
+                    // QEMU zeichnet dann ohnehin das ganze Bild neu. Ein Aufruf mit dem Rechteck um alle Ausschnitte, sonst
+                    // ginge je Ausschnitt ein ganzes Bild an die Grafikkarte.
+                    int x, y, width, height;
+                    desktop.DirtyBounds(out x, out y, out width, out height);
+                    Hardware.Present(front, x, y, width, height, true);
+                }
+                else
+                {
+                    for (int i = 0; i < 4 * desktop.DirtyCount; i += 4)
+                        Hardware.Present(front, desktop.Dirty[i], desktop.Dirty[i + 1], desktop.Dirty[i + 2], desktop.Dirty[i + 3], false);
+                }
                 long took = Stopwatch.GetTimestamp() - before;
                 shown += Stopwatch.GetTimestamp() - drawnAt;
                 busy += took;
