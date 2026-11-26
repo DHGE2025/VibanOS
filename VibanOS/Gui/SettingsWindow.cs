@@ -36,11 +36,13 @@ namespace VibanOS.Gui
         private string note = "";    // Hinweis, kein Fehler
         private VibanOS.Users.User owner; // wem die Meldung gilt
 
+        private const int StartWidth = T.Size.Sidebar + 460, StartHeight = T.Size.TitleBar + 380;
+
         public SettingsWindow()
         {
             Title = "Systemeinstellungen";
-            Width = T.Size.Sidebar + 460;
-            Height = T.Size.TitleBar + 380;
+            Width = StartWidth;
+            Height = StartHeight;
             List<Resolution> all = Hardware.ScreenModes();
             // Kann die Grafik nicht umschalten, steht hier nur die eine Auflösung. Die zeigen wir immer.
             for (int i = 0; i < all.Count; i++)
@@ -49,6 +51,11 @@ namespace VibanOS.Gui
                 if (all.Count == 1 || Settings.Usable(r)) modes.Add(r);
             }
         }
+
+        // Die Gruppen werden mit dem Fenster breiter, die Seitenleiste länger. Kleiner als zu Beginn passen Farben und Auflösungen nicht.
+        public override bool CanZoom { get { return true; } }
+        public override int MinWidth { get { return StartWidth; } }
+        public override int MinHeight { get { return StartHeight; } }
 
         public override void OnClick(int px, int py)
         {

@@ -163,6 +163,7 @@ namespace VibanOS.Gui
         private int dragX, dragY;
         private Window resizing;   // wird gerade an einem Rand gezogen
         private int snapEdges;      // beim Loslassen dockt das gezogene Fenster an diese Ränder an (Window.Edge*), 0: nicht
+        private Window snapPartner; // liegt schon in der Hälfte und teilt sie sich dann mit dem gezogenen Fenster
         private int resizeEdge, resizeX, resizeY, startX, startY, startWidth, startHeight;
         private int lastSecond = -1, lastMinute = -1;
         private bool wasLocked = true;
@@ -314,6 +315,7 @@ namespace VibanOS.Gui
                 dragging = null;
                 resizing = null;
                 snapEdges = 0;
+                snapPartner = null;
             }
             if (pressed) Press(x, y);
             // Über einem Rand, der sich ziehen lässt, zeigt der Zeiger einen Doppelpfeil, und während des Ziehens bleibt er.
@@ -393,7 +395,27 @@ namespace VibanOS.Gui
             }
             Place(w, x - dragX, y - dragY);
             int side = w.CanResize ? SnapEdgesAt(x, y) : 0;
+            // Liegt in der Hälfte schon ein Fenster, teilen sich beide sie: Das gezogene kommt auf die Seite der Maus,
+            // das andere rückt auf die andere.
+            snapPartner = null;
+            if (side == Window.EdgeLeft || side == Window.EdgeRight || side == Window.EdgeTop || side == Window.EdgeBottom)
+            {
+                snapPartner = SnappedTo(side, w);
+                if (snapPartner != null)
+                {
+                    if (side == Window.EdgeLeft || side == Window.EdgeRight) side |= y < scene.Height / 2 ? Window.EdgeTop : Window.EdgeBottom;
+                    else side |= x < scene.Width / 2 ? Window.EdgeLeft : Window.EdgeRight;
+                }
+            }
             if (side != snapEdges) { snapEdges = side; OS.Changed = true; }
+        }
+
+        // Das offene Fenster außer except, das genau an diesen Rändern angedockt ist, sonst null.
+        private Window SnappedTo(int edges, Window except)
+        {
+            for (int i = windows.Count - 1; i >= 0; i--)
+                if (windows[i] != except && windows[i].Snapped == edges) return windows[i];
+            return null;
         }
 
         // Dockt w an eine Bildschirmhälfte oder ein Viertel an, mit derselben Bewegung wie der grüne Knopf.
@@ -409,6 +431,18 @@ namespace VibanOS.Gui
             int x, y, width, height;
             SnapArea(side, out x, out y, out width, out height);
             transitions.Add(new Transition(w, Motion.Zoom, Clock(), true, x, y, width, height));
+            // Das Fenster, das die Hälfte vorher allein hatte, rückt in das andere Viertel.
+            Window partner = snapPartner;
+            if (partner != null && IndexOf(partner) >= 0)
+            {
+                int taken = side & ~partner.Snapped; // das Viertel des gezogenen Fensters, etwa oben
+                int other = taken == Window.EdgeTop ? Window.EdgeBottom : taken == Window.EdgeBottom ? Window.EdgeTop
+                    : taken == Window.EdgeLeft ? Window.EdgeRight : Window.EdgeLeft;
+                Cancel(partner);
+                partner.Snapped |= other;
+                SnapArea(partner.Snapped, out x, out y, out width, out height);
+                transitions.Add(new Transition(partner, Motion.Zoom, Clock(), false, x, y, width, height));
+            }
             OS.Changed = true;
         }
 

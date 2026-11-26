@@ -739,9 +739,16 @@ namespace VibanOS.Preview
             int infoBefore = OS.Processes.All.Count;
             desktop.Open(Icons.About);
             Window aboutBox = desktop.Active;
-            desktop.OnMouse(aboutBox.X + aboutBox.Width + 2, aboutBox.Y + 100, true);
-            desktop.OnMouse(aboutBox.X + aboutBox.Width + 60, aboutBox.Y + 100, false);
-            Check(aboutBox.Width == 340, "Fenster mit festem Inhalt (Info) lassen sich nicht an den Rändern ziehen");
+            Settle();
+            int aboutEdge = aboutBox.X + aboutBox.Width + 2;
+            desktop.OnMouse(aboutEdge, aboutBox.Y + 100, true);
+            desktop.OnMouse(aboutEdge + 60, aboutBox.Y + 100, false);
+            Check(aboutBox.Width == 400, "Auch Info lässt sich an den Rändern größer ziehen");
+            Draw();
+            aboutEdge = aboutBox.X + aboutBox.Width + 2;
+            desktop.OnMouse(aboutEdge, aboutBox.Y + 100, true);
+            desktop.OnMouse(aboutEdge - 300, aboutBox.Y + 100, false);
+            Check(aboutBox.Width == 340, "Kleiner als zu Beginn wird Info nicht, sonst passt der Inhalt nicht");
             Click(ControlX(aboutBox, Window.CloseButton), aboutBox.Y + T.Size.TitleBar / 2);
             Settle();
             Check(OS.Processes.All.Count == infoBefore, "Info ist wieder zu");
@@ -800,15 +807,57 @@ namespace VibanOS.Preview
             desktop.OnMouse(snapAbout.X + 200, snapAbout.Y + 10, true);
             desktop.OnMouse(0, 300, false);
             Settle();
-            Check(snapAbout.Snapped == 0 && snapAbout.Width == 340, "Fenster mit festem Inhalt docken nicht an");
+            Check(snapAbout.Snapped == Window.EdgeLeft && snapAbout.Width == halfW, "Auch Info dockt an");
+
+            // Liegt in einer Hälfte schon ein Fenster, teilen sich beide sie
+            desktop.Open(Icons.Terminal); // nach vorn, damit der Griff an der Titelleiste es trifft
+            desktop.OnMouse(terminal.X + 200, terminal.Y + 10, true);
+            desktop.OnMouse(T.Size.ScreenWidth - 1, T.Size.ScreenHeight / 2 + 100, false);
+            Settle();
+            Check(terminal.Snapped == Window.EdgeRight && terminal.Height == areaH, "Rechts losgelassen füllt das Terminal die rechte Hälfte");
+            desktop.Open(Icons.About);
+            desktop.OnMouse(snapAbout.X + 200, snapAbout.Y + 10, true);
+            desktop.OnMouse(T.Size.ScreenWidth - 1, T.Size.ScreenHeight / 2 - 100, true);
+            Draw();
+            desktop.OnMouse(T.Size.ScreenWidth - 1, T.Size.ScreenHeight / 2 - 100, false);
+            Settle();
+            Check(snapAbout.Snapped == (Window.EdgeRight | Window.EdgeTop) && snapAbout.Y == areaY && snapAbout.Height == halfH
+                && terminal.Snapped == (Window.EdgeRight | Window.EdgeBottom) && terminal.Y + terminal.Height == areaY + areaH && terminal.Height == halfH
+                && terminal.X == snapAbout.X && terminal.Width == halfW,
+                "Ein zweites Fenster rechts teilt sich die Hälfte: es kommt nach oben, das andere rückt nach unten");
+            desktop.Open(Icons.About);
+            desktop.OnMouse(snapAbout.X + 200, snapAbout.Y + 10, true);
+            desktop.OnMouse(T.Size.ScreenWidth / 2, 200, false);
+            Settle();
+            desktop.Open(Icons.Terminal); // nach vorn, damit der Griff an der Titelleiste es trifft
+            desktop.OnMouse(terminal.X + 200, terminal.Y + 10, true);
+            desktop.OnMouse(T.Size.ScreenWidth / 2, 0, false);
+            Settle();
+            Check(terminal.Snapped == Window.EdgeTop && terminal.Width == areaW, "Das Terminal füllt die obere Hälfte");
+            desktop.Open(Icons.About);
+            desktop.OnMouse(snapAbout.X + 200, snapAbout.Y + 10, true);
+            desktop.OnMouse(T.Size.ScreenWidth / 2 + 100, 0, false);
+            Settle();
+            Check(snapAbout.Snapped == (Window.EdgeTop | Window.EdgeRight) && terminal.Snapped == (Window.EdgeTop | Window.EdgeLeft)
+                && terminal.Width == halfW && snapAbout.Width == halfW && terminal.Height == halfH,
+                "Oben geht das genauso: das zweite Fenster kommt auf die Seite der Maus, das erste rückt daneben");
             Click(ControlX(snapAbout, Window.CloseButton), snapAbout.Y + T.Size.TitleBar / 2);
             Settle();
-            terminal.X = oldX - 60; terminal.Y = 100;
+            terminal.X = oldX - 60; terminal.Y = 100; terminal.Width = termW; terminal.Height = termH; terminal.Snapped = 0;
             OS.Changed = true;
             Draw();
             Click(DockIconX(Icons.Activity), dockRow);
             Check(desktop.Active is ActivityWindow, "Klick im Dock öffnet die App");
             Window activity = desktop.Active;
+            Settle();
+            int activityW = activity.Width;
+            Click(ControlX(activity, Window.ZoomButton), activity.Y + T.Size.TitleBar / 2);
+            Settle();
+            Shot(output, "9-aktivitaet-gross");
+            Check(activity.Zoomed && activity.Width > activityW, "Auch die Aktivitätsanzeige lässt sich vergrößern, Tabelle und Speicherkarte wachsen mit");
+            Click(ControlX(activity, Window.ZoomButton), activity.Y + T.Size.TitleBar / 2);
+            Settle();
+            Check(!activity.Zoomed && activity.Width == activityW, "Und wieder zurück auf die Größe davor");
             Check(activity.Process != null && OS.Processes.Get(activity.Process.Id) == activity.Process && activity.Process.Name == "aktivität",
                 "Eine geöffnete App ist ein Prozess");
             int before = OS.Processes.All.Count;
@@ -1088,7 +1137,11 @@ namespace VibanOS.Preview
             Draw();
             Check(!desktop.Animating && screen.Pixels[edge] == unchecked((int)T.Color.TitleBar), "Nach dem Einblenden steht das Fenster fertig da");
             Click(ControlX(info, Window.ZoomButton), info.Y + T.Size.TitleBar / 2);
-            Check(!desktop.Animating && info.Width == 340, "Fenster mit festem Inhalt vergrößert der grüne Knopf nicht");
+            Settle();
+            Check(info.Zoomed && info.Width == T.Size.ScreenWidth - 2 * T.Space.S, "Der grüne Knopf vergrößert auch Info");
+            Click(ControlX(info, Window.ZoomButton), info.Y + T.Size.TitleBar / 2);
+            Settle();
+            Check(!info.Zoomed && info.Width == 340, "Und ein zweiter Klick stellt die Größe davor her");
             Click(ControlX(info, Window.MinimizeButton), info.Y + T.Size.TitleBar / 2);
             Check(desktop.Active != info && desktop.Animating, "Der gelbe Knopf legt das Fenster ins Dock");
             Settle();

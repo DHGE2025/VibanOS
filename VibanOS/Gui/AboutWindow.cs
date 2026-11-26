@@ -9,16 +9,23 @@ namespace VibanOS.Gui
     /// <summary>„Über VibanOS“: Logo, Version und Eckdaten des Systems.</summary>
     public class AboutWindow : Window
     {
+        private const int StartWidth = 340, StartHeight = 330; // kleiner passt der Inhalt nicht
+
         public AboutWindow()
         {
             Title = "Über " + OS.Name;
-            Width = 340;
-            Height = 330;
+            Width = StartWidth;
+            Height = StartHeight;
         }
+
+        public override bool CanZoom { get { return true; } }
+        public override int MinWidth { get { return StartWidth; } }
+        public override int MinHeight { get { return StartHeight; } }
 
         protected override void DrawContent(Surface s, int x, int y, int w, int h)
         {
-            int cx = x + w / 2, ty = y + T.Space.XL;
+            // In einem größeren Fenster steht der Inhalt in der Mitte.
+            int cx = x + w / 2, ty = y + T.Space.XL + (h - (StartHeight - T.Size.TitleBar)) / 2;
             Icons.Draw(s, Icons.About, cx - 32, ty, 64);
             ty += 64 + T.Space.M;
             s.DrawTextCentered(Fonts.Display, OS.Name, cx, ty, T.Color.TextPrimary);
