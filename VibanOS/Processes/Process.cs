@@ -11,8 +11,9 @@ namespace VibanOS.Processes
     public enum ProcessMode { Kernel, User }
 
     /// <summary>
-    /// Prozesskontrollblock (VIB-3). Ein Prozess ist ein Objekt, dessen Step() jeweils einen kleinen
-    /// Arbeitsschritt erledigt. Der Scheduler ruft Step() reihum auf (kooperatives Multitasking).
+    /// Prozesskontrollblock (VIB-3). Das Programm eines Prozesses steht in Run() und läuft in einem eigenen
+    /// Kontext (Context): eigener Stack, eigene Register. Der Scheduler gibt reihum einem Prozess die CPU, der
+    /// Prozess gibt sie mit Yield() zurück und macht beim nächsten Mal an derselben Stelle weiter.
     /// </summary>
     public abstract class Process
     {
@@ -40,7 +41,31 @@ namespace VibanOS.Processes
 
         public readonly Mailbox Mailbox = new Mailbox();
 
-        public abstract void Step();
+        /// <summary>Stack und Register des Prozesses. null, bevor er zum ersten Mal läuft und nachdem er beendet ist.</summary>
+        public Context Context;
+
+        /// <summary>
+        /// Das Programm des Prozesses. Es darf Schleifen und lokale Variablen haben und mittendrin warten: Yield()
+        /// gibt die CPU ab, beim nächsten Mal geht es dahinter weiter. Kehrt Run zurück, ist der Prozess beendet.
+        /// Ohne eigenes Run läuft Step() in einer Schleife.
+        /// </summary>
+        public virtual void Run()
+        {
+            while (true)
+            {
+                Step();
+                Yield();
+            }
+        }
+
+        /// <summary>Die einfache Form eines Programms: ein kleiner Arbeitsschritt, nach jedem ist der nächste Prozess dran.</summary>
+        public virtual void Step() { }
+
+        /// <summary>
+        /// Gibt die CPU ab. Der Prozess bleibt bereit und läuft hier weiter, sobald der Scheduler ihn wieder wählt.
+        /// Wurde er inzwischen beendet, kehrt Yield nicht zurück (ProcessKilled).
+        /// </summary>
+        protected void Yield() { OS.Processes.Yield(); }
 
         /// <summary>Standardverhalten für Signale (VIB-14). Prozesse können das überschreiben.</summary>
         public virtual void OnSignal(Signal signal)

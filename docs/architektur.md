@@ -30,12 +30,34 @@ flowchart TD
 COSMOS ruft erst `Kernel.BeforeRun()` auf (Festplatte einhängen, Teilsysteme starten, Bildschirm holen) und dann `Kernel.Run()`. Darin läuft die Schleife von VibanOS, bis das System stoppt. Ein Durchlauf (`Kernel.Frame`) macht drei Dinge:
 
 1. Tastatur und Maus lesen und an `Desktop` weiterreichen.
-2. `OS.Tick()`: Timer-Tick zählen und einen Prozess einen Schritt arbeiten lassen.
-3. `Desktop.Frame()`: Hat sich etwas geändert, werden die geänderten Bereiche neu gezeichnet und angezeigt.
+2. `Desktop.Frame()`: Hat sich etwas geändert, werden die geänderten Bereiche neu gezeichnet und angezeigt.
+3. `OS.Tick()`: Timer-Tick zählen, dann bekommt ein bereiter Prozess die CPU, bis er sie abgibt (siehe [Prozesse und Kontextwechsel](#prozesse-und-kontextwechsel)).
 
-Danach pausiert die Schleife 10 ms, damit sie die CPU nicht ständig voll auslastet. Hat der Durchlauf selbst schon so lange gebraucht, weil er ein großes Stück neu gezeichnet hat, entfällt die Pause. Scheitert ein Durchlauf mit einer Ausnahme, steht die Meldung im Terminal und im seriellen Protokoll, und es geht weiter. Erst nach drei Fehlern in Folge gibt der Kernel auf, COSMOS zeigt den Fehler dann an und hält an.
+Danach pausiert die Schleife 10 ms, damit sie die CPU nicht ständig voll auslastet. Hat der Durchlauf selbst schon so lange gebraucht, weil er ein großes Stück neu gezeichnet hat, entfällt die Pause. Sie entfällt auch, wenn ein Prozess dran war und der Wechsel zu ihm schon gedauert hat: COSMOS vollzieht ihn erst beim nächsten Interrupt, spätestens nach 10 ms. Scheitert ein Durchlauf mit einer Ausnahme, steht die Meldung im Terminal und im seriellen Protokoll, und es geht weiter. Erst nach drei Fehlern in Folge gibt der Kernel auf, COSMOS zeigt den Fehler dann an und hält an.
 
-Daraus folgt die wichtigste Regel: **Nichts darf blockieren.** Kein `Console.ReadLine`, keine Warteschleifen. Ein Befehl, der eine Antwort braucht, nutzt `shell.Ask(...)`. Ein Prozess, der lange rechnet, erledigt pro `Step()` nur ein kleines Stück.
+Daraus folgt die wichtigste Regel für alles, was im Kernel läuft (Shell-Befehle, Fenster, Treiber): **Nichts darf blockieren.** Kein `Console.ReadLine`, keine Warteschleifen. Ein Befehl, der eine Antwort braucht, nutzt `shell.Ask(...)`. Prozesse dürfen dagegen Schleifen haben und mitten im Programm warten, sie haben einen eigenen Stack. Ein Prozess, der lange rechnet, gibt aber regelmäßig mit `Yield()` die CPU ab, sonst steht die Oberfläche.
+
+## Prozesse und Kontextwechsel
+
+Jeder Prozess läuft in einem eigenen Kontext (`Processes/Context.cs`): einem eigenen Thread mit eigenem Stack (256 KB) und eigenen Registern. Sein Programm steht in `Process.Run()` und ist gewöhnlicher Code mit Schleifen, Unterprogrammen und lokalen Variablen. Gibt der Prozess die CPU ab, bleibt er mitten darin stehen. Den Wechsel selbst erledigt COSMOS: Seine Interrupt-Routine legt alle Register des Threads auf dessen Stack, merkt sich den Stackzeiger und lädt die des nächsten. Der Befehl `context <pid>` zeigt den Stack und die gesicherten Register eines Prozesses.
+
+Wer wann läuft, bestimmt weiter VibanOS. **Es läuft immer genau einer:** der Kernel (Schleife, Shell, Oberfläche) oder ein Prozess. `ProcessManager.Tick()` lässt den Scheduler (`IScheduler.PickNext`) einen bereiten Prozess wählen und übergibt ihm die CPU wie einen Staffelstab (`Context.SwitchTo`). Der Kernel steht so lange, bis der Prozess sie zurückgibt. Deshalb braucht der übrige Code keine Sperren gegen gleichzeitige Zugriffe, und der Ablauf ist auf dem PC (`tools/Preview`) derselbe wie unter COSMOS.
+
+Ein Prozess gibt die CPU auf drei Wegen ab:
+
+- `Yield()`: Er bleibt bereit und läuft hinter dem Aufruf weiter, sobald der Scheduler ihn wieder wählt.
+- `OS.Processes.Block(p)`: Er ist blockiert, bis ihn `OS.Processes.Unblock(p)` weckt. Blockiert sich der laufende Prozess selbst, kehrt `Block` erst nach dem Wecken zurück. Von außen (Befehl `block`) bekommt der Prozess nur keine CPU mehr.
+- Ende von `Run()` oder ein Fehler: Der Prozess ist beendet, in `Output` steht bei einem Fehler `Abbruch: ...`.
+
+Wer auf etwas wartet (VIB-8, VIB-13), blockiert sich und prüft nach dem Wecken erneut, ob es da ist: `while (!mutex.Lock(Id)) Yield();`. `Mutex.Lock` und `Semaphore.Wait` setzen den Zustand `Blocked` schon selbst, `Unlock` und `Signal` wecken den ersten Wartenden. Ein blockierendes `Receive` geht genauso: `Block` aufrufen, solange die Mailbox leer ist, und `Send` weckt den Empfänger.
+
+Wird ein Prozess beendet, während er wartet (`kill`, Signal Term, Systemaufruf `exit`), bekommt er die CPU beim nächsten `Tick` ein letztes Mal: `Yield` wirft dort `ProcessKilled`, seine `finally`-Blöcke laufen, sein Stack ist abgebaut. Prozesse fangen `ProcessKilled` nicht ab. Tut es einer doch und wartet weiter, bleibt sein Thread für immer stehen, das System läuft weiter. Der frei gewordene Kontext geht an den nächsten neuen Prozess, weil COSMOS 3.0.99 den Stack eines beendeten Threads nicht freigibt. Mehr als 64 Prozesse gibt es nicht zugleich (`ProcessManager.MaxProcesses`).
+
+Grenzen, die man kennen muss:
+
+- **Die Zeitscheibe endet nur freiwillig.** Ein Prozess behält die CPU, bis er sie abgibt. Erzwungene Zeitscheiben hießen, einen Thread mitten in einem Kernaufruf anzuhalten. Dafür muss erst jeder Zugriff auf gemeinsame Daten geschützt sein (VIB-11, VIB-14). Ein Scheduler aus VIB-15 entscheidet deshalb, wer als Nächster drankommt und wie viele Abgaben lang (`Quantum`), nicht wie viele Millisekunden.
+- **Kein eigener Wechsel in Assembler.** Der Garbage Collector durchsucht nur Stacks, die bei COSMOS angemeldet sind.
+- `Hardware.InspectThread` liest dafür den Scheduler von COSMOS aus. Der ist dort als experimentell markiert (`COSMOS0001`), nach einem Update von COSMOS zuerst hier nachsehen.
 
 ## Zwei Schichten
 
@@ -68,7 +90,7 @@ Eine neue, leere Platte hat weder Partitionstabelle noch Dateisystem. Der Befehl
 | -- | -- | -- | -- |
 | VIB-1 Shell-Befehle | `Shell/` | `Command`, `Shell`, `CommandList`, alle sechs Grundbefehle | Fertig bis auf Feinschliff |
 | VIB-2 Dateisystem | `FileSystem/`, `Shell/Commands/FileCommands.cs`, `Platform/` | `Vfs` (Pfade, Rechteprüfung), Einhängen der Festplatte unter `/mnt`, `format` für eine leere Platte, `ls`, `cd`, `pwd`, `mkdir`, `touch`, `cat`, `write`, `rm`, `cp`, `mv`, `df`, Verzeichnis im Prompt, die App Dateien (`Gui/FilesWindow.cs`), Einstellungen je Nutzer in `home/<name>/settings.txt`, Anleitung im README | `rm -r`, Umbenennen und Löschen in der App Dateien |
-| VIB-3 Multitasking | `Processes/` | `Process`, `ProcessManager`, Round Robin, `counter`/`clock`/`busy`, `ps` mit Ausgabe, `start`, `kill` | `block`, `unblock` |
+| VIB-3 Multitasking | `Processes/` | `Process`, `ProcessManager`, `Context` (echter Kontextwechsel: eigener Stack und eigene Register je Prozess), Round Robin, `counter`/`clock`/`busy`, `ps` mit Ausgabe, `start`, `kill`, `block`, `unblock`, `context` | Erzwungene Zeitscheiben (braucht VIB-11 und VIB-14) |
 | VIB-4 Dokumentation | `docs/` | dieses Dokument, Designsheet | Themenseiten, `befehle.md`, Vorführ-Skript |
 | VIB-5 Rahmentabellen | `Memory/` | `PhysicalMemory`, `FrameTable`, `PageTable`, Übersetzung, Page Fault, `mem`, `frames`, `alloc` | `pagetable`, `free`, `translate` |
 | VIB-6 Fragmentierung | `Memory/` | gemeinsamer simulierter RAM | Blockverwaltung, First/Best/Worst Fit, Kennzahlen, Befehle |
@@ -89,7 +111,7 @@ Eine neue, leere Platte hat weder Partitionstabelle noch Dateisystem. Der Befehl
 
 **Einen Shell-Befehl:** Klasse von `Command` ableiten, `Name`, `Description` und `Execute` schreiben, in `Shell/CommandList.cs` eine Zeile ergänzen. Ausgaben gehen über `shell.WriteLine(...)` und `shell.Error(...)`. Braucht der Befehl ein Systemrecht, `Required` überschreiben. Beispiele stehen in `Shell/Commands/`.
 
-**Einen Prozess:** Klasse von `Process` ableiten und `Step()` schreiben. Was der Prozess zeigen will, schreibt er in `Output`. Zum Starten in `StartCommand` eintragen.
+**Einen Prozess:** Klasse von `Process` ableiten und `Run()` schreiben: das ganze Programm, mit `Yield()` an den Stellen, an denen der nächste Prozess drankommen darf. Für einfache Fälle reicht `Step()`, ein kleiner Arbeitsschritt, den der Prozess in einer Schleife wiederholt. Was der Prozess zeigen will, schreibt er in `Output`. Zum Starten in `StartCommand` eintragen.
 
 **Einen Systemaufruf:** Nummer in `SyscallNumber`, Eintrag in `SyscallTable.RegisterDefaults()` mit der Angabe, ob er nur im Kernelmode erlaubt ist.
 

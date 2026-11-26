@@ -124,6 +124,25 @@ namespace VibanOS.Platform
             if (FormatError == null) Directory.CreateDirectory(Vfs.Root);
             return FormatError;
         }
+
+        // Den Thread, wie COSMOS ihn führt, gibt es hier nicht. Auf Wunsch liefert die Attrappe erfundene Register,
+        // damit sich der Befehl context prüfen lässt.
+        public static bool FakeThreads;
+
+        public static object CurrentThread() { return null; }
+
+        public static ThreadInfo InspectThread(object thread)
+        {
+            if (!FakeThreads) return null;
+            ThreadInfo info = new ThreadInfo();
+            info.Id = 7;
+            info.StackBase = 0x1000000;
+            info.StackSize = Context.StackSize;
+            info.CpuTimeNs = 30000000;
+            info.Registers = new ulong[ThreadInfo.RegisterNames.Length];
+            for (int i = 0; i < info.Registers.Length; i++) info.Registers[i] = 0x1000UL + (ulong)i;
+            return info;
+        }
     }
 }
 
@@ -479,6 +498,9 @@ namespace VibanOS.Preview
                 "passwd ändert nichts ohne das alte Passwort");
             Type("kill 1\n");
             Check(OS.Processes.Get(1) != null, "Normale Nutzer dürfen fremde Prozesse nicht beenden");
+            Type("block 1\n");
+            Check(Last().Text.StartsWith("Keine Berechtigung") && OS.Processes.Get(1).State != ProcessState.Blocked,
+                "Normale Nutzer blockieren fremde Prozesse nicht");
             int pagesBefore = OS.Memory.TableOf(1).Pages.Count;
             Type("alloc 1 1\n");
             Check(Last().Style == LineStyle.Error && OS.Memory.TableOf(1).Pages.Count == pagesBefore, "Normale Nutzer geben fremden Prozessen keinen Speicher");
@@ -1207,6 +1229,7 @@ namespace VibanOS.Preview
             Settle();
             DesignSheet(output);
             Pieces();
+            Contexts();
 
             Directory.SetCurrentDirectory(output);
             // Aufräumen kippt den bestandenen Test nicht: Unter Windows lässt sich ein Ordner nicht löschen, solange ein
@@ -1504,6 +1527,154 @@ namespace VibanOS.Preview
             Console.WriteLine("Zeit je Bild bei " + front.PixelWidth + "x" + front.PixelHeight + ": alles neu " + whole.ToString("0.0") + " ms, Fenster ziehen "
                 + drag.ToString("0.0") + " ms, Buchstabe tippen " + type.ToString("0.00") + " ms, nur Maus " + mouse.ToString("0.000") + " ms");
             Surface.DefaultScale = 1;
+        }
+
+        // Kontextwechsel (VIB-3). Steht am Ende, damit die Prozessnummern in den Bildern davor dieselben bleiben.
+        private static void Contexts()
+        {
+            int kernelThread = Environment.CurrentManagedThreadId;
+            int before = OS.Processes.All.Count;
+
+            // Zwei Prozesse rechnen rekursiv und geben auf jeder Ebene die CPU ab.
+            int threadA = 0, threadB = 0;
+            Script a = Spawn(p => { threadA = Environment.CurrentManagedThreadId; p.Output = Sum(p, 20).ToString(); });
+            Script b = Spawn(p => { threadB = Environment.CurrentManagedThreadId; p.Output = Sum(p, 30).ToString(); });
+            Until(() => a.Steps == 5);
+            Check(a.State == ProcessState.Ready && a.Output == "" && a.Context != null && OS.Processes.Current == null,
+                "Ein Prozess bleibt mitten in seiner Aufrufkette stehen, wenn er die CPU abgibt");
+            Until(() => a.State == ProcessState.Terminated && b.State == ProcessState.Terminated);
+            Check(a.Output == "210" && b.Output == "465" && a.Steps == 21 && b.Steps == 31,
+                "Zwei Prozesse rechnen abwechselnd in der Tiefe weiter: Jeder hat seinen eigenen Stack");
+            Check(threadA != kernelThread && threadB != kernelThread && threadA != threadB && a.Context == null && b.Context == null,
+                "Jeder Prozess läuft in seinem eigenen Thread und gibt ihn mit dem Ende ab");
+            OS.Processes.Yield();
+            Check(OS.Processes.Current == null, "Yield aus dem Kernel tut nichts");
+
+            // block und unblock
+            OS.Shell.Execute("start counter");
+            Process counter = OS.Processes.All[OS.Processes.All.Count - 1];
+            Until(() => counter.Steps == 3);
+            OS.Shell.Execute("block " + counter.Id);
+            Check(counter.State == ProcessState.Blocked && counter.StateText == "blockiert" && Last().Style == LineStyle.Normal, "block blockiert einen Prozess");
+            for (int i = 0; i < 100; i++) OS.Tick();
+            Check(counter.Steps == 3 && counter.Output == "Zähler 3", "Ein blockierter Prozess bekommt die CPU nicht");
+            OS.Shell.Execute("block " + counter.Id);
+            Check(Last().Style == LineStyle.Error && Last().Text == "Prozess " + counter.Id + " ist blockiert.", "block meldet, wenn der Prozess schon blockiert ist");
+            OS.Shell.Execute("unblock " + counter.Id);
+            Check(counter.State == ProcessState.Ready && Last().Style == LineStyle.Normal, "unblock macht ihn wieder bereit");
+            Until(() => counter.Steps == 4);
+            Check(counter.Output == "Zähler 4", "Nach unblock zählt er dort weiter, wo er stand");
+            OS.Shell.Execute("unblock " + counter.Id);
+            Check(Last().Style == LineStyle.Error && counter.State == ProcessState.Ready, "unblock meldet, wenn der Prozess nicht blockiert ist");
+            OS.Shell.Execute("block 9999");
+            Check(Last().Text == "Kein Prozess mit der ID 9999.", "block meldet, wenn es den Prozess nicht gibt");
+            OS.Shell.Execute("unblock");
+            Check(Last().Text == "Aufruf: unblock <pid>", "unblock ohne Nummer nennt den Aufruf");
+
+            // context
+            List<ShellLine> lines = OS.Shell.Lines;
+            OS.Shell.Execute("context " + counter.Id);
+            Check(lines[lines.Count - 3].Text == "Prozess " + counter.Id + " (counter), bereit, 4 mal an der CPU"
+                && lines[lines.Count - 2].Text == "Thread " + counter.Context.ThreadId + ", eigener Stack mit 256 KB", "context zeigt Thread und Stack eines Prozesses");
+            Platform.Hardware.FakeThreads = true;
+            OS.Shell.Execute("context " + counter.Id);
+            Platform.Hardware.FakeThreads = false;
+            Check(lines[lines.Count - 11].Text == "Thread 7, eigener Stack mit 256 KB ab 0x0000000001000000, Rechenzeit 30 ms"
+                && lines[lines.Count - 9].Text == "RIP    0x0000000000001000  RSP    0x0000000000001001"
+                && Last().Text == "R14    0x0000000000001010  R15    0x0000000000001011", "context zeigt die gesicherten Register");
+            Process fresh = OS.Processes.Start(new CounterProcess());
+            OS.Shell.Execute("context " + fresh.Id);
+            Check(Last().Text.StartsWith("Noch nicht gelaufen"), "context sagt, wenn ein Prozess noch keinen Stack hat");
+
+            // Blockieren mitten im Programm
+            Script sleeper = Spawn(p => { p.Output = "vor"; OS.Processes.Block(p); p.Output = "nach"; });
+            Until(() => sleeper.Steps == 1);
+            for (int i = 0; i < 100; i++) OS.Tick();
+            Check(sleeper.State == ProcessState.Blocked && sleeper.Output == "vor" && sleeper.Steps == 1,
+                "Blockiert sich ein Prozess selbst, bleibt er an dieser Stelle stehen");
+            OS.Processes.Unblock(sleeper);
+            Until(() => sleeper.State == ProcessState.Terminated);
+            Check(sleeper.Output == "nach" && sleeper.Steps == 2, "Geweckt läuft er hinter dem Block weiter");
+
+            Mutex door = new Mutex("tür");
+            Script first = Spawn(p => { door.Lock(p.Id); p.Pause(); p.Pause(); door.Unlock(p.Id); });
+            Until(() => first.Steps == 1);
+            bool waited = false;
+            Script second = Spawn(p => { while (!door.Lock(p.Id)) { waited = true; p.Pause(); } p.Output = "drin"; door.Unlock(p.Id); });
+            Until(() => second.Steps == 1);
+            Check(second.State == ProcessState.Blocked && door.Owner == first.Id, "Ein Prozess wartet mitten im Programm auf eine Sperre");
+            Until(() => second.State == ProcessState.Terminated);
+            Check(waited && second.Output == "drin" && second.Steps == 2 && door.Owner == Mutex.Nobody,
+                "Mit der Freigabe läuft der Wartende weiter und bekommt die Sperre");
+
+            // Beenden: Der Stack wird abgebaut, der Kontext geht an den nächsten Prozess.
+            Script leaver = Spawn(p => { Syscall.Invoke(SyscallNumber.Exit); p.Pause(); p.Output = "lebt noch"; });
+            Until(() => leaver.State == ProcessState.Terminated);
+            Check(leaver.Output == "" && leaver.Steps == 1 && leaver.Context == null, "Nach dem Systemaufruf exit läuft das Programm nicht weiter");
+            bool cleaned = false;
+            Script victim = Spawn(p => { try { while (true) p.Pause(); } finally { cleaned = true; } });
+            Until(() => victim.Steps == 2);
+            int threads = Context.Count;
+            OS.Processes.Kill(victim.Id);
+            OS.Tick();
+            Check(cleaned && victim.Context == null, "kill baut den Stack eines wartenden Prozesses ab, seine finally-Blöcke laufen");
+            cleaned = false;
+            victim = Spawn(p => { try { while (true) p.Pause(); } finally { cleaned = true; p.Pause(); cleaned = false; } });
+            Until(() => victim.Steps == 1);
+            victim.OnSignal(Signal.Term);
+            OS.Tick();
+            Check(cleaned && victim.Context == null && OS.Processes.Get(victim.Id) == victim,
+                "Auch nach dem Signal Term räumt ein wartender Prozess auf, warten kann er dabei nicht mehr");
+            Check(Context.Count == threads, "Ein neuer Prozess übernimmt den Kontext eines beendeten");
+            Script stubborn = Spawn(p => { while (true) { try { p.Pause(); } catch (ProcessKilled) { p.Output = "abgefangen"; } } });
+            Until(() => stubborn.Steps == 1);
+            OS.Processes.Kill(stubborn.Id);
+            OS.Tick();
+            Check(stubborn.Output == "abgefangen" && stubborn.Context == null && OS.Tick(), "Ein Prozess, der sein Ende abfängt, hält das System nicht auf");
+            Script broken = Spawn(p => { p.Pause(); throw new InvalidOperationException("kaputt"); });
+            Until(() => broken.State == ProcessState.Terminated);
+            Check(broken.Output == "Abbruch: kaputt" && broken.Context == null, "Ein Fehler mitten im Programm beendet nur diesen Prozess");
+
+            // Obergrenze: Jeder Prozess braucht einen Thread.
+            while (OS.Processes.All.Count < ProcessManager.MaxProcesses) OS.Processes.Start(new CounterProcess());
+            OS.Shell.Execute("start counter");
+            Check(Last().Style == LineStyle.Error && Last().Text.StartsWith("Zu viele Prozesse") && OS.Processes.Start(new CounterProcess()) == null
+                && OS.Processes.All.Count == ProcessManager.MaxProcesses, "Mehr als 64 Prozesse gibt es nicht zugleich");
+            Process last = OS.Processes.All[OS.Processes.All.Count - 1];
+            Until(() => last.Steps == 2);
+            while (OS.Processes.All.Count > before) OS.Processes.Kill(OS.Processes.All[OS.Processes.All.Count - 1].Id);
+            OS.Tick();
+            Check(last.Context == null && Context.Count <= ProcessManager.MaxProcesses, "Für 64 Prozesse reichen 64 Threads, auch wenn viele kommen und gehen");
+            foreach (Process p in OS.Processes.All) p.Stopped = true;
+            bool idle = !OS.Tick();
+            foreach (Process p in OS.Processes.All) p.Stopped = false;
+            Check(idle && OS.Tick(), "Tick meldet, ob ein Prozess an der CPU war");
+        }
+
+        // Ein Prozess, dessen Programm die Prüfung mitbringt.
+        private class Script : Process
+        {
+            private readonly Action<Script> body;
+            public Script(Action<Script> body) { Name = "test"; this.body = body; }
+            public override void Run() { body(this); }
+            public void Pause() { Yield(); }
+        }
+
+        private static Script Spawn(Action<Script> body) { return (Script)OS.Processes.Start(new Script(body)); }
+
+        // Summiert 1 bis n rekursiv und gibt auf jeder Ebene die CPU ab: Die halbfertige Aufrufkette muss jeden Wechsel überstehen.
+        private static int Sum(Script p, int n)
+        {
+            if (n == 0) return 0;
+            p.Pause();
+            return n + Sum(p, n - 1);
+        }
+
+        // Lässt den Scheduler laufen, bis die Bedingung gilt.
+        private static void Until(Func<bool> done)
+        {
+            for (int i = 0; i < 10000 && !done(); i++) OS.Tick();
+            if (!done()) throw new Exception("Prüfung fehlgeschlagen: Darauf hat der Scheduler vergeblich gewartet");
         }
 
         private static void Check(bool ok, string what)

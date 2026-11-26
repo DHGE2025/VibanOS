@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Cosmos.Kernel.Core.Scheduler;
 using Cosmos.Kernel.HAL.Devices.Display;
 using Cosmos.Kernel.HAL.Devices.Storage;
 using Cosmos.Kernel.HAL.DriverKit.Resources;
@@ -13,6 +15,7 @@ using Cosmos.Kernel.System.Input.Layouts;
 using Cosmos.Kernel.System.Storage;
 using VibanOS.Core;
 using VibanOS.Graphics;
+using VibanOS.Processes;
 
 namespace VibanOS.Platform
 {
@@ -274,6 +277,56 @@ namespace VibanOS.Platform
             if (german) KeyboardManager.SetLayout(new DEStandardLayout());
             else KeyboardManager.SetLayout(new USStandardLayout());
         }
+
+        // ---- Kontextwechsel (VIB-3) ----
+
+        // So legt die Interrupt-Routine von COSMOS die Register eines Threads auf seinem Stack ab (ThreadContext, x64):
+        // erst 256 Bytes für XMM0 bis XMM15, dann R15 bis RAX, vier Felder zum Interrupt und der Rahmen für iretq.
+        // Die Abstände gehören zu ThreadInfo.RegisterNames: RIP, RSP, RBP, RFLAGS, RAX, RBX, RCX, RDX, RSI, RDI, R8 bis R15.
+        private const int SavedContextSize = 448;
+        private static readonly int[] SavedRegisterOffsets = { 408, 432, 336, 424, 368, 344, 360, 352, 328, 320, 312, 304, 296, 288, 280, 272, 264, 256 };
+
+        // COSMOS kennzeichnet die Schnittstelle seines Schedulers als Vorabversion (COSMOS0001). Hier wird sie nur gelesen.
+        // Bricht sie mit einer neuen COSMOS-Version, zeigt der Befehl context keine Register mehr, die Prozesse laufen weiter.
+#pragma warning disable COSMOS0001
+        /// <summary>Der Thread des Aufrufers, wie ihn der Scheduler von COSMOS führt. Jeder Kontext merkt sich seinen für InspectThread.</summary>
+        public static object CurrentThread()
+        {
+            try
+            {
+                PerCpuState cpu = SchedulerManager.GetCpuState(0);
+                return cpu != null ? cpu.CurrentThread : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Stack und gesicherte Register eines Threads aus CurrentThread. Die Register stehen dort, wo COSMOS sie beim
+        /// letzten Wechsel abgelegt hat: auf dem Stack des Threads, an der Stelle, auf die sein gesicherter Stackzeiger
+        /// zeigt. null: kein Thread von COSMOS.
+        /// </summary>
+        public static ThreadInfo InspectThread(object thread)
+        {
+            SchedulerThread t = thread as SchedulerThread;
+            if (t == null) return null;
+            ThreadInfo info = new ThreadInfo();
+            info.Id = t.Id;
+            info.StackBase = t.StackBase;
+            info.StackSize = t.StackSize;
+            info.CpuTimeNs = t.TotalRuntime;
+            // Nur ein Thread, der nicht läuft, hat einen gesicherten Kontext, und nur auf dem eigenen Stack wird gelesen.
+            ulong saved = t.StackPointer;
+            bool parked = t.State == SchedulerThreadState.Ready || t.State == SchedulerThreadState.Blocked || t.State == SchedulerThreadState.Sleeping;
+            if (!parked || saved < info.StackBase || saved + SavedContextSize > info.StackBase + info.StackSize) return info;
+            info.Registers = new ulong[SavedRegisterOffsets.Length];
+            for (int i = 0; i < info.Registers.Length; i++)
+                info.Registers[i] = (ulong)Marshal.ReadInt64((IntPtr)(long)(saved + (ulong)SavedRegisterOffsets[i]));
+            return info;
+        }
+#pragma warning restore COSMOS0001
 
         // ---- I/O-Ports (VIB-9) ----
 

@@ -6,8 +6,9 @@ namespace VibanOS.Sync
 {
     /// <summary>
     /// Sperre für eine gemeinsam genutzte Ressource (VIB-8). Ist sie belegt, wird der Prozess
-    /// blockiert und wartet in der Warteschlange. Ein Prozess ruft Lock in jedem Schritt auf, bis er
-    /// true bekommt. Deadlock-Erkennung und Banker-Algorithmus werten später Owner und Waiting aus.
+    /// blockiert und wartet in der Warteschlange. Ein Prozess wartet mit while (!mutex.Lock(Id)) Yield();
+    /// und läuft dahinter weiter, sobald er die Sperre hat. Deadlock-Erkennung und Banker-Algorithmus
+    /// werten später Owner und Waiting aus.
     /// ponytail: Es gibt noch kein Verzeichnis aller Sperren. Stirbt der Besitzer, wird die Sperre erst
     /// beim nächsten Lock-Aufruf frei. VIB-8 führt das Verzeichnis ein und gibt Sperren beim Beenden frei.
     /// </summary>
@@ -64,7 +65,7 @@ namespace VibanOS.Sync
         }
     }
 
-    /// <summary>Zählende Semaphore (VIB-8). Ein Prozess ruft Wait in jedem Schritt auf, bis er true bekommt.</summary>
+    /// <summary>Zählende Semaphore (VIB-8). Ein Prozess wartet mit while (!semaphore.Wait(Id)) Yield();</summary>
     public class Semaphore
     {
         public readonly string Name;
