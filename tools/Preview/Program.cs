@@ -1146,7 +1146,13 @@ namespace VibanOS.Preview
                             && y >= desktop.DirtyY * k && y < (desktop.DirtyY + desktop.DirtyHeight) * k;
                         if (!inDirty && front.Pixels[y * front.PixelWidth + x] != unmoved[y * front.PixelWidth + x]) return false;
                     }
-                return desktop.DirtyX == 400 && desktop.DirtyY == 297 && desktop.DirtyWidth == size + 5 && desktop.DirtyHeight == size + 3;
+                if (desktop.DirtyX != 400 || desktop.DirtyY != 297 || desktop.DirtyWidth != size + 5 || desktop.DirtyHeight != size + 3) return false;
+                // Und das Bild ist dasselbe wie nach einem ganzen Neuzeichnen: Der alte Zeiger ist weg, der neue da.
+                int[] moved = (int[])front.Pixels.Clone();
+                OS.Changed = true;
+                desktop.Frame(front);
+                if (front.Pixels.AsSpan().SequenceEqual(moved)) return true;
+                // sonst hat dazwischen die Sekunde gewechselt: noch einmal
             }
             return false;
         }
