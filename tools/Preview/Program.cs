@@ -138,7 +138,6 @@ namespace VibanOS.Platform
             info.Id = 7;
             info.StackBase = 0x1000000;
             info.StackSize = Context.StackSize;
-            info.CpuTimeNs = 30000000;
             info.Registers = new ulong[ThreadInfo.RegisterNames.Length];
             for (int i = 0; i < info.Registers.Length; i++) info.Registers[i] = 0x1000UL + (ulong)i;
             return info;
@@ -1558,8 +1557,12 @@ namespace VibanOS.Preview
             Check(counter.State == ProcessState.Blocked && counter.StateText == "blockiert" && Last().Style == LineStyle.Normal, "block blockiert einen Prozess");
             for (int i = 0; i < 100; i++) OS.Tick();
             Check(counter.Steps == 3 && counter.Output == "Zähler 3", "Ein blockierter Prozess bekommt die CPU nicht");
+            counter.Stopped = true; // Auch dann ist er vor allem blockiert, nicht "angehalten".
             OS.Shell.Execute("block " + counter.Id);
-            Check(Last().Style == LineStyle.Error && Last().Text == "Prozess " + counter.Id + " ist blockiert.", "block meldet, wenn der Prozess schon blockiert ist");
+            counter.Stopped = false;
+            Check(Last().Style == LineStyle.Error && Last().Text == "Prozess " + counter.Id + " ist schon blockiert.", "block meldet, wenn der Prozess schon blockiert ist");
+            OS.Shell.Execute("block " + a.Id);
+            Check(Last().Style == LineStyle.Error && Last().Text == "Prozess " + a.Id + " ist beendet.", "block meldet, wenn der Prozess beendet ist");
             OS.Shell.Execute("unblock " + counter.Id);
             Check(counter.State == ProcessState.Ready && Last().Style == LineStyle.Normal, "unblock macht ihn wieder bereit");
             Until(() => counter.Steps == 4);
@@ -1579,7 +1582,7 @@ namespace VibanOS.Preview
             Platform.Hardware.FakeThreads = true;
             OS.Shell.Execute("context " + counter.Id);
             Platform.Hardware.FakeThreads = false;
-            Check(lines[lines.Count - 11].Text == "Thread 7, eigener Stack mit 256 KB ab 0x0000000001000000, Rechenzeit 30 ms"
+            Check(lines[lines.Count - 11].Text == "Thread 7, eigener Stack mit 256 KB ab 0x0000000001000000"
                 && lines[lines.Count - 9].Text == "RIP    0x0000000000001000  RSP    0x0000000000001001"
                 && Last().Text == "R14    0x0000000000001010  R15    0x0000000000001011", "context zeigt die gesicherten Register");
             Process fresh = OS.Processes.Start(new CounterProcess());
@@ -1606,6 +1609,13 @@ namespace VibanOS.Preview
             Until(() => second.State == ProcessState.Terminated);
             Check(waited && second.Output == "drin" && second.Steps == 2 && door.Owner == Mutex.Nobody,
                 "Mit der Freigabe läuft der Wartende weiter und bekommt die Sperre");
+            // Dasselbe mit Block statt Yield: Die Sperre hat den Prozess schon blockiert, die CPU muss er trotzdem abgeben.
+            Script holder = Spawn(p => { door.Lock(p.Id); p.Pause(); p.Pause(); door.Unlock(p.Id); });
+            Until(() => holder.Steps == 1);
+            int tries = 0;
+            Script blocker = Spawn(p => { while (!door.Lock(p.Id) && tries < 100) { tries++; OS.Processes.Block(p); } door.Unlock(p.Id); });
+            Until(() => blocker.State == ProcessState.Terminated);
+            Check(tries == 1 && blocker.Steps == 2, "Block gibt die CPU auch ab, wenn der Prozess schon blockiert ist");
 
             // Beenden: Der Stack wird abgebaut, der Kontext geht an den nächsten Prozess.
             Script leaver = Spawn(p => { Syscall.Invoke(SyscallNumber.Exit); p.Pause(); p.Output = "lebt noch"; });
@@ -1626,6 +1636,11 @@ namespace VibanOS.Preview
             Check(cleaned && victim.Context == null && OS.Processes.Get(victim.Id) == victim,
                 "Auch nach dem Signal Term räumt ein wartender Prozess auf, warten kann er dabei nicht mehr");
             Check(Context.Count == threads, "Ein neuer Prozess übernimmt den Kontext eines beendeten");
+            Script hoarder = Spawn(p => { try { while (true) p.Pause(); } finally { Syscall.Invoke(SyscallNumber.Alloc); } });
+            Until(() => hoarder.Steps == 1);
+            OS.Processes.Kill(hoarder.Id);
+            OS.Tick();
+            Check(hoarder.Context == null && OS.Memory.TableOf(hoarder.Id) == null, "Speicher, den ein Prozess beim Aufräumen noch anfordert, wird frei");
             Script stubborn = Spawn(p => { while (true) { try { p.Pause(); } catch (ProcessKilled) { p.Output = "abgefangen"; } } });
             Until(() => stubborn.Steps == 1);
             OS.Processes.Kill(stubborn.Id);
@@ -1645,10 +1660,24 @@ namespace VibanOS.Preview
             while (OS.Processes.All.Count > before) OS.Processes.Kill(OS.Processes.All[OS.Processes.All.Count - 1].Id);
             OS.Tick();
             Check(last.Context == null && Context.Count <= ProcessManager.MaxProcesses, "Für 64 Prozesse reichen 64 Threads, auch wenn viele kommen und gehen");
+
+            // Ein Fenster ohne eigenes Programm zählt der Scheduler mit, die CPU übergibt er ihm nicht.
             foreach (Process p in OS.Processes.All) p.Stopped = true;
             bool idle = !OS.Tick();
+            Process app = OS.Processes.Start(new AppProcess("Fenster"));
+            threads = Context.Count;
+            bool skipped = !OS.Tick() && !OS.Tick();
+            Check(skipped && app.Steps == 2 && app.State == ProcessState.Ready && app.Context == null && Context.Count == threads,
+                "Ein Fenster ohne eigenes Programm bekommt seinen Anteil, aber keinen Kontext");
+            OS.Shell.Execute("context " + app.Id);
+            Check(Last().Text.StartsWith("Ein Fenster ohne eigenes Programm"), "context sagt, dass ein Fenster keinen Stack braucht");
+            app.Stopped = true;
+            Process worker = OS.Processes.Start(new CounterProcess());
+            Check(idle && OS.Tick() && worker.Steps == 1, "Tick meldet, ob ein Prozess an der CPU war");
+            OS.Processes.Kill(worker.Id);
+            OS.Processes.Kill(app.Id);
+            OS.Tick();
             foreach (Process p in OS.Processes.All) p.Stopped = false;
-            Check(idle && OS.Tick(), "Tick meldet, ob ein Prozess an der CPU war");
         }
 
         // Ein Prozess, dessen Programm die Prüfung mitbringt.

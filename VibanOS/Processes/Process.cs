@@ -45,6 +45,13 @@ namespace VibanOS.Processes
         public Context Context;
 
         /// <summary>
+        /// Ein Prozess ohne eigenes Programm, etwa das Fenster einer App. Er steht in der Liste und der Scheduler zählt
+        /// ihm seinen Anteil, er bekommt aber keinen Kontext: Für nichts die CPU zu übergeben, kostete den Kernel jedes
+        /// Mal das Warten auf den Wechsel.
+        /// </summary>
+        public virtual bool Passive { get { return false; } }
+
+        /// <summary>
         /// Das Programm des Prozesses. Es darf Schleifen und lokale Variablen haben und mittendrin warten: Yield()
         /// gibt die CPU ab, beim nächsten Mal geht es dahinter weiter. Kehrt Run zurück, ist der Prozess beendet.
         /// Ohne eigenes Run läuft Step() in einer Schleife.

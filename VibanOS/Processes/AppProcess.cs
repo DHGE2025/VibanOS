@@ -8,6 +8,6 @@ namespace VibanOS.Processes
     {
         public AppProcess(string name) { Name = name; Output = "Fenster offen"; }
 
-        public override void Step() { }
+        public override bool Passive { get { return true; } }
     }
 }

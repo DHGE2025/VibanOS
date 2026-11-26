@@ -49,13 +49,17 @@ Ein Prozess gibt die CPU auf drei Wegen ab:
 - `OS.Processes.Block(p)`: Er ist blockiert, bis ihn `OS.Processes.Unblock(p)` weckt. Blockiert sich der laufende Prozess selbst, kehrt `Block` erst nach dem Wecken zurück. Von außen (Befehl `block`) bekommt der Prozess nur keine CPU mehr.
 - Ende von `Run()` oder ein Fehler: Der Prozess ist beendet, in `Output` steht bei einem Fehler `Abbruch: ...`.
 
-Wer auf etwas wartet (VIB-8, VIB-13), blockiert sich und prüft nach dem Wecken erneut, ob es da ist: `while (!mutex.Lock(Id)) Yield();`. `Mutex.Lock` und `Semaphore.Wait` setzen den Zustand `Blocked` schon selbst, `Unlock` und `Signal` wecken den ersten Wartenden. Ein blockierendes `Receive` geht genauso: `Block` aufrufen, solange die Mailbox leer ist, und `Send` weckt den Empfänger.
+Wer auf etwas wartet (VIB-8, VIB-13), blockiert sich und prüft nach dem Wecken erneut, ob es da ist: `while (!mutex.Lock(Id)) Yield();`. `Mutex.Lock` und `Semaphore.Wait` setzen den Zustand `Blocked` schon selbst, `Unlock` und `Signal` wecken den ersten Wartenden. Ein blockierendes `Receive` (VIB-13, noch offen) geht genauso: `Block` aufrufen, solange die Mailbox leer ist. `Send` muss den Empfänger dann mit `Unblock` wecken, das tut es heute noch nicht. `Block` gibt die CPU auch ab, wenn der Prozess schon blockiert war, die Schleife dreht sich also nie leer.
 
 Wird ein Prozess beendet, während er wartet (`kill`, Signal Term, Systemaufruf `exit`), bekommt er die CPU beim nächsten `Tick` ein letztes Mal: `Yield` wirft dort `ProcessKilled`, seine `finally`-Blöcke laufen, sein Stack ist abgebaut. Prozesse fangen `ProcessKilled` nicht ab. Tut es einer doch und wartet weiter, bleibt sein Thread für immer stehen, das System läuft weiter. Der frei gewordene Kontext geht an den nächsten neuen Prozess, weil COSMOS 3.0.99 den Stack eines beendeten Threads nicht freigibt. Mehr als 64 Prozesse gibt es nicht zugleich (`ProcessManager.MaxProcesses`).
+
+Das Fenster einer App (`AppProcess`) hat kein eigenes Programm (`Process.Passive`). Es steht in der Prozessliste, und der Scheduler zählt ihm seinen Anteil, einen Kontext bekommt es aber nicht: `Tick` überspringt den Wechsel und meldet `false`.
 
 Grenzen, die man kennen muss:
 
 - **Die Zeitscheibe endet nur freiwillig.** Ein Prozess behält die CPU, bis er sie abgibt. Erzwungene Zeitscheiben hießen, einen Thread mitten in einem Kernaufruf anzuhalten. Dafür muss erst jeder Zugriff auf gemeinsame Daten geschützt sein (VIB-11, VIB-14). Ein Scheduler aus VIB-15 entscheidet deshalb, wer als Nächster drankommt und wie viele Abgaben lang (`Quantum`), nicht wie viele Millisekunden.
+- **Der Wechsel zu einem Prozess dauert bis zu 10 ms.** Der Kernel läuft im Leerlauf-Thread von COSMOS, und der gibt die CPU erst beim nächsten Interrupt ab. Zurück zum Kernel geht es sofort. Solange Prozesse mit eigenem Programm bereit sind, braucht ein Durchlauf der Kernel-Schleife also bis zu 10 ms länger, auch beim Ziehen eines Fensters. Fenster ohne eigenes Programm kosten nichts.
+- **Jeder Wechsel schreibt ins serielle Protokoll.** COSMOS 3.0.99 meldet jedes Warten und Wecken mit einer Zeile `[LowLevelMonitor]`, mit laufenden Prozessen sind das über tausend Zeilen je Sekunde. Abschalten lässt sich das nicht, die Werkstatt blendet die Zeilen aus.
 - **Kein eigener Wechsel in Assembler.** Der Garbage Collector durchsucht nur Stacks, die bei COSMOS angemeldet sind.
 - `Hardware.InspectThread` liest dafür den Scheduler von COSMOS aus. Der ist dort als experimentell markiert (`COSMOS0001`), nach einem Update von COSMOS zuerst hier nachsehen.
 

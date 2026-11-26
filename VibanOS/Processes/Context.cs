@@ -76,7 +76,8 @@ namespace VibanOS.Processes
                     try { c = new Context(); }
                     catch (Exception e)
                     {
-                        // Kein Speicher für den Stack, oder der Scheduler von COSMOS läuft nicht.
+                        // Greift, wenn .NET die Ausnahme wirft (tools/Preview). COSMOS 3.0.99 meldet einen Thread,
+                        // den es nicht anlegen konnte, nicht: Ohne Speicher für den Stack bleibt der Kern stehen.
                         p.Output = "Abbruch: kein Thread (" + e.Message + ")";
                         p.State = ProcessState.Terminated;
                         return;
@@ -155,7 +156,6 @@ namespace VibanOS.Processes
     {
         public uint Id;
         public ulong StackBase, StackSize;
-        public ulong CpuTimeNs;
 
         /// <summary>Die gesicherten Register in der Reihenfolge von RegisterNames. null, solange der Thread läuft.</summary>
         public ulong[] Registers;

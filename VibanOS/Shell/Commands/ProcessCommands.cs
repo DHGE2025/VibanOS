@@ -98,8 +98,12 @@ namespace VibanOS.Cli.Commands
         {
             Process p = Target(args, shell);
             if (p == null) return;
-            if (!OS.Processes.Block(p)) { shell.Error("Prozess " + p.Id + " ist " + p.StateText + "."); return; }
-            shell.WriteLine("Prozess " + p.Id + " blockiert. Stack und Register bleiben stehen, 'unblock " + p.Id + "' lässt ihn weiterlaufen.");
+            if (!OS.Processes.Block(p))
+            {
+                shell.Error("Prozess " + p.Id + " ist " + (p.State == ProcessState.Terminated ? "beendet." : "schon blockiert."));
+                return;
+            }
+            shell.WriteLine("Prozess " + p.Id + " blockiert, 'unblock " + p.Id + "' lässt ihn weiterlaufen.");
         }
     }
 
@@ -132,7 +136,9 @@ namespace VibanOS.Cli.Commands
             shell.WriteLine("Prozess " + p.Id + " (" + p.Name + "), " + p.StateText + ", " + p.Steps + " mal an der CPU");
             if (p.Context == null)
             {
-                shell.WriteLine(p.State == ProcessState.Terminated ? "Beendet: Sein Stack ist abgebaut." : "Noch nicht gelaufen: Den Stack bekommt er beim ersten Wechsel.", LineStyle.Muted);
+                shell.WriteLine(p.State == ProcessState.Terminated ? "Beendet: Sein Stack ist abgebaut."
+                    : p.Passive ? "Ein Fenster ohne eigenes Programm: Es braucht keinen Stack."
+                    : "Noch nicht gelaufen: Den Stack bekommt er beim ersten Wechsel.", LineStyle.Muted);
                 return;
             }
             ThreadInfo info = Hardware.InspectThread(p.Context.Handle);
@@ -142,8 +148,7 @@ namespace VibanOS.Cli.Commands
                 shell.WriteLine("Die gesicherten Register zeigt nur der Kernel unter COSMOS.", LineStyle.Muted);
                 return;
             }
-            shell.WriteLine("Thread " + info.Id + ", eigener Stack mit " + Text.Bytes(info.StackSize) + " ab 0x" + Text.Hex(info.StackBase, 16)
-                + ", Rechenzeit " + info.CpuTimeNs / 1000000 + " ms");
+            shell.WriteLine("Thread " + info.Id + ", eigener Stack mit " + Text.Bytes(info.StackSize) + " ab 0x" + Text.Hex(info.StackBase, 16));
             if (info.Registers == null) { shell.WriteLine("Der Thread läuft gerade, seine Register sind in der CPU.", LineStyle.Muted); return; }
             shell.WriteLine("Gesichert beim letzten Wechsel, auf dem Stack des Prozesses:", LineStyle.Muted);
             string line = "";

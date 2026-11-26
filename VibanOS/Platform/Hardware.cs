@@ -316,7 +316,6 @@ namespace VibanOS.Platform
             info.Id = t.Id;
             info.StackBase = t.StackBase;
             info.StackSize = t.StackSize;
-            info.CpuTimeNs = t.TotalRuntime;
             // Nur ein Thread, der nicht läuft, hat einen gesicherten Kontext, und nur auf dem eigenen Stack wird gelesen.
             ulong saved = t.StackPointer;
             bool parked = t.State == SchedulerThreadState.Ready || t.State == SchedulerThreadState.Blocked || t.State == SchedulerThreadState.Sleeping;
