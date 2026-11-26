@@ -40,7 +40,7 @@ Die Werkstatt ist eine kleine Web-App auf deinem Rechner. Sie holt Branches von 
 - **Windows:** `tools\Werkstatt\start.cmd` doppelklicken
 - **Terminal:** `dotnet run --project tools/Werkstatt`
 
-Der Browser öffnet sich mit http://127.0.0.1:5099. Dort siehst du alle Branches. Mit **Holen, bauen und starten** probierst du jeden Branch aus, auch die der anderen. Das Terminalfenster der Werkstatt bleibt offen, solange du sie brauchst.
+Der Browser öffnet sich mit http://127.0.0.1:5099. Dort siehst du alle Branches. Mit **Holen, bauen und starten** probierst du jeden Branch aus, auch die der anderen. Das Terminalfenster der Werkstatt bleibt offen, solange du sie brauchst. **Aktualisieren** holt neben den Branches auch deinen Klon und damit die Werkstatt selbst auf den neuesten Stand.
 
 ## 4. Aufgabe aus Linear nehmen
 
