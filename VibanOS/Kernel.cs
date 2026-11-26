@@ -186,6 +186,8 @@ namespace VibanOS
                 case Sys.Input.Key.LeftArrow: return Gui.Key.Left;
                 case Sys.Input.Key.RightArrow: return Gui.Key.Right;
                 case Sys.Input.Key.Escape: return Gui.Key.Escape;
+                case Sys.Input.Key.Delete: return Gui.Key.Delete;
+                case Sys.Input.Key.F2: return Gui.Key.F2;
                 default: return Gui.Key.None;
             }
         }
