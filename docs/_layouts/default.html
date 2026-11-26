@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if page.title %}{{ page.title }} · {% endif %}{{ site.title }}</title>
+<style>
+  /* Tokens aus design/designsheet.md: Window, Sunken, Raised, TextPrimary, TextSecondary, Accent */
+  :root { --bg:#1E1E20; --fl:#161618; --linie:#3A3A3D; --text:#F5F5F7; --grau:rgba(235,235,245,.65); --accent:#0A84FF; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  header, main { max-width:820px; margin:0 auto; padding:16px; }
+  header { display:flex; gap:24px; align-items:center; border-bottom:1px solid var(--linie); }
+  header b { font-size:20px; margin-right:auto; }
+  a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+  img { max-width:100%; border-radius:12px; }
+  code { background:var(--fl); padding:2px 6px; border-radius:6px; font-size:14px; }
+  pre { background:var(--fl); padding:16px; border-radius:12px; overflow-x:auto; } pre code { padding:0; }
+  table { border-collapse:collapse; width:100%; } td, th { text-align:left; padding:8px; border-bottom:1px solid var(--linie); }
+  h1, h2, h3 { line-height:1.25; } small, .grau { color:var(--grau); }
+</style>
+</head>
+<body>
+<header>
+  <b>{{ site.title }}</b>
+  <a href="{{ '/' | relative_url }}">Start</a>
+  <a href="{{ '/implementierung' | relative_url }}">Implementierung</a>
+  <a href="https://github.com/DHGE2025/VibanOS">GitHub</a>
+</header>
+<main>
+{{ content }}
+</main>
+</body>
+</html>
