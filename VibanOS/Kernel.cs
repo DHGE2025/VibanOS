@@ -42,11 +42,15 @@ namespace VibanOS
             Fonts.Load();
             OS.Boot();
 
-            // Auf dem Startbild von Limine legt der Bootloader die Auflösung fest (Bootloader/limine.conf), der Wunsch
-            // wird dort übergangen. Eine umschaltbare Grafik (VMware SVGA) startet sonst mit 1024x768, deshalb die
-            // Entwurfsgröße erbitten. Danach immer die echte Größe nehmen, nicht annehmen.
-            try { canvas = Canvas.GetFullScreen(new Mode(Tokens.Size.ScreenWidth, Tokens.Size.ScreenHeight, ColorDepth.ColorDepth32)); }
-            catch (ArgumentOutOfRangeException) { canvas = Canvas.GetFullScreen(); }
+            // Auf dem Startbild von Limine legt der Bootloader die Auflösung fest (Bootloader/limine.conf). Eine umschaltbare
+            // Grafik (VMware SVGA) startet mit 1024x768. Sie bekommt die Auflösung, die zum Bildschirm des Rechners passt,
+            // den die Werkstatt QEMU mitgibt, sonst die Entwurfsgröße. Danach immer die echte Größe nehmen, nicht annehmen.
+            canvas = Canvas.GetFullScreen();
+            Resolution host = Settings.HostScreen();
+            Resolution start = Settings.StartMode(Hardware.ScreenModes(), host);
+            if (start.Width > 0 && (start.Width != canvas.Width || start.Height != canvas.Height))
+                Hardware.SetScreenMode(start.Width, start.Height);
+            Log.WriteString("[VibanOS] Bildschirm des Rechners " + host.Width + "x" + host.Height + ", Auflösung " + canvas.Width + "x" + canvas.Height + "\n");
             // Die Zeichenfläche schreibt direkt in den Puffer des Canvas, Display() bringt ihn auf den Bildschirm.
             front = new Surface(canvas.Width, canvas.Height, canvas.GetBuffer());
             MouseManager.SetScreenSize(canvas.Width, canvas.Height);
@@ -99,8 +103,8 @@ namespace VibanOS
                 MouseManager.SetScreenSize(canvas.Width, canvas.Height);
                 desktop.Resize(canvas.Width, canvas.Height);
             }
-            // Nur wenn sich etwas geändert hat, geht ein neues Bild an den Bildschirm.
-            if (desktop.Frame(front)) canvas.Display();
+            // Nur wenn sich etwas geändert hat, geht ein neues Bild an den Bildschirm, und nur der geänderte Teil.
+            if (desktop.Frame(front)) Hardware.Present(front, desktop.DirtyX, desktop.DirtyY, desktop.DirtyWidth, desktop.DirtyHeight);
         }
 
         private static Gui.Key Translate(Sys.Input.Key key)

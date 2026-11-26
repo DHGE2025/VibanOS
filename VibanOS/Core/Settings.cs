@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using VibanOS.Drivers;
 using VibanOS.FileSystem;
 using VibanOS.Platform;
 using VibanOS.Users;
@@ -57,6 +58,61 @@ namespace VibanOS.Core
         public static bool Usable(Resolution r)
         {
             return r.Width >= MinWidth && r.Height >= MinHeight && r.Width * r.Height <= MaxPixels;
+        }
+
+        // So weit darf das Seitenverhältnis einer Auflösung von dem des Bildschirms abweichen (in Promille), damit sie
+        // noch als passend gilt. 16:10 neben einem MacBook mit Kamera-Aussparung (1512x982) weicht um 39 Promille ab,
+        // 16:9 neben 16:10 um 100.
+        private const int AspectTolerance = 50;
+
+        /// <summary>
+        /// Die Auflösung für den Start. host ist der Bildschirm des Rechners, auf dem QEMU läuft (0x0: unbekannt).
+        /// Gewählt wird die größte Auflösung, die auf host passt und dasselbe Seitenverhältnis hat. Im Vollbild vergrößert
+        /// QEMU sie dann gleichmäßig und ohne Streifen, auf einem Retina-Bildschirm fast genau auf das Doppelte.
+        /// Ohne host die Entwurfsgröße, falls angeboten. Width 0: nichts Passendes, der Bildschirm bleibt, wie er ist.
+        /// </summary>
+        public static Resolution StartMode(List<Resolution> modes, Resolution host)
+        {
+            Resolution best = new Resolution(0, 0);
+            long bestOff = 0;
+            for (int i = 0; i < modes.Count; i++)
+            {
+                Resolution m = modes[i];
+                if (!Usable(m)) continue;
+                if (host.Width <= 0 || host.Height <= 0)
+                {
+                    if (m.Width == T.Size.ScreenWidth && m.Height == T.Size.ScreenHeight) return m;
+                    continue;
+                }
+                if (m.Width > host.Width || m.Height > host.Height) continue;
+                // Abweichung des Seitenverhältnisses in Promille. Alles innerhalb der Toleranz zählt als gleich gut.
+                long off = Math.Abs((long)m.Width * host.Height - (long)host.Width * m.Height) * 1000 / ((long)m.Height * host.Width);
+                if (off <= AspectTolerance) off = 0;
+                bool better = best.Width == 0 || off < bestOff || (off == bestOff && (long)m.Width * m.Height > (long)best.Width * best.Height);
+                if (!better) continue;
+                best = m;
+                bestOff = off;
+            }
+            return best;
+        }
+
+        /// <summary>Der Bildschirm des Rechners, wie ihn die Werkstatt QEMU mitgibt ("1512x945"). 0x0: unbekannt.</summary>
+        public static Resolution HostScreen()
+        {
+            // Wirft nie: Ohne Port-I/O (andere COSMOS-Version) soll der Start trotzdem gelingen.
+            try { return ParseSize(FwCfg.Read(FwCfg.ScreenFile)); }
+            catch (Exception) { return new Resolution(0, 0); }
+        }
+
+        /// <summary>"BreitexHöhe" als Auflösung, 0x0 bei allem anderen.</summary>
+        public static Resolution ParseSize(string text)
+        {
+            int width, height;
+            int x = text != null ? text.IndexOf('x') : -1;
+            if (x < 0 || !int.TryParse(text.Substring(0, x), out width) || !int.TryParse(text.Substring(x + 1).Trim(), out height)
+                || width <= 0 || height <= 0)
+                return new Resolution(0, 0);
+            return new Resolution(width, height);
         }
 
         private static string PathOf(User user) { return Vfs.Combine(user.HomeDirectory, FileName); }

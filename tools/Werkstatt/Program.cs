@@ -43,7 +43,9 @@ string[] macQemu =
     "-device", "ich9-ahci,id=ahci0",
     "-drive", "file=disk.img,if=none,id=ahcidisk0,format=raw",
     "-device", "ide-hd,drive=ahcidisk0,bus=ahci0.0",
-    "-display", "cocoa,zoom-to-fit=on,zoom-interpolation=on",
+    // Ohne Glätten: VibanOS wählt eine Auflösung, die im Vollbild fast genau doppelt so groß gezeigt wird (siehe
+    // MacScreen). Geglättet würde sie dabei unscharf. Umschalten zum Vergleichen: QEMU-Menü View > Zoom Interpolation.
+    "-display", "cocoa,zoom-to-fit=on,zoom-interpolation=off",
     "-serial", "stdio",
 ];
 
@@ -301,11 +303,30 @@ async Task RunVm(string kernel)
     if (OperatingSystem.IsMacOS())
     {
         log.Add("    Fenster frei vergrößerbar, Vollbild: Cmd+F. Maus aus dem Fenster holen: Ctrl+Alt+G.");
-        code = await Step(kernel, "qemu-system-x86_64", [.. macQemu, .. extra]);
+        string? screen = MacScreen();
+        log.Add(screen != null
+            ? $"    Bildschirm: {screen} Punkte. VibanOS wählt dazu die passende Auflösung."
+            : "    Bildschirmgröße nicht erkannt, VibanOS startet mit 1280x720.");
+        string[] hint = screen != null ? ["-fw_cfg", "name=opt/vibanos/screen,string=" + screen] : [];
+        code = await Step(kernel, "qemu-system-x86_64", [.. macQemu, .. hint, .. extra]);
     }
     else
         code = await Step(kernel, "cosmos", ["run", "--disk", "disk.img", "--", "-vga", "vmware", .. extra]);
     if (!cancelled) log.Add(code == 0 ? "==> VM beendet" : $"!! QEMU endete mit Code {code}");
+}
+
+// Größe des Mac-Bildschirms in Punkten, ohne Menüleiste und Kamera-Aussparung: die Fläche, die QEMU im Vollbild füllt.
+// VibanOS liest sie über fw_cfg (Drivers/FwCfg.cs) und nimmt die größte Auflösung mit demselben Seitenverhältnis.
+string? MacScreen()
+{
+    const string script = """
+        ObjC.import("AppKit");
+        var s = $.NSScreen.mainScreen, w = s.frame.size.width, h = s.frame.size.height, i = s.safeAreaInsets;
+        if (i && i.top >= 0) { w -= (i.left || 0) + (i.right || 0); h -= (i.top || 0) + (i.bottom || 0); }
+        Math.round(w) + "x" + Math.round(h)
+        """;
+    var m = Regex.Match(Capture(repo, "osascript", "-l", "JavaScript", "-e", script).Output, @"^(\d{3,5})x(\d{3,5})\s*$");
+    return m.Success ? m.Value.Trim() : null;
 }
 
 void Status(string what)

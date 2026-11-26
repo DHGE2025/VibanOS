@@ -48,6 +48,9 @@ namespace VibanOS.Gui
         private long ms;
 
         private int mouseX, mouseY, drawnX = -1, drawnY = -1;
+
+        /// <summary>Nach Frame() mit true: Nur dieser Ausschnitt hat sich geändert und muss an den Bildschirm.</summary>
+        public int DirtyX, DirtyY, DirtyWidth, DirtyHeight;
         private bool mouseDown;
         private Window dragging;
         private int dragX, dragY;
@@ -330,11 +333,19 @@ namespace VibanOS.Gui
                 OS.Changed = false;
                 Render(now);
                 front.CopyFrom(scene);
+                DirtyX = DirtyY = 0;
+                DirtyWidth = front.Width;
+                DirtyHeight = front.Height;
             }
             else
             {
+                // Nur der Mauszeiger ist gewandert: alte und neue Stelle, nicht das ganze Bild.
                 int size = CursorSize * T.Size.CursorScale; // reicht für beide Größen, auch direkt nach dem Umschalten
                 front.CopyRect(scene, drawnX, drawnY, size, size); // alten Mauszeiger entfernen
+                DirtyX = Math.Min(drawnX, mouseX);
+                DirtyY = Math.Min(drawnY, mouseY);
+                DirtyWidth = Math.Max(drawnX, mouseX) + size - DirtyX;
+                DirtyHeight = Math.Max(drawnY, mouseY) + size - DirtyY;
             }
             DrawCursor(front, mouseX, mouseY);
             drawnX = mouseX;
