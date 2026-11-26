@@ -568,8 +568,8 @@ namespace VibanOS.Preview
                 && ShadowMatches(2, 40, 50, 60, 20, 0, 12, 0, 255) && ShadowMatches(1, 50, 50, 40, 20, 18, 9, 4, 70)
                 && ShadowMatches(2, -15, 100, 70, 60, 12, 25, 10, 130),
                 "Der Schatten aus der Tabelle gleicht Pixel für Pixel dem mit Kommazahlen gerechneten");
-            // Dieselbe Form mit je einem anderen Wert: Für jeden gilt eine eigene Tabelle. Es sind mehr, als gemerkt werden,
-            // die erste entsteht am Ende also neu.
+            // Dieselbe Form mit je einem anderen Wert: Für jeden gilt eine eigene Tabelle. Mit denen der Prüfung davor sind
+            // es mehr, als gemerkt werden: Die Tabelle des Docks ist bis zum letzten Aufruf verdrängt und entsteht dort neu.
             Check(ShadowMatches(1, 20, 20, 100, 60, T.Radius.L, T.Shadow.DockBlur, T.Shadow.DockOffset, 200)
                 && ShadowMatches(1, 20, 20, 100, 60, T.Radius.M, T.Shadow.DockBlur, T.Shadow.DockOffset, 200)
                 && ShadowMatches(1, 20, 20, 100, 60, T.Radius.M, T.Shadow.WindowBlur, T.Shadow.DockOffset, 200)
