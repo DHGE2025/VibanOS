@@ -105,7 +105,7 @@ Im Repo liegt [`AGENTS.md`](https://github.com/DHGE2025/VibanOS/blob/development
 
 ### So klappt es gut
 
-1. **Branch selbst anlegen.** Leg den Branch wie in Schritt 5 an, bevor die KI loslegt. Dann landet nichts auf `development`.
+1. **Branch selbst anlegen.** Leg den Branch wie in Schritt 5 an, bevor die KI loslegt. Dann landet nichts auf `development`. Ausnahme: Claude in der Cloud (Claude Code im Web) darf nur auf seinen eigenen `claude/...`-Branch pushen. Das ist erlaubt, dann gehört die VIB-Kennung vorn in den PR-Titel.
 2. **Die Aufgabe ganz mitgeben.** Kopiere Titel und Text der Linear-Aufgabe in den Chat, mit Kennung. Zum Beispiel:
    > Aufgabe VIB-23: Papierkorb im Dock. *(Text aus Linear)* Halte dich an AGENTS.md und das Designsheet. Erklär mir erst kurz deinen Plan, dann bau es.
 3. **Erst den Plan, dann den Code.** Lass dir sagen, welche Dateien sie ändern will. Passt das nicht zur [Architektur](architektur.html), korrigier sie früh.

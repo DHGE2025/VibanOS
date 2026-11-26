@@ -18,6 +18,7 @@ VibanOS ist ein Betriebssystem in C# auf COSMOS 3.0.99 (.NET 10, NativeAOT). Ant
   - `fix/VIB-23-kurzer-name` für Fehler
   - `rework/VIB-23-kurzer-name` für Umbauten
 - Steht in der Linear-Aufgabe unter „Workflow“ ein Branchname oder PR-Titel, nimm genau diesen. Nicht den Namen aus „Copy git branch name“ von Linear, dem fehlt das Präfix.
+- **Ausnahme Cloud-Sitzungen:** Läuft die KI in einer Cloud-Sitzung (etwa Claude Code im Web), die nur auf einen vorgegebenen Branch wie `claude/...` pushen darf, nimmt sie diesen Branch. Die VIB-Kennung steht dann vorn im PR-Titel (`VIB-23: Papierkorb im Dock`), damit Linear den PR zuordnet. Alle anderen Regeln gelten weiter.
 - Commit-Nachrichten auf Deutsch, beginnend mit der Kennung: `VIB-23: Papierkorb im Dock`.
 - Pull Request immer gegen `development`. Antonio (@TheScoutSky) reviewt und merged. Nie selbst mergen.
 
