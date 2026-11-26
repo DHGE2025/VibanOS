@@ -11,6 +11,8 @@ So sieht es zusammengesetzt aus:
 
 ![Anmeldebildschirm](anmeldung.png)
 
+![Nutzerwahl auf dem Anmeldebildschirm](nutzerwahl.png)
+
 ![Systemeinstellungen](einstellungen.png)
 
 ![Dateien](dateien.png)
@@ -121,6 +123,7 @@ Eingabefelder sind Pillen: Der Radius ist die halbe Höhe.
 | `Size.Field` | 30 | Höhe von Eingabefeldern und Knöpfen |
 | `Size.Row` | 24 | Zeilenhöhe in Listen und Tabellen |
 | `Size.Avatar` | 88 | Nutzerbild auf dem Anmeldebildschirm |
+| `Size.AvatarSmall` | 64 | Nutzerbild in der Nutzerwahl des Anmeldebildschirms, der gewählte Nutzer hat einen Ring in `Accent` |
 | `Size.Sidebar` | 180 | Seitenleiste der Systemeinstellungen und der App Dateien |
 | `Size.ToggleWidth`, `Size.ToggleHeight` | 38, 22 | Schalter an/aus, die Höhe gilt auch für die Auswahl Deutsch/US |
 | `Size.Swatch` | 20 | Farbpunkt der Akzentfarbe und Symbol in der Seitenleiste |
@@ -148,6 +151,11 @@ Fenster bewegen sich kurz und ruhig, nie verspielt. Die Werte stehen in `T.Motio
 | `Motion.Zoom` | 250 ms | Grüner Knopf: das Fenster wächst auf die Fläche zwischen Menüleiste und Dock (Rand `S`), ein zweiter Klick stellt die alte Größe her |
 | `Motion.StartScale` | 90 % | Größe am Anfang des Öffnens und am Ende des Schließens |
 | `Motion.DockAlpha` | 90 von 255 | Deckkraft, wenn das Fenster im Dock ankommt |
+| `Motion.Appear` | 300 ms | Anmeldebildschirm nach dem Abmelden oder Nutzerwechsel mit Tab: Bild, Name und Feld blenden ein und steigen um `Space.L` nach oben |
+| `Motion.Picker` | 280 ms | Nutzerwahl: Die Bilder fächern sich aus dem großen Nutzerbild in ihre Felder auf und werden dabei kleiner, Namen blenden erst in der zweiten Hälfte ein. Beim Schließen fallen sie in das gewählte Bild zurück, das wieder groß wird |
+| `Motion.Shake` | 400 ms | Falsches Passwort oder Eingabe: Das Feld schüttelt sich dreimal um höchstens `Space.S`, immer schwächer, wie bei macOS |
+| `Motion.Hover` | 120 ms | Nutzerbild unter der Maus: In der Nutzerwahl wächst es um `Space.XS` je Seite und bekommt den Ring in `Accent`, auf der Anmeldung zeigt ein Ring in `TextTertiary`, dass es klickbar ist |
+| `Motion.Fade` | 150 ms | Neuer Platzhalter im Feld (nächster Schritt beim Anlegen, Passwort wiederholen) blendet ein |
 
 ![Minimieren, auf halbem Weg ins Dock](minimieren.png)
 

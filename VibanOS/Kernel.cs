@@ -177,6 +177,9 @@ namespace VibanOS
                 case Sys.Input.Key.PageUp: return Gui.Key.PageUp;
                 case Sys.Input.Key.PageDown: return Gui.Key.PageDown;
                 case Sys.Input.Key.Tab: return Gui.Key.Tab;
+                case Sys.Input.Key.LeftArrow: return Gui.Key.Left;
+                case Sys.Input.Key.RightArrow: return Gui.Key.Right;
+                case Sys.Input.Key.Escape: return Gui.Key.Escape;
                 default: return Gui.Key.None;
             }
         }

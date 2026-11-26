@@ -498,6 +498,116 @@ namespace VibanOS.Preview
             Type("cat /system/users.txt\n");
             Check(Last().Style != LineStyle.Error, "Administratoren dürfen in den Systemordner");
 
+            // su, login, userdel (VIB-16)
+            Type("su niemand\n");
+            Check(Last().Style == LineStyle.Error && !OS.Shell.Asking, "su meldet einen unbekannten Nutzer, ohne nach dem Passwort zu fragen");
+            string suFolder = OS.Shell.CurrentDirectory;
+            Type("su anna\n");
+            Check(OS.Users.Current.Name == "anna" && !OS.Shell.Asking, "root wechselt mit su ohne Passwort");
+            Type("userdel root\n");
+            Check(Last().Text.StartsWith("Keine Berechtigung") && !OS.Shell.Asking, "Normale Nutzer löschen keine Nutzer");
+            Type("su\nfalsch\n");
+            Check(OS.Users.Current.Name == "anna" && Last().Style == LineStyle.Error, "su wechselt nicht ohne das richtige Passwort");
+            Type("su\ngeheim\n");
+            Check(OS.Users.Current.Name == "root" && OS.Shell.CurrentDirectory == suFolder && !Shown("geheim"),
+                "su ohne Namen wechselt zu root, der Ordner bleibt, das Passwort steht nirgends");
+            Type("login anna\nfalsch\n");
+            Check(OS.Users.Current.Name == "root" && Last().Text == "Anmeldung fehlgeschlagen.", "login mit falschem Passwort ändert nichts");
+            Type("login niemand\n");
+            Check(OS.Shell.Asking && OS.Shell.Masked, "login fragt auch bei einem unbekannten Namen nach dem Passwort");
+            Type("x\nlogin\nanna\ntopsecret\n");
+            Check(OS.Users.Current.Name == "anna" && OS.Shell.Lines.Count == 1 && OS.Shell.History.Count == 0
+                && OS.Shell.CurrentDirectory == OS.Users.Current.HomeDirectory, "login meldet neu an: leeres Terminal, kein Verlauf, eigener Ordner");
+            Type("login root\ngeheim\n");
+            Check(OS.Users.Current.Name == "root", "login zurück zu root");
+            Type("useradd carl\nkarl\nuserdel carl\nnein\n");
+            Check(OS.Users.Find("carl") != null && Last().Text == "Abgebrochen.", "userdel löscht erst nach einem ja");
+            Type("userdel root\n");
+            Check(Last().Style == LineStyle.Error && OS.Users.Find("root") != null, "root lässt sich nicht löschen");
+            Type("userdel nobody\n");
+            Check(Last().Style == LineStyle.Error && !OS.Shell.Asking, "userdel meldet einen unbekannten Nutzer");
+            string carlHome = OS.Users.Find("carl").HomeDirectory;
+            Type("userdel carl\nja\n");
+            reloaded = new UserManager();
+            reloaded.Load();
+            Check(OS.Users.Find("carl") == null && reloaded.Find("carl") == null && Directory.Exists(carlHome),
+                "userdel löscht den Nutzer dauerhaft, sein Ordner bleibt");
+            Directory.Delete(carlHome);
+
+            // Nutzerwahl am Anmeldebildschirm: Klick aufs Bild, Nutzer wechseln, neuen Nutzer anlegen
+            Type("logout\n");
+            LoginScreen screenLogin = desktop.Login;
+            Draw();
+            Check(screenLogin.Animating(animTime), "Nach dem Abmelden blendet die Anmeldung ein");
+            animTime += T.Motion.Appear;
+            Check(!screenLogin.Animating(animTime), "Danach steht die Anmeldung still");
+            ClickAt(screenLogin.AvatarCenter());
+            Check(screenLogin.Picking && screenLogin.Animating(animTime), "Ein Klick auf das Nutzerbild fächert die Nutzerwahl auf");
+            animTime += T.Motion.Picker / 3;
+            OS.Changed = true;
+            Draw();
+            SavePng(screen, Path.Combine(output, "2-nutzerwahl-halb.png"));
+            Shot(output, "2-nutzerwahl");
+            Check(!screenLogin.Animating(animTime), "Danach steht die Nutzerwahl still");
+            Press(Key.Escape);
+            Check(!screenLogin.Picking && OS.Users.Current == null && screenLogin.Animating(animTime), "Esc schließt die Nutzerwahl, die Bilder fallen zurück");
+            Settle();
+            ClickAt(screenLogin.AvatarCenter());
+            int[] annaTile = screenLogin.TileCenter(1);
+            desktop.OnMouse(annaTile[0], annaTile[1], false);
+            Press(Key.Enter);
+            Type("topsecret\n");
+            Check(OS.Users.Current.Name == "anna", "Die Maus markiert ein Nutzerbild, die Eingabetaste wählt es");
+            Type("logout\n");
+            Settle();
+            ClickAt(screenLogin.AvatarCenter());
+            ClickAt(screenLogin.TileCenter(1));
+            Check(!screenLogin.Picking, "Ein Klick auf einen Nutzer schließt die Nutzerwahl");
+            Type("topsecret\n");
+            Check(OS.Users.Current.Name == "anna", "Der gewählte Nutzer meldet sich an");
+            Type("logout\n");
+            ClickAt(screenLogin.AvatarCenter());
+            ClickAt(screenLogin.TileCenter(OS.Users.All.Count));
+            Check(screenLogin.Creating, "Das Plus in der Nutzerwahl legt einen neuen Nutzer an");
+            Press(Key.Escape);
+            Check(!screenLogin.Creating && !screenLogin.Picking, "Esc bricht das Anlegen ab");
+            ClickAt(screenLogin.AvatarCenter());
+            Press(Key.Right); // markiert ist anna, das Feld daneben ist das Plus
+            Press(Key.Enter);
+            Type("Anna\n");
+            Check(screenLogin.Creating && OS.Users.All.Count == 2, "Einen vergebenen Namen nimmt die Anmeldung nicht an");
+            Press(Key.Escape);
+            ClickAt(screenLogin.AvatarCenter());
+            ClickAt(screenLogin.TileCenter(OS.Users.All.Count));
+            Settle();
+            Type("Dora\nblume\nblüte\n");
+            Check(screenLogin.Creating && OS.Users.Find("dora") == null, "Zwei verschiedene Passwörter legen niemanden an");
+            Check(screenLogin.Animating(animTime), "Bei ungleichen Passwörtern schüttelt sich das Feld");
+            animTime += T.Motion.Shake / 4;
+            OS.Changed = true;
+            Draw();
+            SavePng(screen, Path.Combine(output, "2-schuetteln.png"));
+            Settle();
+            Type("blume\n");
+            Shot(output, "2-neuer-nutzer");
+            Type("blume\n");
+            User dora = OS.Users.Find("dora");
+            Check(dora != null && OS.Users.Current == dora && UserManager.InGroup(dora, UserManager.UserGroup) && !UserManager.InGroup(dora, UserManager.AdminGroup)
+                && OS.Shell.CurrentDirectory == dora.HomeDirectory && Directory.Exists(dora.HomeDirectory),
+                "Am Anmeldebildschirm entsteht ohne Admin ein normaler Nutzer mit eigenem Ordner und ist gleich angemeldet");
+            Check(!File.ReadAllText(userFile).Contains("blume"), "In der Nutzerdatei steht kein Passwort im Klartext");
+            reloaded = new UserManager();
+            reloaded.Load();
+            Check(reloaded.CheckPassword(reloaded.Find("dora"), "blume"), "Der neue Nutzer übersteht einen Neustart");
+            Type("logout\n");
+            ClickAt(screenLogin.AvatarCenter());
+            ClickAt(screenLogin.TileCenter(0));
+            Type("geheim\n");
+            Check(OS.Users.Current.Name == "root", "Über die Nutzerwahl zurück zu root");
+            Type("userdel dora\nja\n");
+            Directory.Delete(dora.HomeDirectory, true);
+            Check(OS.Users.All.Count == 2, "dora ist wieder weg");
+
             // Fenster und Maus
             desktop.Open(Icons.About);
             Window about = desktop.Active;
