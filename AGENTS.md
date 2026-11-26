@@ -6,7 +6,7 @@ VibanOS ist ein Betriebssystem in C# auf COSMOS 3.0.99 (.NET 10, NativeAOT). Ant
 
 ## Vor dem Programmieren
 
-1. Lies die Aufgabe aus Linear (Team VIB, Kennung wie `VIB-23`). Bau nur, was dort steht.
+1. Lies die Aufgabe aus Linear (Team VIB, Kennung wie `VIB-23`). Bau nur, was dort steht. Ist sie von einer anderen Aufgabe geblockt („Blocked by“), die noch nicht fertig ist, fang nicht an und sag es dem Menschen.
 2. Lies [`docs/architektur.md`](docs/architektur.md). Dort steht, wo was liegt und wie man Befehle, Prozesse, Fenster und Treiber hinzufügt.
 3. Ändert die Aufgabe etwas Sichtbares, lies vorher das [Designsheet](docs/design/designsheet.md).
 
