@@ -11,6 +11,8 @@ So sieht es zusammengesetzt aus:
 
 ![Anmeldebildschirm](anmeldung.png)
 
+![Nutzerwahl auf dem Anmeldebildschirm](nutzerwahl.png)
+
 ![Systemeinstellungen](einstellungen.png)
 
 ![Dateien](dateien.png)
@@ -121,6 +123,7 @@ Eingabefelder sind Pillen: Der Radius ist die halbe Höhe.
 | `Size.Field` | 30 | Höhe von Eingabefeldern und Knöpfen |
 | `Size.Row` | 24 | Zeilenhöhe in Listen und Tabellen |
 | `Size.Avatar` | 88 | Nutzerbild auf dem Anmeldebildschirm |
+| `Size.AvatarSmall` | 64 | Nutzerbild in der Nutzerwahl des Anmeldebildschirms, der gewählte Nutzer hat einen Ring in `Accent` |
 | `Size.Sidebar` | 180 | Seitenleiste der Systemeinstellungen und der App Dateien |
 | `Size.ToggleWidth`, `Size.ToggleHeight` | 38, 22 | Schalter an/aus, die Höhe gilt auch für die Auswahl Deutsch/US |
 | `Size.Swatch` | 20 | Farbpunkt der Akzentfarbe und Symbol in der Seitenleiste |

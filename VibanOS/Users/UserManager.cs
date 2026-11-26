@@ -15,6 +15,7 @@ namespace VibanOS.Users
         public const string Root = "root";
         public const string AdminGroup = "admin";
         public const string UserGroup = "users";
+        public const int MaxNameLength = 16;
 
         public readonly List<User> All = new List<User>();
         public readonly List<Group> Groups = new List<Group>();
@@ -114,6 +115,17 @@ namespace VibanOS.Users
             return true;
         }
 
+        /// <summary>
+        /// Der Administrator mit diesem Passwort oder null. Damit bestätigt ein Administrator am Anmeldebildschirm
+        /// einen neuen Nutzer, ohne dass jemand angemeldet ist.
+        /// </summary>
+        public User FindAdmin(string password)
+        {
+            for (int i = 0; i < All.Count; i++)
+                if (HasPermission(All[i], Permission.UserManage) && CheckPassword(All[i], password)) return All[i];
+            return null;
+        }
+
         public void Logout()
         {
             Current = null;
@@ -145,7 +157,7 @@ namespace VibanOS.Users
         /// <summary>Erlaubt sind a-z, 0-9, - und _, höchstens 16 Zeichen. Der Name wird auch Ordnername.</summary>
         public static bool ValidName(string name)
         {
-            if (name.Length == 0 || name.Length > 16) return false;
+            if (name.Length == 0 || name.Length > MaxNameLength) return false;
             for (int i = 0; i < name.Length; i++)
             {
                 char c = name[i];

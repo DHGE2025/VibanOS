@@ -39,6 +39,9 @@ namespace VibanOS.Gui
         private Surface wallpaper;
         private Surface scene;
         private readonly LoginScreen login = new LoginScreen();
+
+        /// <summary>Der Anmeldebildschirm. Der Selbsttest fragt darüber, ob die Nutzerwahl offen ist.</summary>
+        public LoginScreen Login { get { return login; } }
         private readonly Window[] apps = new Window[Icons.Count];   // offenes Fenster je App oder null
         private readonly List<Window> windows = new List<Window>(); // hinten nach vorn, das letzte ist aktiv
         private readonly List<Transition> transitions = new List<Transition>();
@@ -159,14 +162,15 @@ namespace VibanOS.Gui
 
         public void OnKey(Key key, char c)
         {
-            bool was = Locked;
+            VibanOS.Users.User was = OS.Users.Current;
             if (Locked) login.OnKey(key, c);
             else if (Active != null) Active.OnKey(key, c);
-            // Gerade an- oder abgemeldet: Akzentfarbe, Uhr, Tastatur und Auflösung des Nutzers übernehmen, nach der
-            // Abmeldung die Grundwerte. Sonst tippte der Nächste sein Passwort mit der Tastaturbelegung des Vorgängers.
+            // Gerade an- oder abgemeldet oder mit su oder login den Nutzer gewechselt: Akzentfarbe, Uhr, Tastatur und
+            // Auflösung des Nutzers übernehmen, nach der Abmeldung die Grundwerte. Sonst tippte der Nächste sein Passwort
+            // mit der Tastaturbelegung des Vorgängers.
             // Hier und nicht erst beim Zeichnen: So ist eine andere Auflösung da, bevor das nächste Bild entsteht, wie
             // nach einem Klick in den Einstellungen. Mitten im Zeichnen bekäme der Bildschirm einen neuen Puffer.
-            if (was != Locked) Settings.Load(OS.Users.Current);
+            if (was != OS.Users.Current) Settings.Load(OS.Users.Current);
             OS.Changed = true;
         }
 
@@ -176,7 +180,12 @@ namespace VibanOS.Gui
             mouseX = x;
             mouseY = y;
             mouseDown = down;
-            if (Locked) return;
+            if (Locked)
+            {
+                // Am Anmeldebildschirm: Das Nutzerbild öffnet die Nutzerwahl. Anmelden geht nur mit der Tastatur.
+                if (pressed) { login.OnClick(x, y); OS.Changed = true; }
+                return;
+            }
 
             // Erst an die Stelle der Maus, dann loslassen: Bewegung und Loslassen können im selben Durchlauf ankommen,
             // das Fenster bliebe sonst einen Schritt hinter der Maus zurück.

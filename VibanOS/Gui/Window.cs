@@ -5,7 +5,7 @@ using T = VibanOS.Design.Tokens;
 namespace VibanOS.Gui
 {
     /// <summary>Sondertasten, unabhängig von COSMOS. Kernel.cs übersetzt die Tastatur hierher.</summary>
-    public enum Key { None, Enter, Backspace, Up, Down, Tab, PageUp, PageDown }
+    public enum Key { None, Enter, Backspace, Up, Down, Tab, PageUp, PageDown, Left, Right, Escape }
 
     /// <summary>
     /// Basisklasse aller Fenster: Rahmen, Titelleiste, Schatten und die drei Fensterknöpfe.

@@ -101,6 +101,7 @@ namespace VibanOS.Design
             public const int Field = 30;        // Höhe von Eingabefeldern und Knöpfen
             public const int Row = 24;          // Zeilenhöhe in Listen
             public const int Avatar = 88;
+            public const int AvatarSmall = 64; // Nutzerbild in der Nutzerwahl
             public const int Sidebar = 180;     // Seitenleiste der Einstellungen und der App Dateien
             public const int ToggleWidth = 38;  // Schalter an/aus
             public const int ToggleHeight = 22;
