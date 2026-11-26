@@ -50,13 +50,16 @@ namespace VibanOS
             Resolution start = Settings.StartMode(Hardware.ScreenModes(), host);
             if (start.Width > 0 && (start.Width != canvas.Width || start.Height != canvas.Height))
                 Hardware.SetScreenMode(start.Width, start.Height);
-            Log.WriteString("[VibanOS] Bildschirm des Rechners " + host.Width + "x" + host.Height + ", Auflösung " + canvas.Width + "x" + canvas.Height + "\n");
-            // Die Zeichenfläche schreibt direkt in den Puffer des Canvas, Display() bringt ihn auf den Bildschirm.
-            front = new Surface(canvas.Width, canvas.Height, canvas.GetBuffer());
-            MouseManager.SetScreenSize(canvas.Width, canvas.Height);
+            // Retina: Hat der Bildschirm doppelt so viele Pixel wie der Rechner Punkte, zeichnet alles in doppelter Auflösung.
+            // Die Oberfläche rechnet weiter in Punkten, nur die Flächen haben viermal so viele Pixel (Surface.Scale).
+            Surface.DefaultScale = Settings.ScaleFor(new Resolution(canvas.Width, canvas.Height), host);
+            Log.WriteString("[VibanOS] Bildschirm des Rechners " + host.Width + "x" + host.Height + ", Auflösung " + canvas.Width + "x" + canvas.Height + ", Faktor " + Surface.DefaultScale + "\n");
+            // Die Zeichenfläche schreibt direkt in den Puffer des Canvas, Hardware.Present bringt ihn auf den Bildschirm.
+            front = new Surface(canvas.GetBuffer(), canvas.Width, canvas.Height, Surface.DefaultScale);
+            MouseManager.SetScreenSize(front.Width, front.Height);
             // Deutsche Tastatur, in den Einstellungen umschaltbar.
             KeyboardManager.SetLayout(new DEStandardLayout());
-            desktop = new Desktop(canvas.Width, canvas.Height);
+            desktop = new Desktop(front.Width, front.Height);
         }
 
         /// <summary>
@@ -97,11 +100,11 @@ namespace VibanOS
             desktop.OnMouse(MouseManager.X, MouseManager.Y, MouseManager.LeftButton);
             OS.Tick();
             // Die Einstellungen haben die Auflösung umgeschaltet: Der Canvas hat jetzt einen neuen, anders großen Puffer.
-            if (canvas.Width != front.Width || canvas.Height != front.Height)
+            if (canvas.Width != front.PixelWidth || canvas.Height != front.PixelHeight)
             {
-                front = new Surface(canvas.Width, canvas.Height, canvas.GetBuffer());
-                MouseManager.SetScreenSize(canvas.Width, canvas.Height);
-                desktop.Resize(canvas.Width, canvas.Height);
+                front = new Surface(canvas.GetBuffer(), canvas.Width, canvas.Height, Surface.DefaultScale);
+                MouseManager.SetScreenSize(front.Width, front.Height);
+                desktop.Resize(front.Width, front.Height);
             }
             // Nur wenn sich etwas geändert hat, geht ein neues Bild an den Bildschirm, und nur der geänderte Teil.
             if (desktop.Frame(front)) Hardware.Present(front, desktop.DirtyX, desktop.DirtyY, desktop.DirtyWidth, desktop.DirtyHeight);

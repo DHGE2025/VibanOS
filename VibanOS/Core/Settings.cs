@@ -96,6 +96,17 @@ namespace VibanOS.Core
             return best;
         }
 
+        /// <summary>
+        /// Zeichenfaktor für den Bildschirm screen (in Pixeln) auf dem Rechner host (in Punkten, 0x0: unbekannt).
+        /// 2 (Retina), wenn screen gut doppelt so groß ist wie host und auch in Punkten noch groß genug, sonst 1.
+        /// So bekommt VibanOS auf einem Mac die Grafik in voller Bildschirmgröße (siehe Werkstatt) und zeichnet scharf.
+        /// </summary>
+        public static int ScaleFor(Resolution screen, Resolution host)
+        {
+            bool twice = host.Width > 0 && host.Height > 0 && screen.Width * 10 >= host.Width * 19 && screen.Height * 10 >= host.Height * 19;
+            return twice && screen.Width / 2 >= MinWidth && screen.Height / 2 >= MinHeight ? 2 : 1;
+        }
+
         /// <summary>Der Bildschirm des Rechners, wie ihn die Werkstatt QEMU mitgibt ("1512x945"). 0x0: unbekannt.</summary>
         public static Resolution HostScreen()
         {

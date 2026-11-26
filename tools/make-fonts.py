@@ -2,6 +2,7 @@
 """Erzeugt die Schrift-Atlanten (VibanOS/Graphics/FontData.cs) aus Inter und JetBrains Mono (beide SIL OFL).
 
 Aufruf:  python3 tools/make-fonts.py [schriftordner]
+Jede Rolle gibt es einfach und doppelt so gross (Name mit "2x"), fuer Retina-Bildschirme (Surface.Scale 2).
 Braucht Pillow. Nur noetig, wenn eine Schriftgroesse im Designsheet geaendert wird.
 
 Die Atlanten stehen als Byte-Felder im Quelltext. So braucht der Kernel beim Start weder ein
@@ -33,7 +34,7 @@ lines = [
     "    internal static class FontData",
     "    {",
 ]
-for role, (file, size) in ROLES.items():
+for role, (file, size) in [(r + n, (f, s * k)) for r, (f, s) in ROLES.items() for n, k in (("", 1), ("2x", 2))]:
     path = glob.glob(f"{ROOT}/**/{file}", recursive=True)[0]
     font = ImageFont.truetype(path, size, layout_engine=ImageFont.Layout.BASIC)
     ascent, descent = font.getmetrics()

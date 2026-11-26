@@ -32,19 +32,19 @@ if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DOTNET_ROOT")))
     Environment.SetEnvironmentVariable("DOTNET_ROOT", Path.GetFullPath(Path.Combine(RuntimeEnvironment.GetRuntimeDirectory(), "..", "..", "..")));
 Environment.SetEnvironmentVariable("GIT_TERMINAL_PROMPT", "0"); // git soll nie im Terminal auf eine Eingabe warten
 
-// Wie 'cosmos run --disk disk.img -- -vga vmware', aber mit dem QEMU aus Homebrew:
+// Wie 'cosmos run --disk disk.img', aber mit dem QEMU aus Homebrew (die Grafik wählt der Start, siehe MacScreen):
 // Das von COSMOS 3.0.99 mitgelieferte QEMU startet auf dem Mac nicht (libSDL3 fehlt im Paket).
 string[] macQemu =
 [
     "-M", "q35", "-cpu", "max", "-m", "512M",
     "-drive", "file=output-x64/VibanOS.iso,if=none,id=cosmoscd,format=raw,readonly=on",
     "-device", "ide-cd,drive=cosmoscd,bootindex=0", "-boot", "d",
-    "-no-reboot", "-no-shutdown", "-vga", "vmware",
+    "-no-reboot", "-no-shutdown",
     "-device", "ich9-ahci,id=ahci0",
     "-drive", "file=disk.img,if=none,id=ahcidisk0,format=raw",
     "-device", "ide-hd,drive=ahcidisk0,bus=ahci0.0",
-    // Ohne Glätten: VibanOS wählt eine Auflösung, die im Vollbild fast genau doppelt so groß gezeigt wird (siehe
-    // MacScreen). Geglättet würde sie dabei unscharf. Umschalten zum Vergleichen: QEMU-Menü View > Zoom Interpolation.
+    // Ohne Glätten: Mit virtio-vga zeigt QEMU im Vollbild jedes Pixel 1:1 (siehe Launch), mit -vga vmware fast genau
+    // doppelt so groß. Geglättet würde das unscharf. Umschalten zum Vergleichen: QEMU-Menü View > Zoom Interpolation.
     "-display", "cocoa,zoom-to-fit=on,zoom-interpolation=off",
     "-serial", "stdio",
 ];
@@ -368,13 +368,24 @@ async Task RunVm(string kernel)
     int code;
     if (OperatingSystem.IsMacOS())
     {
-        log.Add("    Fenster frei vergrößerbar, Vollbild: Cmd+F. Maus aus dem Fenster holen: Ctrl+Alt+G.");
-        string? screen = MacScreen();
-        log.Add(screen != null
-            ? $"    Bildschirm: {screen} Punkte. VibanOS wählt dazu die passende Auflösung."
-            : "    Bildschirmgröße nicht erkannt, VibanOS startet mit 1280x720.");
-        string[] hint = screen != null ? ["-fw_cfg", "name=opt/vibanos/screen,string=" + screen] : [];
-        code = await Step(kernel, "qemu-system-x86_64", [.. macQemu, .. hint, .. extra]);
+        log.Add("    Vollbild an und aus: Cmd+F. Maus aus dem Fenster holen: Ctrl+Alt+G.");
+        string[] display = ["-vga", "vmware"], hint = [];
+        if (MacScreen() is not { } s)
+            log.Add("    Bildschirmgröße nicht erkannt, VibanOS startet mit 1280x720.");
+        else
+        {
+            hint = ["-fw_cfg", $"name=opt/vibanos/screen,string={s.W}x{s.H}"];
+            if (settings.Retina)
+            {
+                // Die Grafik bekommt genau so viele Pixel, wie QEMU im Vollbild füllt. Dann zeigt QEMU jedes Pixel 1:1, nichts
+                // wird gestreckt, und VibanOS zeichnet auf einem Retina-Bildschirm in doppelter Auflösung (Surface.Scale).
+                // Umschalten lässt sich die Auflösung dann nicht: COSMOS liest die Größe von virtio-gpu nur beim Start.
+                display = ["-vga", "none", "-device", $"virtio-vga,xres={s.W * s.Scale},yres={s.H * s.Scale}", "-full-screen"];
+                log.Add($"    Bildschirm: {s.W}x{s.H} Punkte, {s.W * s.Scale}x{s.H * s.Scale} Pixel. VibanOS startet im Vollbild in genau dieser Größe.");
+            }
+            else log.Add($"    Bildschirm: {s.W}x{s.H} Punkte. VibanOS wählt dazu die passende Auflösung (VMware-Grafik).");
+        }
+        code = await Step(kernel, "qemu-system-x86_64", [.. macQemu, .. display, .. hint, .. extra]);
     }
     else
         code = await Step(kernel, "cosmos", ["run", "--disk", "disk.img", "--", "-vga", "vmware", .. extra]);
@@ -382,17 +393,18 @@ async Task RunVm(string kernel)
 }
 
 // Größe des Mac-Bildschirms in Punkten, ohne Menüleiste und Kamera-Aussparung: die Fläche, die QEMU im Vollbild füllt.
-// VibanOS liest sie über fw_cfg (Drivers/FwCfg.cs) und nimmt die größte Auflösung mit demselben Seitenverhältnis.
-string? MacScreen()
+// Dazu Pixel je Punkt (2 bei Retina). VibanOS liest die Punkte über fw_cfg (Drivers/FwCfg.cs): Mit virtio-vga erkennt es
+// daran Retina, mit -vga vmware nimmt es die größte Auflösung mit demselben Seitenverhältnis.
+(int W, int H, int Scale)? MacScreen()
 {
     const string script = """
         ObjC.import("AppKit");
         var s = $.NSScreen.mainScreen, w = s.frame.size.width, h = s.frame.size.height, i = s.safeAreaInsets;
         if (i && i.top >= 0) { w -= (i.left || 0) + (i.right || 0); h -= (i.top || 0) + (i.bottom || 0); }
-        Math.round(w) + "x" + Math.round(h)
+        Math.round(w) + "x" + Math.round(h) + "@" + Math.round(s.backingScaleFactor)
         """;
-    var m = Regex.Match(Capture(repo, "osascript", "-l", "JavaScript", "-e", script).Output, @"^(\d{3,5})x(\d{3,5})\s*$");
-    return m.Success ? m.Value.Trim() : null;
+    var m = Regex.Match(Capture(repo, "osascript", "-l", "JavaScript", "-e", script).Output, @"^(\d{3,5})x(\d{3,5})@([12])\s*$");
+    return m.Success ? (int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value)) : null;
 }
 
 void Status(string what)
@@ -614,7 +626,7 @@ static void OpenBrowser(string url)
     catch (Exception) { Console.WriteLine("Im Browser öffnen: " + url); }
 }
 
-record Settings(string QemuArgs = "", bool Verbose = false);
+record Settings(string QemuArgs = "", bool Verbose = false, bool Retina = true);
 
 record ActionRequest(string Target, string Action);
 

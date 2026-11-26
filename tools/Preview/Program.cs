@@ -591,26 +591,7 @@ namespace VibanOS.Preview
             Check(desktop.Frame(screen) && desktop.DirtyX == 0 && desktop.DirtyY == 0 && desktop.DirtyWidth == screen.Width && desktop.DirtyHeight == screen.Height,
                 "Nach dem Neuzeichnen geht der ganze Bildschirm hinaus");
             Settle();
-            bool cursorOnly = false;
-            for (int attempt = 0; attempt < 3 && !cursorOnly; attempt++)
-            {
-                // Mehrere Versuche: Wechselt dazwischen die Sekunde, zeichnet die Aktivität ohnehin alles neu.
-                desktop.OnMouse(400, 300, false);
-                desktop.Frame(screen);
-                int[] unmoved = (int[])screen.Pixels.Clone();
-                desktop.OnMouse(405, 297, false);
-                if (!desktop.Frame(screen) || desktop.DirtyWidth == screen.Width) continue;
-                int size = 20 * T.Size.CursorScale;
-                bool outsideSame = true;
-                for (int y = 0; y < screen.Height; y++)
-                    for (int x = 0; x < screen.Width; x++)
-                    {
-                        bool inDirty = x >= desktop.DirtyX && x < desktop.DirtyX + desktop.DirtyWidth && y >= desktop.DirtyY && y < desktop.DirtyY + desktop.DirtyHeight;
-                        if (!inDirty && screen.Pixels[y * screen.Width + x] != unmoved[y * screen.Width + x]) outsideSame = false;
-                    }
-                cursorOnly = outsideSame && desktop.DirtyX == 400 && desktop.DirtyY == 297 && desktop.DirtyWidth == size + 5 && desktop.DirtyHeight == size + 3;
-            }
-            Check(cursorOnly, "Bewegt sich nur die Maus, geht nur ihr Ausschnitt an den Bildschirm");
+            Check(CursorOnly(screen), "Bewegt sich nur die Maus, geht nur ihr Ausschnitt an den Bildschirm");
 
             // Einstellungen: Auflösung, Akzentfarbe, Uhr, Tastatur, Mauszeiger
             Click(DockIconX(Icons.Settings), dockRow);
@@ -1068,6 +1049,8 @@ namespace VibanOS.Preview
             desktop.Open(Icons.Activity);
             desktop.OnMouse(980, 600, false);
             Shot(output, "4-schreibtisch");
+            Retina(output);
+            desktop.OnMouse(980, 600, false);
             Click(ControlX(terminal, Window.MinimizeButton), terminal.Y + T.Size.TitleBar / 2);
             animTime += T.Motion.Minimize / 2;
             desktop.Frame(screen);
@@ -1086,6 +1069,86 @@ namespace VibanOS.Preview
             public override string Name { get { return "kaputt"; } }
             public override string Description { get { return "Treiber, dessen Hardware fehlt"; } }
             protected override void Init() { throw new Exception("keine Hardware"); }
+        }
+
+        // Retina (Folge zu VIB-37): derselbe Schreibtisch in doppelter Auflösung, wie auf einem Mac im Vollbild.
+        private static void Retina(string output)
+        {
+            Check(Settings.ScaleFor(new Resolution(2940, 1846), new Resolution(1470, 923)) == 2
+                && Settings.ScaleFor(new Resolution(1440, 900), new Resolution(1470, 923)) == 1
+                && Settings.ScaleFor(new Resolution(2940, 1846), new Resolution(0, 0)) == 1
+                && Settings.ScaleFor(new Resolution(1920, 1080), new Resolution(1920, 1080)) == 1
+                && Settings.ScaleFor(new Resolution(1280, 800), new Resolution(640, 400)) == 1,
+                "Doppelt gezeichnet wird nur, wenn der Bildschirm doppelt so viele Pixel hat wie der Rechner Punkte, und groß genug ist");
+
+            Surface box = new Surface(50, 30, 2);
+            box.FillRect(5, 5, 10, 4, T.Color.Danger);
+            box.StrokeRoundRect(20, 5, 10, 10, 0, T.Color.Danger);
+            int red = unchecked((int)T.Color.Danger), filled = 0, stroked = 0;
+            for (int i = 0; i < box.Pixels.Length; i++)
+            {
+                if (box.Pixels[i] != red) continue;
+                int x = i % box.PixelWidth, y = i / box.PixelWidth;
+                if (x >= 10 && x < 30 && y >= 10 && y < 18) filled++;
+                else if (x >= 40 && x < 60 && y >= 10 && y < 30 && (x < 42 || x >= 58 || y < 12 || y >= 28)) stroked++;
+                else filled = -10000;
+            }
+            Check(box.PixelWidth == 100 && filled == 20 * 8 && stroked == 20 * 20 - 16 * 16,
+                "Bei Retina deckt jeder Punkt genau 2x2 Pixel, auch Rahmen sind zwei Pixel dick");
+            Check(box.DrawText(Fonts.Body, "Hallo VibanOS", 0, 0, T.Color.TextPrimary) == Fonts.Body.Measure("Hallo VibanOS"),
+                "Text ist bei Retina genauso breit wie sonst, nur schärfer");
+
+            OS.Changed = true;
+            desktop.Frame(screen);
+            Surface.DefaultScale = 2;
+            desktop.Resize(T.Size.ScreenWidth, T.Size.ScreenHeight);
+            Surface retina = new Surface(T.Size.ScreenWidth, T.Size.ScreenHeight);
+            OS.Changed = true;
+            desktop.Frame(retina);
+            long far = 0;
+            for (int y = 0; y < screen.Height; y++)
+                for (int x = 0; x < screen.Width; x++)
+                {
+                    int a = screen.Pixels[y * screen.Width + x];
+                    for (int c = 0; c < 24; c += 8)
+                    {
+                        int sum = 0;
+                        for (int k = 0; k < 4; k++) sum += (retina.Pixels[(2 * y + k / 2) * retina.PixelWidth + 2 * x + k % 2] >> c) & 255;
+                        if (Math.Abs(sum / 4 - ((a >> c) & 255)) > 64) { far++; break; }
+                    }
+                }
+            Check(far * 100 < screen.Width * screen.Height, "Bei Retina liegt alles an derselben Stelle wie sonst (" + far + " Pixel weichen ab, an Textkanten)");
+            Check(CursorOnly(retina), "Auch bei Retina geht beim Bewegen der Maus nur ihr Ausschnitt an den Bildschirm");
+            SavePng(retina, Path.Combine(output, "4-schreibtisch-retina.png"));
+
+            Surface.DefaultScale = 1;
+            desktop.Resize(T.Size.ScreenWidth, T.Size.ScreenHeight);
+            OS.Changed = true;
+            desktop.Frame(screen);
+        }
+
+        // Bewegt sich nur die Maus, ändert Frame nur Pixel im gemeldeten Ausschnitt (in Punkten, bei Retina mal 2).
+        private static bool CursorOnly(Surface front)
+        {
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                // Mehrere Versuche: Wechselt dazwischen die Sekunde, zeichnet die Aktivität ohnehin alles neu.
+                desktop.OnMouse(400, 300, false);
+                desktop.Frame(front);
+                int[] unmoved = (int[])front.Pixels.Clone();
+                desktop.OnMouse(405, 297, false);
+                if (!desktop.Frame(front) || desktop.DirtyWidth == front.Width) continue;
+                int size = 20 * T.Size.CursorScale, k = front.Scale;
+                for (int y = 0; y < front.PixelHeight; y++)
+                    for (int x = 0; x < front.PixelWidth; x++)
+                    {
+                        bool inDirty = x >= desktop.DirtyX * k && x < (desktop.DirtyX + desktop.DirtyWidth) * k
+                            && y >= desktop.DirtyY * k && y < (desktop.DirtyY + desktop.DirtyHeight) * k;
+                        if (!inDirty && front.Pixels[y * front.PixelWidth + x] != unmoved[y * front.PixelWidth + x]) return false;
+                    }
+                return desktop.DirtyX == 400 && desktop.DirtyY == 297 && desktop.DirtyWidth == size + 5 && desktop.DirtyHeight == size + 3;
+            }
+            return false;
         }
 
         private static void Check(bool ok, string what)
@@ -1330,12 +1393,12 @@ namespace VibanOS.Preview
             MemoryStream raw = new MemoryStream();
             using (ZLibStream z = new ZLibStream(raw, CompressionLevel.Optimal, true))
             {
-                byte[] line = new byte[1 + s.Width * 3]; // erstes Byte: Filter 0
-                for (int y = 0; y < s.Height; y++)
+                byte[] line = new byte[1 + s.PixelWidth * 3]; // erstes Byte: Filter 0
+                for (int y = 0; y < s.PixelHeight; y++)
                 {
-                    for (int x = 0; x < s.Width; x++)
+                    for (int x = 0; x < s.PixelWidth; x++)
                     {
-                        int p = s.Pixels[y * s.Width + x];
+                        int p = s.Pixels[y * s.PixelWidth + x];
                         line[1 + x * 3] = (byte)(p >> 16);
                         line[2 + x * 3] = (byte)(p >> 8);
                         line[3 + x * 3] = (byte)p;
@@ -1344,8 +1407,8 @@ namespace VibanOS.Preview
                 }
             }
             byte[] header = new byte[13];
-            BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(0), s.Width);
-            BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(4), s.Height);
+            BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(0), s.PixelWidth);
+            BinaryPrimitives.WriteInt32BigEndian(header.AsSpan(4), s.PixelHeight);
             header[8] = 8; // Bittiefe
             header[9] = 2; // Farbtyp RGB
             using (FileStream f = File.Create(path))

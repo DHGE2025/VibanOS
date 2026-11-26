@@ -88,6 +88,7 @@
         <input type="text" id="qemuArgs" placeholder="z. B. -m 1G oder -accel whpx (Windows)" spellcheck="false">
       </label>
       <label><input type="checkbox" id="verbose"> Ausführlich bauen (cosmos build -v)</label>
+      <label><input type="checkbox" id="retina"> Mac: Vollbild in voller Bildschirmauflösung (scharf, Neuzeichnen braucht mehr Rechenzeit)</label>
       <div class="hint" id="where"></div>
     </div>
   </aside>
@@ -232,6 +233,7 @@ function render() {
   renderTools();
   if (document.activeElement !== $('qemuArgs')) $('qemuArgs').value = info.settings.qemuArgs;
   $('verbose').checked = info.settings.verbose;
+  $('retina').checked = info.settings.retina;
   $('where').textContent = `Branches liegen in ${info.branchesDir}. Diese Ordner gehören der Werkstatt: Jeder Start setzt sie auf den Stand von GitHub zurück. Eigene Änderungen gehören in deinen Klon.`;
   const st = $('status');
   st.textContent = !state.busy ? 'Bereit' : !state.target ? state.busy : `${state.busy}: ${state.target === '.' ? 'dein Klon' : state.target}`;
@@ -283,10 +285,13 @@ $('refresh').onclick = async () => {
 };
 $('clear').onclick = () => $('log').replaceChildren();
 $('filter').oninput = render;
-const saveSettings = () => api('/api/settings', { qemuArgs: $('qemuArgs').value, verbose: $('verbose').checked })
-  .then(() => { info.settings = { qemuArgs: $('qemuArgs').value, verbose: $('verbose').checked }; }).catch(e => toast(e.message));
+const saveSettings = () => {
+  const s = { qemuArgs: $('qemuArgs').value, verbose: $('verbose').checked, retina: $('retina').checked };
+  api('/api/settings', s).then(() => { info.settings = s; }).catch(e => toast(e.message));
+};
 $('qemuArgs').onchange = saveSettings;
 $('verbose').onchange = saveSettings;
+$('retina').onchange = saveSettings;
 setInterval(poll, 700);
 poll();
 </script>

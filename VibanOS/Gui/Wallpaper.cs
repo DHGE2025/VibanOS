@@ -15,15 +15,17 @@ namespace VibanOS.Gui
         public static void Render(Surface target)
         {
             // ponytail: läuft einmal beim Boot über alle Pixel. Wird der Start zu langsam, Cell erhöhen.
-            int lw = target.Width / Cell + 2, lh = target.Height / Cell + 2;
-            float aspect = target.Width / (float)target.Height;
+            // Gerechnet wird in echten Pixeln, bei Retina (Scale 2) also mit doppelt so großen Zellen.
+            int width = target.PixelWidth, height = target.PixelHeight, cell = Cell * target.Scale;
+            int lw = width / cell + 2, lh = height / cell + 2;
+            float aspect = width / (float)height;
             int[] low = new int[lw * lh * 3]; // je Zelle R, G, B mit 8 Nachkommabits
             float[] c = new float[3];
             for (int j = 0; j < lh; j++)
             {
                 for (int i = 0; i < lw; i++)
                 {
-                    float u = i * Cell / (float)target.Width, v = j * Cell / (float)target.Height;
+                    float u = i * cell / (float)width, v = j * cell / (float)height;
                     c[0] = c[1] = c[2] = 0;
                     Blend(c, T.Color.WallBase1, 1);
                     Blend(c, T.Color.WallBase2, v > 1 ? 1 : v);
@@ -35,23 +37,23 @@ namespace VibanOS.Gui
                 }
             }
 
-            for (int y = 0; y < target.Height; y++)
+            for (int y = 0; y < height; y++)
             {
-                int j = y / Cell, ty = y % Cell;
-                for (int x = 0; x < target.Width; x++)
+                int j = y / cell, ty = y % cell;
+                for (int x = 0; x < width; x++)
                 {
-                    int i = x / Cell, tx = x % Cell;
+                    int i = x / cell, tx = x % cell;
                     int a = (j * lw + i) * 3, b = a + lw * 3;
                     int noise = Dither[(y & 3) * 4 + (x & 3)] * 16;
                     int pixel = 255;
                     for (int k = 0; k < 3; k++)
                     {
-                        int top = low[a + k] * (Cell - tx) + low[a + 3 + k] * tx;
-                        int bottom = low[b + k] * (Cell - tx) + low[b + 3 + k] * tx;
-                        int value = ((top * (Cell - ty) + bottom * ty) / (Cell * Cell) + noise) >> 8;
+                        int top = low[a + k] * (cell - tx) + low[a + 3 + k] * tx;
+                        int bottom = low[b + k] * (cell - tx) + low[b + 3 + k] * tx;
+                        int value = ((top * (cell - ty) + bottom * ty) / (cell * cell) + noise) >> 8;
                         pixel = (pixel << 8) | (value > 255 ? 255 : value);
                     }
-                    target.Pixels[y * target.Width + x] = pixel;
+                    target.Pixels[y * width + x] = pixel;
                 }
             }
         }
