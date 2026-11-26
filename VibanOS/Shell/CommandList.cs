@@ -44,6 +44,9 @@ namespace VibanOS.Cli
             shell.Register(new MemCommand());
             shell.Register(new FramesCommand());
             shell.Register(new AllocCommand());
+            shell.Register(new PageTableCommand());
+            shell.Register(new FreeCommand());
+            shell.Register(new TranslateCommand());
 
             // Nutzer (VIB-16)
             shell.Register(new WhoamiCommand());
