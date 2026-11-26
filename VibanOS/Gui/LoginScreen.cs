@@ -12,6 +12,10 @@ namespace VibanOS.Gui
     /// Anmeldebildschirm (VIB-16). Beim allerersten Start vergibt man hier das Passwort für root
     /// und tippt es zur Sicherheit zweimal ein. Ein Klick auf das Nutzerbild öffnet die Nutzerwahl:
     /// Dort wechselt man den Nutzer oder legt mit dem Plus einen neuen an. Tab wechselt ohne Maus.
+    ///
+    /// Bewegung wie bei macOS, kurz und ruhig: Die Nutzerwahl fächert sich aus dem großen Bild auf und fällt
+    /// beim Schließen in das gewählte zurück, das Feld schüttelt sich bei einem falschen Passwort, und nach dem
+    /// Abmelden blendet die Anmeldung von unten ein. Die Zeiten kommen aus der Uhr Clock, nicht aus der Bildrate.
     /// </summary>
     public class LoginScreen
     {
@@ -45,6 +49,22 @@ namespace VibanOS.Gui
         // Größe der Zeichenfläche beim letzten Zeichnen. Danach richten sich die Klickflächen.
         private int width = T.Size.ScreenWidth, height = T.Size.ScreenHeight;
 
+        /// <summary>Uhr der Animationen in Millisekunden. Der Schreibtisch setzt hier seine eigene ein.</summary>
+        public Func<long> Clock = Transition.Milliseconds;
+
+        // Beginn der laufenden Animationen auf der Uhr Clock, -1: keine.
+        private long appearAt = -1;  // Anmeldung blendet ein (nach dem Abmelden, nach Tab)
+        private long pickerAt = -1;  // Nutzerwahl geht auf oder zu
+        private long shakeAt = -1;   // Feld schüttelt sich
+        private long fieldAt = -1;   // neuer Platzhalter im Feld blendet ein
+        private long hoverAt = -1;   // Maus kam auf ein Nutzerbild
+        private bool pickerOpening;
+        // Das Feld der Nutzerwahl, das zum großen Bild wird oder aus ihm kommt: der gewählte Nutzer oder das Plus.
+        private int anchor;
+        // Feld der Nutzerwahl unter der Maus (-1: keines) und ob sie auf dem großen Bild steht.
+        private int hover = -1;
+        private bool hoverAvatar;
+
         /// <summary>true, solange die Nutzerwahl offen ist.</summary>
         public bool Picking { get { return mode == Mode.Picker; } }
 
@@ -58,6 +78,34 @@ namespace VibanOS.Gui
             lockedUntil = DateTime.MinValue;
             error = "";
             return true;
+        }
+
+        /// <summary>true, solange eine Animation läuft. Dann braucht jedes Frame ein neues Bild.</summary>
+        public bool Animating(long now)
+        {
+            return Running(appearAt, T.Motion.Appear, now) || Running(pickerAt, T.Motion.Picker, now)
+                || Running(shakeAt, T.Motion.Shake, now) || Running(fieldAt, T.Motion.Fade, now) || Running(hoverAt, T.Motion.Hover, now);
+        }
+
+        /// <summary>
+        /// Für den Schreibtisch: true, solange eine Animation läuft, und noch einmal danach. Erst dieses letzte Bild
+        /// zeigt den Endstand, sonst bliebe ein Zwischenbild stehen.
+        /// </summary>
+        public bool NeedsFrame(long now)
+        {
+            if (Animating(now)) { moving = true; return true; }
+            bool last = moving;
+            moving = false;
+            return last;
+        }
+        private bool moving;
+
+        /// <summary>Der Bildschirm ist gerade gesperrt worden: Die Anmeldung blendet von unten ein.</summary>
+        public void Appear()
+        {
+            appearAt = Clock();
+            hover = -1;
+            hoverAvatar = false;
         }
 
         /// <summary>
@@ -93,25 +141,56 @@ namespace VibanOS.Gui
             if (DateTime.Now < lockedUntil) return;
             if (mode == Mode.Picker)
             {
-                for (int i = 0; i < PickCount; i++)
-                {
-                    int tx, ty;
-                    TileAt(i, out tx, out ty);
-                    if (x >= tx && x < tx + TileWidth && y >= ty && y < ty + TileHeight) { Choose(i); return; }
-                }
-                Show(userIndex); // Klick daneben: zurück, ohne etwas zu ändern
+                int i = TileUnder(x, y);
+                if (i >= 0) Choose(i);
+                else Show(userIndex); // Klick daneben: zurück, ohne etwas zu ändern
                 return;
             }
-            if (mode == Mode.Create || OS.Users.LoadError != null) return;
-            int ax = width / 2 - T.Size.Avatar / 2, ay = AvatarY;
-            if (x >= ax && x < ax + T.Size.Avatar && y >= ay && y < ay + T.Size.Avatar) OpenPicker();
+            if (OverAvatar(x, y)) OpenPicker();
         }
 
-        /// <summary>Öffnet die Nutzerwahl. Der gerade gezeigte Nutzer ist markiert.</summary>
+        /// <summary>Die Maus bewegt sich: Das Bild darunter wächst ein wenig und wird markiert.</summary>
+        public void OnMove(int x, int y)
+        {
+            int tile = mode == Mode.Picker ? TileUnder(x, y) : -1;
+            bool avatar = OverAvatar(x, y);
+            if (tile == hover && avatar == hoverAvatar) return;
+            if (tile >= 0 || avatar) hoverAt = Clock();
+            if (tile >= 0) pickIndex = tile;
+            hover = tile;
+            hoverAvatar = avatar;
+            OS.Changed = true;
+        }
+
+        // Das große Bild nimmt nur Klicks an, wenn es eine Nutzerwahl gibt (nicht beim Anlegen, nicht ohne Nutzerdatei).
+        private bool OverAvatar(int x, int y)
+        {
+            if (mode != Mode.Password || OS.Users.LoadError != null) return false;
+            int ax = width / 2 - T.Size.Avatar / 2, ay = AvatarY;
+            return x >= ax && x < ax + T.Size.Avatar && y >= ay && y < ay + T.Size.Avatar;
+        }
+
+        private int TileUnder(int x, int y)
+        {
+            for (int i = 0; i < PickCount; i++)
+            {
+                int tx, ty;
+                TileAt(i, out tx, out ty);
+                if (x >= tx && x < tx + TileWidth && y >= ty && y < ty + TileHeight) return i;
+            }
+            return -1;
+        }
+
+        /// <summary>Öffnet die Nutzerwahl. Der gerade gezeigte Nutzer ist markiert, alle Bilder kommen aus seinem.</summary>
         public void OpenPicker()
         {
             mode = Mode.Picker;
             pickIndex = userIndex;
+            anchor = userIndex;
+            pickerAt = Clock();
+            pickerOpening = true;
+            hover = -1;
+            hoverAvatar = false;
             password = "";
             error = "";
             firstEntry = null;
@@ -126,6 +205,7 @@ namespace VibanOS.Gui
             if (key == Key.Tab)
             {
                 Show((userIndex + 1) % users.All.Count);
+                Appear();
             }
             else if (key == Key.Escape)
             {
@@ -147,6 +227,7 @@ namespace VibanOS.Gui
                         firstEntry = password;
                         password = "";
                         error = "";
+                        fieldAt = Clock();
                         return;
                     }
                     bool same = firstEntry == password;
@@ -154,7 +235,7 @@ namespace VibanOS.Gui
                     if (!same)
                     {
                         password = "";
-                        error = "Die Passwörter stimmen nicht überein. Bitte noch einmal.";
+                        Wrong("Die Passwörter stimmen nicht überein. Bitte noch einmal.");
                         return;
                     }
                     users.SetPassword(user, password);
@@ -174,14 +255,17 @@ namespace VibanOS.Gui
             int count = PickCount;
             if (key == Key.Right || key == Key.Tab) pickIndex = (pickIndex + 1) % count;
             else if (key == Key.Left) pickIndex = (pickIndex + count - 1) % count;
-            else if (key == Key.Enter) Choose(pickIndex);
-            else if (key == Key.Escape) Show(userIndex);
+            else if (key == Key.Enter) { Choose(pickIndex); return; }
+            else if (key == Key.Escape) { Show(userIndex); return; }
+            hoverAt = Clock(); // das markierte Bild wächst wie unter der Maus
+            hover = pickIndex;
         }
 
         // Feld i der Nutzerwahl gewählt: ein Nutzer oder das Plus.
         private void Choose(int i)
         {
             if (i < OS.Users.All.Count) { Show(i); return; }
+            ClosePicker(i);
             mode = Mode.Create;
             step = Step.Name;
             newName = "";
@@ -190,14 +274,24 @@ namespace VibanOS.Gui
             error = "";
         }
 
-        // Zurück zum Passwortfeld, mit Nutzer i.
+        // Zurück zum Passwortfeld, mit Nutzer i. Aus der Nutzerwahl fällt sein Bild an die große Stelle zurück.
         private void Show(int i)
         {
+            if (mode == Mode.Picker) ClosePicker(i);
+            else if (mode == Mode.Create) Appear();
             mode = Mode.Password;
             userIndex = i;
             password = "";
             error = "";
             firstEntry = null;
+        }
+
+        private void ClosePicker(int chosen)
+        {
+            anchor = chosen;
+            pickerAt = Clock();
+            pickerOpening = false;
+            hover = -1;
         }
 
         private void CreateKey(Key key, char c)
@@ -223,30 +317,29 @@ namespace VibanOS.Gui
             if (step == Step.Name)
             {
                 if (newName == "") return;
-                if (!UserManager.ValidName(newName)) error = "Erlaubt sind a-z, 0-9, - und _.";
-                else if (users.Find(newName) != null) error = "Den Nutzer " + newName + " gibt es schon.";
-                else { step = Step.Password; error = ""; }
+                if (!UserManager.ValidName(newName)) Wrong("Erlaubt sind a-z, 0-9, - und _.");
+                else if (users.Find(newName) != null) Wrong("Den Nutzer " + newName + " gibt es schon.");
+                else Next(Step.Password);
                 return;
             }
             if (password == "") return;
             if (step == Step.Password)
             {
                 newPassword = password;
-                step = Step.Repeat;
-                error = "";
+                Next(Step.Repeat);
             }
             else if (password != newPassword)
             {
                 // Wie bei der Ersteinrichtung: Bei einem Tippfehler käme der neue Nutzer nie hinein.
-                step = Step.Password;
                 newPassword = null;
-                error = "Die Passwörter stimmen nicht überein. Bitte noch einmal.";
+                step = Step.Password;
+                Wrong("Die Passwörter stimmen nicht überein. Bitte noch einmal.");
             }
             else
             {
                 // Neue Nutzer kommen immer in die Gruppe users. Administratoren macht nur ein Administrator.
                 User created = users.Add(newName, newPassword, UserManager.UserGroup);
-                if (created == null) error = "Der Nutzer konnte nicht angelegt werden.";
+                if (created == null) Wrong("Der Nutzer konnte nicht angelegt werden.");
                 else
                 {
                     if (!users.Saved) OS.Shell.Error("Achtung: Die Nutzerdatei ließ sich nicht schreiben. " + newName + " gibt es nur bis zum Neustart.");
@@ -259,6 +352,21 @@ namespace VibanOS.Gui
             password = "";
         }
 
+        // Nächster Schritt beim Anlegen: Der neue Platzhalter blendet ein.
+        private void Next(Step next)
+        {
+            step = next;
+            error = "";
+            fieldAt = Clock();
+        }
+
+        // Etwas stimmt nicht: Meldung, und das Feld schüttelt sich wie bei macOS.
+        private void Wrong(string message)
+        {
+            error = message;
+            shakeAt = Clock();
+        }
+
         // Falsches Passwort: Meldung, nach MaxTries Versuchen eine kurze Sperre.
         private void Failed(string message)
         {
@@ -266,9 +374,9 @@ namespace VibanOS.Gui
             {
                 tries = 0;
                 lockedUntil = DateTime.Now.AddSeconds(LockSeconds);
-                error = "Zu viele Versuche. Bitte " + LockSeconds + " Sekunden warten.";
+                Wrong("Zu viele Versuche. Bitte " + LockSeconds + " Sekunden warten.");
             }
-            else error = message;
+            else Wrong(message);
         }
 
         // Angemeldet: Die Shell beginnt im eigenen Ordner. Der Anmeldebildschirm steht beim nächsten Mal wieder auf dem Passwort.
@@ -295,7 +403,7 @@ namespace VibanOS.Gui
         // Oberkante des großen Nutzerbilds.
         private int AvatarY { get { return height / 2 - T.Size.Avatar; } }
 
-        // Felder der Nutzerwahl: Nutzerbild mit Platz für den Ring, darunter der Name.
+        // Felder der Nutzerwahl: Nutzerbild mit Platz zum Wachsen und für den Ring, darunter der Name.
         private static int TileWidth { get { return T.Size.AvatarSmall + 2 * T.Space.XXL; } }
         private static int TileHeight { get { return T.Size.AvatarSmall + 2 * T.Space.S + T.Space.S + Fonts.Strong.LineHeight; } }
 
@@ -317,6 +425,7 @@ namespace VibanOS.Gui
             height = s.Height;
             int cx = s.Width / 2;
             DateTime now = DateTime.Now;
+            long ms = Clock();
 
             s.FillRect(0, 0, s.Width, s.Height, T.Color.Scrim);
 
@@ -325,11 +434,23 @@ namespace VibanOS.Gui
             s.DrawTextCentered(Fonts.Strong, Text.Date(now), cx, ty, T.Color.TextSecondary);
             s.DrawTextCentered(Fonts.Display, Text.Time(now), cx, ty + Fonts.Strong.LineHeight + T.Space.XS, T.Color.TextPrimary);
 
-            if (mode == Mode.Picker) DrawPicker(s);
-            else DrawLogin(s);
+            // open: 0 = nur die Anmeldung, 1 = nur die Nutzerwahl. Dazwischen wandern die Bilder zwischen großer Stelle
+            // und ihrem Feld, und die Anmeldung blendet in der ersten Hälfte aus (beim Schließen in der zweiten ein).
+            float open = Openness(ms);
+            float appear = EaseOut(Progress(appearAt, T.Motion.Appear, ms));
+            float main = Clamp(1 - 2 * open) * appear;
+            if (open > 0) DrawPicker(s, open, ms);
+            if (main > 0) DrawLogin(s, main, (int)(T.Space.L * (1 - appear)), open == 0, ms);
         }
 
-        private void DrawLogin(Surface s)
+        private float Openness(long ms)
+        {
+            if (pickerAt < 0) return mode == Mode.Picker ? 1 : 0;
+            float p = EaseOut(Progress(pickerAt, T.Motion.Picker, ms));
+            return pickerOpening ? p : 1 - p;
+        }
+
+        private void DrawLogin(Surface s, float alpha, int rise, bool avatar, long ms)
         {
             UserManager users = OS.Users;
             User user = Selected;
@@ -338,28 +459,40 @@ namespace VibanOS.Gui
             int cx = s.Width / 2;
 
             // Avatar mit Anfangsbuchstabe (beim Anlegen ein Plus, bis der Name dasteht), Name, Eingabefeld
-            int ty = AvatarY;
+            int ty = AvatarY + rise;
             string name = creating ? (newName != "" ? newName : "Neuer Nutzer") : user.Name;
             string letter = creating && newName == "" ? "+" : name.Substring(0, 1).ToUpper();
-            DrawAvatar(s, cx, ty + T.Size.Avatar / 2, T.Size.Avatar, Fonts.Display, letter, false);
+            if (avatar)
+            {
+                // Unter der Maus zeigt ein heller Ring, dass ein Klick die Nutzerwahl öffnet.
+                float ring = hoverAvatar ? EaseOut(Progress(hoverAt, T.Motion.Hover, ms)) : 0;
+                DrawAvatar(s, cx, ty + T.Size.Avatar / 2, T.Size.Avatar, letter, 0, ring, alpha);
+            }
             ty += T.Size.Avatar + T.Space.M;
-            s.DrawTextCentered(Fonts.Display, name, cx, ty, creating && newName == "" ? T.Color.TextSecondary : T.Color.TextPrimary);
+            s.DrawTextCentered(Fonts.Display, name, cx, ty, Fade(creating && newName == "" ? T.Color.TextSecondary : T.Color.TextPrimary, alpha));
             ty += Fonts.Display.LineHeight + T.Space.M;
 
+            // Bei einem Fehler schüttelt sich das Feld: dreimal hin und her, immer schwächer.
             int fx = cx - FieldWidth / 2;
-            s.FillRoundRect(fx, ty, FieldWidth, T.Size.Field, T.Size.Field / 2, T.Color.Dock);
-            s.StrokeRoundRect(fx, ty, FieldWidth, T.Size.Field, T.Size.Field / 2, T.Color.Border);
+            if (Running(shakeAt, T.Motion.Shake, ms))
+            {
+                float p = Progress(shakeAt, T.Motion.Shake, ms);
+                fx += (int)(T.Space.S * Math.Sin(p * 6 * Math.PI) * (1 - p));
+            }
+            s.FillRoundRect(fx, ty, FieldWidth, T.Size.Field, T.Size.Field / 2, Fade(T.Color.Dock, alpha));
+            s.StrokeRoundRect(fx, ty, FieldWidth, T.Size.Field, T.Size.Field / 2, Fade(T.Color.Border, alpha));
             int textY = ty + (T.Size.Field - Fonts.Body.LineHeight) / 2;
             if (creating && step == Step.Name && newName != "")
             {
-                s.DrawText(Fonts.Body, newName, fx + T.Space.M, textY, T.Color.TextPrimary);
+                s.DrawText(Fonts.Body, newName, fx + T.Space.M, textY, Fade(T.Color.TextPrimary, alpha));
             }
             else if (password == "" || (creating && step == Step.Name))
             {
                 string placeholder;
                 if (creating) placeholder = step == Step.Name ? "Name des neuen Nutzers" : step == Step.Password ? "Passwort festlegen" : "Passwort wiederholen";
                 else placeholder = !setup ? "Passwort eingeben" : firstEntry == null ? "Neues Passwort festlegen" : "Passwort wiederholen";
-                s.DrawText(Fonts.Body, placeholder, fx + T.Space.M, textY, T.Color.TextSecondary);
+                float shown = EaseOut(Progress(fieldAt, T.Motion.Fade, ms));
+                s.DrawText(Fonts.Body, placeholder, fx + T.Space.M, textY, Fade(T.Color.TextSecondary, alpha * shown));
             }
             else
             {
@@ -367,60 +500,92 @@ namespace VibanOS.Gui
                 int dots = password.Length, max = (FieldWidth - 2 * T.Space.M) / T.Space.M;
                 if (dots > max) dots = max;
                 for (int i = 0; i < dots; i++)
-                    s.FillCircle(fx + T.Space.M + 4 + i * T.Space.M, ty + T.Size.Field / 2, 8, T.Color.TextPrimary);
+                    s.FillCircle(fx + T.Space.M + 4 + i * T.Space.M, ty + T.Size.Field / 2, 8, Fade(T.Color.TextPrimary, alpha));
             }
             ty += T.Size.Field + T.Space.M;
 
             string hint;
-            if (creating) hint = step == Step.Name ? "Erlaubt sind a-z, 0-9, - und _. Esc bricht ab." : "Esc bricht ab.";
+            if (creating) hint = step == Step.Name ? "Kleinbuchstaben, Ziffern, - und _ · Esc bricht ab" : "Esc bricht ab";
             else if (setup) hint = "Erster Start: Das Passwort gilt für den Administrator root.";
-            else hint = "Eingabetaste meldet an. Ein Klick auf das Bild wechselt den Nutzer.";
+            else hint = "Klick auf das Bild wechselt den Nutzer";
             if (users.LoadError != null)
             {
-                s.DrawTextCentered(Fonts.Body, "Die Nutzerdatei ließ sich nicht lesen, deshalb kann sich niemand anmelden. Bitte neu starten.", cx, ty, T.Color.Danger);
-                s.DrawTextCentered(Fonts.Body, users.LoadError, cx, ty + Fonts.Body.LineHeight + T.Space.XS, T.Color.TextSecondary);
+                s.DrawTextCentered(Fonts.Body, "Die Nutzerdatei ließ sich nicht lesen, deshalb kann sich niemand anmelden. Bitte neu starten.", cx, ty, Fade(T.Color.Danger, alpha));
+                s.DrawTextCentered(Fonts.Body, users.LoadError, cx, ty + Fonts.Body.LineHeight + T.Space.XS, Fade(T.Color.TextSecondary, alpha));
             }
-            else if (error != "") s.DrawTextCentered(Fonts.Body, error, cx, ty, T.Color.Danger);
-            else s.DrawTextCentered(Fonts.Body, hint, cx, ty, T.Color.TextSecondary);
+            else if (error != "") s.DrawTextCentered(Fonts.Body, error, cx, ty, Fade(T.Color.Danger, alpha));
+            else s.DrawTextCentered(Fonts.Body, hint, cx, ty, Fade(T.Color.TextTertiary, alpha));
         }
 
-        private void DrawPicker(Surface s)
+        private void DrawPicker(Surface s, float open, long ms)
         {
             UserManager users = OS.Users;
-            int cx = s.Width / 2;
             int count = PickCount;
-            int x, y;
-            TileAt(0, out x, out y);
-            s.DrawTextCentered(Fonts.Strong, "Nutzer wählen", cx, y - T.Space.XL - Fonts.Strong.LineHeight, T.Color.TextSecondary);
-
-            int bottom = y;
+            int cx = s.Width / 2, bigY = AvatarY + T.Size.Avatar / 2;
+            float labels = Clamp(2 * open - 1); // Namen und Hinweis erst, wenn die Bilder fast angekommen sind
+            float grow = EaseOut(Progress(hoverAt, T.Motion.Hover, ms));
+            int x, y, bottom = 0;
             for (int i = 0; i < count; i++)
             {
                 TileAt(i, out x, out y);
                 bool plus = i >= users.All.Count;
                 string name = plus ? "Neuer Nutzer" : users.All[i].Name;
-                int ax = x + TileWidth / 2, ay = y + T.Space.S + T.Size.AvatarSmall / 2;
-                DrawAvatar(s, ax, ay, T.Size.AvatarSmall, Fonts.Display, plus ? "+" : name.Substring(0, 1).ToUpper(), i == pickIndex);
-                s.DrawTextCentered(Fonts.Strong, name, ax, y + T.Size.AvatarSmall + 2 * T.Space.S + T.Space.XS,
-                    plus ? T.Color.TextSecondary : T.Color.TextPrimary);
+                // Jedes Bild wandert zwischen der großen Stelle und seinem Feld und wechselt dabei die Größe. Das gewählte
+                // bleibt dabei voll sichtbar, es wird ja zum großen Bild, die anderen tauchen aus ihm auf.
+                int ax = Lerp(cx, x + TileWidth / 2, open), ay = Lerp(bigY, y + T.Space.S + T.Size.AvatarSmall / 2, open);
+                int size = Lerp(T.Size.Avatar, T.Size.AvatarSmall, open);
+                if (i == hover && mode == Mode.Picker) size += (int)(2 * T.Space.XS * grow);
+                float alpha = i == anchor ? 1 : open;
+                float ring = i == pickIndex && mode == Mode.Picker ? open : 0;
+                DrawAvatar(s, ax, ay, size, plus ? "+" : name.Substring(0, 1).ToUpper(), ring, 0, alpha);
+                if (labels > 0)
+                    s.DrawTextCentered(Fonts.Strong, name, ax, y + T.Size.AvatarSmall + 2 * T.Space.S + T.Space.XS,
+                        Fade(plus ? T.Color.TextSecondary : T.Color.TextPrimary, labels));
                 bottom = y + TileHeight;
             }
-            s.DrawTextCentered(Fonts.Body, "Nutzer anklicken oder mit den Pfeiltasten wählen. Esc geht zurück.", cx, bottom + T.Space.L, T.Color.TextSecondary);
+            if (labels > 0)
+                s.DrawTextCentered(Fonts.Body, "Nutzer wählen · Esc geht zurück", cx, bottom + T.Space.L, Fade(T.Color.TextTertiary, labels));
         }
 
-        // Rundes Nutzerbild mit Buchstabe. Markiert: ein Ring in der Akzentfarbe, mit etwas Luft zum Bild.
-        private static void DrawAvatar(Surface s, int cx, int cy, int size, Font font, string letter, bool marked)
+        // Rundes Nutzerbild mit Buchstabe. ring: Ring in der Akzentfarbe (markiert), soft: heller Ring (Maus darüber),
+        // beide 0–1 als Deckkraft, alpha für das ganze Bild.
+        private static void DrawAvatar(Surface s, int cx, int cy, int size, string letter, float ring, float soft, float alpha)
         {
-            s.FillCircle(cx, cy, size, T.Color.Dock);
-            s.StrokeRoundRect(cx - size / 2, cy - size / 2, size, size, size / 2, T.Color.Border);
-            if (marked)
+            s.FillCircle(cx, cy, size, Fade(T.Color.Dock, alpha));
+            s.StrokeRoundRect(cx - size / 2, cy - size / 2, size, size, size / 2, Fade(T.Color.Border, alpha));
+            if (ring > 0 || soft > 0)
             {
-                int ring = size + 2 * T.Space.XS;
-                s.StrokeRoundRect(cx - ring / 2, cy - ring / 2, ring, ring, ring / 2, T.Color.Accent);
-                ring -= 2;
-                s.StrokeRoundRect(cx - ring / 2, cy - ring / 2, ring, ring, ring / 2, T.Color.Accent);
+                uint color = ring > 0 ? Fade(T.Color.Accent, ring * alpha) : Fade(T.Color.TextTertiary, soft * alpha);
+                int d = size + 2 * T.Space.XS;
+                s.StrokeRoundRect(cx - d / 2, cy - d / 2, d, d, d / 2, color);
+                d -= 2;
+                s.StrokeRoundRect(cx - d / 2, cy - d / 2, d, d, d / 2, color);
             }
-            s.DrawTextCentered(font, letter, cx, cy - font.LineHeight / 2, T.Color.TextPrimary);
+            s.DrawTextCentered(Fonts.Display, letter, cx, cy - Fonts.Display.LineHeight / 2, Fade(T.Color.TextPrimary, alpha));
+        }
+
+        // Fortschritt einer Animation, die bei at begann: 0..1, ohne Animation 1.
+        private static float Progress(long at, int duration, long now)
+        {
+            if (at < 0) return 1;
+            return Clamp((float)(now - at) / duration);
+        }
+
+        private static bool Running(long at, int duration, long now) { return at >= 0 && now - at < duration; }
+
+        // Bremst sanft ab, wie die Fenster beim Öffnen.
+        private static float EaseOut(float t) { return 1 - (1 - t) * (1 - t) * (1 - t); }
+
+        private static float Clamp(float t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
+
+        private static int Lerp(int a, int b, float t) { return a + (int)((b - a) * t + (b > a ? 0.5f : -0.5f)); }
+
+        // Dieselbe Farbe, um alpha (0–1) durchscheinender.
+        private static uint Fade(uint color, float alpha)
+        {
+            if (alpha >= 1) return color;
+            uint a = (uint)((color >> 24) * Clamp(alpha) + 0.5f);
+            return (a << 24) | (color & 0xFFFFFF);
         }
     }
 }

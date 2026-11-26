@@ -87,6 +87,7 @@ namespace VibanOS.Gui
 
         public Desktop(int width, int height)
         {
+            login.Clock = () => Clock(); // auch eine später eingesetzte Uhr (Selbsttest) gilt für die Anmeldung
             wallpaper = new Surface(width, height);
             scene = new Surface(width, height);
             Wallpaper.Render(wallpaper);
@@ -183,6 +184,7 @@ namespace VibanOS.Gui
             if (Locked)
             {
                 // Am Anmeldebildschirm: Das Nutzerbild öffnet die Nutzerwahl. Anmelden geht nur mit der Tastatur.
+                login.OnMove(x, y);
                 if (pressed) { login.OnClick(x, y); OS.Changed = true; }
                 return;
             }
@@ -358,6 +360,8 @@ namespace VibanOS.Gui
                 if (p != null && (p.State == ProcessState.Terminated || OS.Processes.Get(p.Id) != p)) Close(apps[i]);
             }
             if (Locked && login.LockExpired(now)) OS.Changed = true;
+            if (!wasLocked && Locked) login.Appear();
+            if (Locked && login.NeedsFrame(Clock())) OS.Changed = true;
             if (wasLocked && !Locked && windows.Count == 0) Open(Icons.Terminal);
             wasLocked = Locked;
 

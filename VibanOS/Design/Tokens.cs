@@ -130,6 +130,13 @@ namespace VibanOS.Design
             public const int Zoom = 250;        // grüner Knopf
             public const int StartScale = 90;   // Größe in Prozent am Anfang des Öffnens und am Ende des Schließens
             public const int DockAlpha = 90;    // Deckkraft (0–255) als Symbol im Dock
+
+            // Anmeldebildschirm
+            public const int Appear = 300;      // Anmeldung blendet nach dem Abmelden von unten ein
+            public const int Picker = 280;      // Nutzerwahl fächert sich aus dem Nutzerbild auf und fällt zurück
+            public const int Shake = 400;       // Feld schüttelt sich bei falschem Passwort
+            public const int Hover = 120;       // Nutzerbild unter der Maus wächst, Ring blendet ein
+            public const int Fade = 150;        // neuer Platzhalter im Feld blendet ein
         }
     }
 }
