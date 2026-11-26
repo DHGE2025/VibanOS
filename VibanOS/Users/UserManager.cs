@@ -9,6 +9,7 @@ namespace VibanOS.Users
     /// <summary>
     /// Nutzer, Anmeldung (VIB-16) und Gruppenrechte (VIB-17). Nutzer liegen in system/users.txt,
     /// eine Zeile pro Nutzer: id;name;salt;hash;home;gruppe1,gruppe2
+    /// Gruppen liegen in system/groups.txt, eine Zeile pro Gruppe: id;name;recht1,recht2
     /// </summary>
     public class UserManager
     {
@@ -25,6 +26,21 @@ namespace VibanOS.Users
 
         /// <summary>false: Die letzte Änderung steht nicht in der Nutzerdatei und gilt nur bis zum Neustart.</summary>
         public bool Saved = true;
+
+        /// <summary>
+        /// true nur, solange sudo einen Befehl ausführt. Dann gelten für den angemeldeten Nutzer die Rechte
+        /// seiner Gruppen. Sonst hat nur root Systemrechte, wie unter Unix und macOS.
+        /// </summary>
+        public bool Elevated;
+
+        // Die Gruppendatei war da, ließ sich aber nicht lesen. Dann wird sie nicht überschrieben.
+        private bool groupsUnreadable;
+
+        /// <summary>Alle Systemrechte außer None, in der Reihenfolge für perms.</summary>
+        public static readonly Permission[] AllPermissions =
+        {
+            Permission.UserManage, Permission.Shutdown, Permission.DriverManage, Permission.ProcessKillAny, Permission.ChangePermissions
+        };
 
         /// <summary>
         /// Nicht null: Die Nutzerdatei war da, ließ sich aber nicht lesen (hier steht die Fehlermeldung).
@@ -56,6 +72,8 @@ namespace VibanOS.Users
         public bool NeedsSetup { get { return LoadError == null && Find(Root).PasswordHash == ""; } }
 
         private static string FilePath { get { return Vfs.SystemDirectory + Vfs.Separator + "users.txt"; } }
+
+        private static string GroupPath { get { return Vfs.SystemDirectory + Vfs.Separator + "groups.txt"; } }
 
         public User Find(string name)
         {
@@ -121,19 +139,113 @@ namespace VibanOS.Users
             OS.Changed = true;
         }
 
-        /// <summary>root darf alles, sonst entscheidet die Summe der Gruppenrechte.</summary>
+        /// <summary>
+        /// Rechte, die der Nutzer über seine Gruppen hat. root hat alle. Ob sie gerade gelten, sagt Allowed:
+        /// Außer root braucht jeder dafür sudo.
+        /// </summary>
         public bool HasPermission(User user, Permission permission)
         {
-            if (permission == Permission.None) return true;
-            if (user == null) return false;
-            if (user.Name == Root) return true;
+            return GrantedBy(user, permission) != null;
+        }
+
+        /// <summary>Name der Gruppe, die dem Nutzer das Recht gibt, "root" für root, null ohne das Recht.</summary>
+        public string GrantedBy(User user, Permission permission)
+        {
+            if (permission == Permission.None) return "";
+            if (user == null) return null;
+            if (user.Name == Root) return Root;
             for (int g = 0; g < Groups.Count; g++)
             {
                 if (!InGroup(user, Groups[g].Name)) continue;
                 for (int p = 0; p < Groups[g].Permissions.Count; p++)
-                    if (Groups[g].Permissions[p] == permission) return true;
+                    if (Groups[g].Permissions[p] == permission) return Groups[g].Name;
             }
-            return false;
+            return null;
+        }
+
+        /// <summary>
+        /// Darf der Nutzer das gerade? root immer, alle anderen nur mit dem Recht aus einer Gruppe und
+        /// nur während sudo einen Befehl für sie ausführt (Elevated).
+        /// </summary>
+        public bool Allowed(User user, Permission permission)
+        {
+            if (!HasPermission(user, permission)) return false;
+            return permission == Permission.None || user.Name == Root || (Elevated && user == Current);
+        }
+
+        public Group FindGroup(string name)
+        {
+            for (int i = 0; i < Groups.Count; i++)
+                if (Groups[i].Name == name) return Groups[i];
+            return null;
+        }
+
+        /// <summary>admin und users gibt es immer. Sie lassen sich nicht löschen.</summary>
+        public static bool IsBuiltIn(string group) { return group == AdminGroup || group == UserGroup; }
+
+        /// <summary>Legt eine Gruppe ohne Systemrechte an. null, wenn der Name ungültig oder vergeben ist.</summary>
+        public Group AddGroup(string name)
+        {
+            if (!ValidName(name) || FindGroup(name) != null) return null;
+            Group group = new Group();
+            for (int i = 0; i < Groups.Count; i++)
+                if (Groups[i].Id >= group.Id) group.Id = Groups[i].Id + 1;
+            group.Name = name;
+            Groups.Add(group);
+            Save();
+            return group;
+        }
+
+        /// <summary>Löscht eine Gruppe und nimmt alle Nutzer aus ihr heraus. Die Standardgruppen bleiben.</summary>
+        public bool RemoveGroup(string name)
+        {
+            Group group = FindGroup(name);
+            if (group == null || IsBuiltIn(name)) return false;
+            Groups.Remove(group);
+            for (int i = 0; i < All.Count; i++) All[i].Groups.Remove(name);
+            Save();
+            return true;
+        }
+
+        /// <summary>Nimmt den Nutzer in die Gruppe auf. false, wenn es die Gruppe nicht gibt oder er schon drin ist.</summary>
+        public bool AddToGroup(User user, string group)
+        {
+            if (FindGroup(group) == null || InGroup(user, group)) return false;
+            user.Groups.Add(group);
+            Save();
+            return true;
+        }
+
+        /// <summary>Nimmt den Nutzer aus der Gruppe. root bleibt immer in admin.</summary>
+        public bool RemoveFromGroup(User user, string group)
+        {
+            if (!InGroup(user, group) || (user.Name == Root && group == AdminGroup)) return false;
+            user.Groups.Remove(group);
+            Save();
+            return true;
+        }
+
+        /// <summary>Mitgliederliste einer Gruppe.</summary>
+        public List<User> Members(string group)
+        {
+            List<User> members = new List<User>();
+            for (int i = 0; i < All.Count; i++)
+                if (InGroup(All[i], group)) members.Add(All[i]);
+            return members;
+        }
+
+        /// <summary>Name eines Rechts für Anzeige und Gruppendatei. Von Hand statt ToString, ohne Reflection.</summary>
+        public static string PermissionName(Permission permission)
+        {
+            switch (permission)
+            {
+                case Permission.UserManage: return "UserManage";
+                case Permission.Shutdown: return "Shutdown";
+                case Permission.DriverManage: return "DriverManage";
+                case Permission.ProcessKillAny: return "ProcessKillAny";
+                case Permission.ChangePermissions: return "ChangePermissions";
+                default: return "None";
+            }
         }
 
         public static bool InGroup(User user, string group)
@@ -217,7 +329,48 @@ namespace VibanOS.Users
             {
                 LoadError = e.Message ?? "";
             }
+            LoadGroups();
             if (Find(Root) == null) Add(Root, "", AdminGroup);
+        }
+
+        /// <summary>
+        /// Liest die Gruppendatei. Gibt es keine (etwa auf einer Platte von vor VIB-17), bleiben admin und users,
+        /// und das nächste Speichern legt sie an. admin hat immer alle Rechte, egal was in der Datei steht:
+        /// Sonst könnte eine kaputte Zeile alle Administratoren entmachten.
+        /// </summary>
+        private void LoadGroups()
+        {
+            try
+            {
+                string path = GroupPath;
+                if (Vfs.Available && !File.Exists(path)) path += ".new";
+                if (!Vfs.Available || !File.Exists(path)) return;
+                string[] lines = File.ReadAllText(path).Split('\n');
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    string[] f = lines[i].Trim().Split(';');
+                    int id;
+                    if (f.Length < 3 || !int.TryParse(f[0], out id) || !ValidName(f[1]) || f[1] == AdminGroup) continue;
+                    Group group = FindGroup(f[1]);
+                    if (group == null)
+                    {
+                        group = new Group();
+                        group.Id = id;
+                        group.Name = f[1];
+                        Groups.Add(group);
+                    }
+                    group.Permissions.Clear();
+                    string[] names = f[2].Split(',');
+                    for (int n = 0; n < names.Length; n++)
+                        for (int p = 0; p < AllPermissions.Length; p++)
+                            if (names[n] == PermissionName(AllPermissions[p]) && !group.Permissions.Contains(AllPermissions[p]))
+                                group.Permissions.Add(AllPermissions[p]);
+                }
+            }
+            catch (Exception)
+            {
+                groupsUnreadable = true;
+            }
         }
 
         /// <summary>Schreibt die Nutzerdatei. false: Es gibt kein Dateisystem oder das Schreiben ist gescheitert.</summary>
@@ -233,17 +386,35 @@ namespace VibanOS.Users
                 for (int g = 0; g < u.Groups.Count; g++) groups += (g > 0 ? "," : "") + u.Groups[g];
                 text += u.Id + ";" + u.Name + ";" + u.Salt + ";" + u.PasswordHash + ";" + u.HomeDirectory + ";" + groups + "\n";
             }
+            // Erst die Nutzer: Ihre Datei entscheidet, wer sich anmelden kann.
+            if (!WriteSafely(FilePath, text)) return false;
+            if (groupsUnreadable) return false;
+            string groupText = "";
+            for (int i = 0; i < Groups.Count; i++)
+            {
+                Group g = Groups[i];
+                string perms = "";
+                for (int p = 0; p < g.Permissions.Count; p++) perms += (p > 0 ? "," : "") + PermissionName(g.Permissions[p]);
+                groupText += g.Id + ";" + g.Name + ";" + perms + "\n";
+            }
+            Saved = WriteSafely(GroupPath, groupText);
+            return Saved;
+        }
+
+        /// <summary>
+        /// Erst vollständig daneben schreiben, dann umbenennen. Scheitert das Schreiben (etwa bei voller
+        /// Platte), bleibt die bisherige Datei unversehrt. Eine leere Nutzerdatei hieße beim nächsten
+        /// Start Ersteinrichtung, also root ohne Passwort.
+        /// </summary>
+        private static bool WriteSafely(string path, string text)
+        {
             try
             {
-                // Erst vollständig daneben schreiben, dann umbenennen. Scheitert das Schreiben (etwa bei voller
-                // Platte), bleibt die bisherige Datei unversehrt. Eine leere Nutzerdatei hieße beim nächsten
-                // Start Ersteinrichtung, also root ohne Passwort.
-                File.WriteAllText(FilePath + ".new", text);
-                File.Move(FilePath + ".new", FilePath, true);
-                Saved = true;
+                File.WriteAllText(path + ".new", text);
+                File.Move(path + ".new", path, true);
+                return true;
             }
-            catch (Exception) { }
-            return Saved;
+            catch (Exception) { return false; }
         }
     }
 }

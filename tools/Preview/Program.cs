@@ -498,6 +498,54 @@ namespace VibanOS.Preview
             Type("cat /system/users.txt\n");
             Check(Last().Style != LineStyle.Error, "Administratoren dürfen in den Systemordner");
 
+            // Gruppen, Rechte und sudo (VIB-17)
+            string groupFile = Path.Combine(Vfs.SystemDirectory, "groups.txt");
+            Type("groups\n");
+            Check(Last().Text == "admin", "groups zeigt die Gruppen des angemeldeten Nutzers");
+            Type("perms anna\n");
+            Check(Last().Text == "anna hat keine Systemrechte.", "Normale Nutzer haben keine Systemrechte");
+            Type("groupadd team\ngroupadd team\n");
+            Check(Last().Style == LineStyle.Error && OS.Users.FindGroup("team") != null && File.Exists(groupFile), "groupadd legt eine Gruppe an, aber nur einmal");
+            Type("usermod -aG team anna\nusermod -aG admin anna\ngroups anna\n");
+            Check(Last().Text == "users team admin", "usermod -aG nimmt in Gruppen auf");
+            Type("usermod -aG niemand anna\n");
+            Check(Last().Style == LineStyle.Error, "usermod meldet eine unbekannte Gruppe");
+            Type("usermod -rG admin root\n");
+            Check(Last().Style == LineStyle.Error && UserManager.InGroup(OS.Users.Find("root"), UserManager.AdminGroup), "root bleibt in admin");
+            Type("groupdel admin\n");
+            Check(Last().Style == LineStyle.Error && OS.Users.FindGroup("admin") != null, "Die Gruppe admin lässt sich nicht löschen");
+            File.AppendAllText(groupFile, "kaputt\n5;admin;\n");
+            reloaded = new UserManager();
+            reloaded.Load();
+            Check(reloaded.FindGroup("team") != null && UserManager.InGroup(reloaded.Find("anna"), "team") && UserManager.InGroup(reloaded.Find("anna"), "admin")
+                && reloaded.HasPermission(reloaded.Find("anna"), Permission.Shutdown), "Gruppen überstehen einen Neustart, admin behält alle Rechte");
+            Type("su anna\nshutdown\n");
+            Check(Last().Text.Contains("sudo shutdown") && !Platform.Hardware.ShutdownCalled, "Auch Admins fahren ohne sudo nicht herunter und erfahren, wie es geht");
+            Type("cat /system/users.txt\n");
+            Check(Last().Text.StartsWith("Zugriff verweigert"), "Ohne sudo kommen Admins nicht in den Systemordner");
+            Type("perms\n");
+            Check(Last().Text == "Diese Rechte gelten nur mit sudo." && Shown("Shutdown            über admin"), "perms zeigt Rechte mit ihrer Gruppe");
+            Type("sudo nichts\n");
+            Check(Last().Style == LineStyle.Error && !OS.Shell.Asking, "sudo meldet einen unbekannten Befehl, ohne nach dem Passwort zu fragen");
+            Type("sudo useradd eve\nfalsch\n");
+            Check(Last().Text == "Falsches Passwort." && !OS.Shell.Asking && OS.Users.Find("eve") == null, "sudo macht nichts ohne das richtige Passwort");
+            Type("sudo useradd eve\ntopsecret\nevepw\n");
+            Check(OS.Users.Find("eve") != null && !OS.Users.Elevated && !Shown("evepw"), "Mit sudo legt ein Admin Nutzer an");
+            Type("useradd fritz\n");
+            Check(Last().Text.StartsWith("Keine Berechtigung") && OS.Users.Find("fritz") == null, "sudo gilt nur für den einen Befehl");
+            Type("sudo cat \"/system/users.txt\"\ntopsecret\n");
+            Check(Last().Style != LineStyle.Error, "Mit sudo kommt ein Admin in den Systemordner");
+            Type("su eve\nevepw\nsudo useradd fritz\n");
+            Check(OS.Users.Current.Name == "eve" && Last().Text.Contains("nicht in der Gruppe admin") && !OS.Shell.Asking, "Wer nicht in admin ist, darf sudo nicht benutzen");
+            Type("groupadd bande\n");
+            Check(Last().Text.StartsWith("Keine Berechtigung") && OS.Users.FindGroup("bande") == null, "Normale Nutzer legen keine Gruppen an");
+            Type("su\ngeheim\n");
+            string eveHome = OS.Users.Find("eve").HomeDirectory;
+            Type("userdel eve\nja\nusermod -rG admin anna\ngroupdel team\n");
+            Check(OS.Users.FindGroup("team") == null && !UserManager.InGroup(OS.Users.Find("anna"), "team") && !UserManager.InGroup(OS.Users.Find("anna"), "admin")
+                && !File.ReadAllText(groupFile).Contains("team"), "groupdel löscht die Gruppe und trägt ihre Mitglieder aus");
+            Directory.Delete(eveHome);
+
             // su, login, userdel (VIB-16)
             Type("su niemand\n");
             Check(Last().Style == LineStyle.Error && !OS.Shell.Asking, "su meldet einen unbekannten Nutzer, ohne nach dem Passwort zu fragen");

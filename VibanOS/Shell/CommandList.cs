@@ -52,6 +52,14 @@ namespace VibanOS.Cli
             shell.Register(new LoginCommand());
             shell.Register(new LogoutCommand());
 
+            // Gruppen und Rechte (VIB-17)
+            shell.Register(new GroupsCommand());
+            shell.Register(new GroupaddCommand());
+            shell.Register(new GroupdelCommand());
+            shell.Register(new UsermodCommand());
+            shell.Register(new PermsCommand());
+            shell.Register(new SudoCommand());
+
             // Treiber, Systemaufrufe, Interrupts (VIB-9, VIB-10, VIB-11, VIB-14)
             shell.Register(new DriversCommand());
             shell.Register(new SendCommand());

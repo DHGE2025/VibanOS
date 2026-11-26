@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using VibanOS.Core;
 using VibanOS.FileSystem;
+using VibanOS.Users;
 
 namespace VibanOS.Cli
 {
@@ -129,18 +130,27 @@ namespace VibanOS.Cli
         {
             List<string> words = Split(input);
             if (words.Count == 0) return;
+            Run(words.ToArray());
+        }
+
+        /// <summary>
+        /// Führt einen schon zerlegten Befehl aus: words[0] ist der Name, der Rest die Argumente.
+        /// sudo ruft das direkt auf, damit Anführungszeichen nicht ein zweites Mal ausgewertet werden.
+        /// </summary>
+        public void Run(string[] words)
+        {
             Command command = Find(words[0].ToLower());
             if (command == null)
             {
                 Error("Unbekannter Befehl: " + words[0] + ". 'help' zeigt alle Befehle.");
                 return;
             }
-            if (!OS.Users.HasPermission(OS.Users.Current, command.Required))
+            if (!OS.Users.Allowed(OS.Users.Current, command.Required))
             {
-                Error("Keine Berechtigung: '" + command.Name + "' ist Administratoren vorbehalten.");
+                Error(Denied("'" + command.Name + "' ist Administratoren vorbehalten.", command.Required, command.Name));
                 return;
             }
-            string[] args = new string[words.Count - 1];
+            string[] args = new string[words.Length - 1];
             for (int i = 0; i < args.Length; i++) args[i] = words[i + 1];
             try
             {
@@ -150,6 +160,17 @@ namespace VibanOS.Cli
             {
                 Error(command.Name + ": " + e.Message);
             }
+        }
+
+        /// <summary>
+        /// Meldung für ein fehlendes Recht. Hat der Nutzer es über eine Gruppe und nur sudo fehlt, sagt sie das,
+        /// statt ihn glauben zu lassen, er dürfe es gar nicht.
+        /// </summary>
+        public static string Denied(string reason, Permission permission, string command)
+        {
+            if (OS.Users.HasPermission(OS.Users.Current, permission))
+                return "Keine Berechtigung ohne sudo. Mit 'sudo " + command + "' geht es.";
+            return "Keine Berechtigung: " + reason;
         }
 
         /// <summary>Fügt Argumente ab Index from wieder zu einem Text zusammen (für echo, write, send).</summary>
