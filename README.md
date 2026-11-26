@@ -159,7 +159,8 @@ Der Browser öffnet sich mit http://127.0.0.1:5099. Die Werkstatt läuft, solang
 
 Was sie kann:
 
-- Alle Branches von GitHub mit letztem Commit, offenem Pull Request und Linear-Aufgabe (aus der VIB-Kennung im Namen), dazu ein Suchfeld. „Aktualisieren“ holt den neuesten Stand.
+- Alle Branches von GitHub mit letztem Commit, offenem Pull Request und Linear-Aufgabe (aus der VIB-Kennung im Namen), dazu ein Suchfeld.
+- **Aktualisieren** holt Branches und Pull Requests neu und spult deinen Klon auf den Stand von GitHub vor (`git merge --ff-only`, nur vorspulen). Eigene Commits oder Änderungen, die im Weg wären, bleiben unangetastet, die Werkstatt zeigt dann die Meldung von git. Hat sich dabei die Werkstatt selbst geändert, baut sie sich neu, startet neu und die Seite lädt von selbst neu. Läuft gerade ein Bau oder eine VM, wartet der Neustart, bis sie fertig ist. Das geht mit den Startern oben; wer mit `dotnet run` startet, bekommt einen Hinweis und startet von Hand neu.
 - **Holen, bauen und starten:** Jeder Branch bekommt einen eigenen Ordner neben dem Klon, `<Klon>-werkstatt/<branch>` (ein git worktree), mit eigener `disk.img`. Ein Start setzt diesen Ordner hart auf den Stand von GitHub zurück. Änderungen dort gehen also verloren, gearbeitet wird im eigenen Klon.
 - **Dein Klon** baut und startet den Ordner, in dem die Werkstatt liegt, so wie er ist, auch mit nicht eingecheckten Änderungen. git fasst ihn dabei nicht an.
 - Außerdem: nur starten (letzter Bau), nur bauen, Selbsttest (`tools/Preview`) mit den Bildschirmfotos, Festplatte leeren, Ordner öffnen und entfernen, `cosmos check`.

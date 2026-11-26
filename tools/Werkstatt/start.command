@@ -13,4 +13,18 @@ fi
 [[ -n "$DOTNET_ROOT" ]] && export PATH="$DOTNET_ROOT:$PATH"
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH:$HOME/.dotnet/tools"
 
-dotnet run -- "$@" || { echo; echo "Die Werkstatt ist mit einem Fehler beendet (siehe oben)."; read -k1 "?Taste drücken zum Schließen "; }
+# Endet die Werkstatt mit Code 42, hat "Aktualisieren" sie selbst geändert: neu bauen und wieder starten.
+# Die geschweiften Klammern lassen zsh alles vorab lesen, falls ein Update auch diese Datei ändert.
+{
+  export WERKSTATT_STARTER=1
+  while true; do
+    dotnet run -- "$@"
+    code=$?
+    [[ $code == 42 ]] || break
+    export WERKSTATT_NEUSTART=1
+  done
+  if [[ $code != 0 ]]; then
+    echo; echo "Die Werkstatt ist mit einem Fehler beendet (siehe oben)."; read -k1 "?Taste drücken zum Schließen "
+  fi
+  exit $code
+}

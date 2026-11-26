@@ -71,7 +71,7 @@
   <span id="status" class="pill">Verbinde …</span>
   <span class="grow"></span>
   <button id="stop" class="danger" hidden>Stoppen</button>
-  <button id="refresh" title="Branches und Pull Requests neu von GitHub holen">Aktualisieren</button>
+  <button id="refresh" title="Holt Branches und Pull Requests neu von GitHub und spult deinen Klon vor (nur vorspulen). Hat sich die Werkstatt selbst geändert, startet sie neu.">Aktualisieren</button>
 </header>
 <main>
   <aside>
@@ -100,7 +100,7 @@
 <div id="toast"></div>
 <script>
 const $ = id => document.getElementById(id);
-let info = null, state = { busy: null }, from = 0, stamp = -1, sel = '.';
+let info = null, state = { busy: null }, from = 0, stamp = -1, sel = '.', boot = null, restarting = false;
 try { sel = localStorage.getItem('sel') || '.'; } catch { }
 
 function el(tag, cls, text) {
@@ -234,9 +234,9 @@ function render() {
   $('verbose').checked = info.settings.verbose;
   $('where').textContent = `Branches liegen in ${info.branchesDir}. Diese Ordner gehören der Werkstatt: Jeder Start setzt sie auf den Stand von GitHub zurück. Eigene Änderungen gehören in deinen Klon.`;
   const st = $('status');
-  st.textContent = state.busy ? `${state.busy}: ${state.target === '.' ? 'dein Klon' : state.target}` : 'Bereit';
+  st.textContent = !state.busy ? 'Bereit' : !state.target ? state.busy : `${state.busy}: ${state.target === '.' ? 'dein Klon' : state.target}`;
   st.className = 'pill' + (state.busy === 'VM läuft' ? ' vm' : state.busy ? ' busy' : '');
-  $('stop').hidden = !state.busy;
+  $('stop').hidden = !state.busy || !state.target;
   $('stop').textContent = state.busy === 'VM läuft' ? 'VM stoppen' : 'Abbrechen';
 }
 
@@ -256,6 +256,9 @@ async function poll() {
   inflight = true;
   try {
     const s = await api('/api/state?from=' + from);
+    if (boot && s.boot !== boot) { location.reload(); return; } // neu gestartet, vielleicht mit neuer Seite
+    boot = s.boot;
+    if (s.busy === 'Startet neu') restarting = true;
     if (s.reset) $('log').replaceChildren();
     addLines(s.lines);
     from = s.next;
@@ -264,7 +267,7 @@ async function poll() {
     if (s.stamp !== stamp) { info = await api('/api/info'); stamp = s.stamp; }
     if (changed) render(); // nur bei Änderungen neu zeichnen, sonst gehen Klicks und Markierungen verloren
   } catch {
-    $('status').textContent = 'Werkstatt nicht erreichbar. Läuft das Terminal noch?';
+    $('status').textContent = restarting ? 'Die Werkstatt baut sich neu und startet gleich wieder …' : 'Werkstatt nicht erreichbar. Läuft das Terminal noch?';
     $('status').className = 'pill';
     stamp = -1;
   } finally {
@@ -275,7 +278,7 @@ async function poll() {
 $('stop').onclick = () => api('/api/stop', {}).catch(e => toast(e.message));
 $('refresh').onclick = async () => {
   $('refresh').disabled = true;
-  try { info = await api('/api/refresh', {}); render(); } catch (e) { toast(e.message); }
+  try { const r = await api('/api/refresh', {}); info = r.info; restarting = r.restart; render(); } catch (e) { toast(e.message); }
   $('refresh').disabled = false;
 };
 $('clear').onclick = () => $('log').replaceChildren();

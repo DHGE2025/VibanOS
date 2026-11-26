@@ -56,6 +56,10 @@ string? busy = null;          // was gerade läuft, null = frei
 string? busyTarget = null;
 bool cancelled = false;
 int stamp = 0;                // steigt, wenn sich Branches, PRs oder Ordner ändern: Die Seite lädt dann neu
+bool restartPending = false;  // die Werkstatt selbst hat sich geändert, Neustart sobald frei
+string boot = Guid.NewGuid().ToString("N"); // ändert sich mit jedem Start: Die Seite lädt sich dann neu
+// Die Starter (start.command, start.cmd) starten die Werkstatt neu, wenn sie mit Code 42 endet.
+bool canRestart = Environment.GetEnvironmentVariable("WERKSTATT_STARTER") == "1";
 Settings settings = LoadSettings();
 Dictionary<string, object> prs = [];
 string? prError = null;
@@ -87,7 +91,7 @@ app.MapGet("/", () => Results.File(Path.Combine(AppContext.BaseDirectory, "index
 app.MapGet("/api/state", (int from) =>
 {
     var (next, lines, reset) = log.Since(from);
-    lock (gate) return Results.Json(new { busy, target = busyTarget, stamp, next, lines, reset });
+    lock (gate) return Results.Json(new { busy, target = busyTarget, stamp, boot, next, lines, reset });
 });
 
 app.MapGet("/api/info", Info);
@@ -95,8 +99,9 @@ app.MapGet("/api/info", Info);
 app.MapPost("/api/refresh", async () =>
 {
     await Task.WhenAll(Task.Run(Fetch), LoadPrs());
+    bool restart = UpdateOwnClone();
     Interlocked.Increment(ref stamp);
-    return Info();
+    return new { info = Info(), restart };
 });
 
 app.MapPost("/api/settings", (Settings s) =>
@@ -141,8 +146,8 @@ app.MapPost("/api/action", (ActionRequest r) =>
             }
             else if (branch != null)
             {
-                var (code, output) = Capture(repo, "git", "worktree", "remove", "--force", dir);
-                log.Add(code == 0 ? "==> Ordner entfernt: " + dir : "!! Entfernen fehlgeschlagen: " + output.Trim());
+                var (code, _, error) = Capture(repo, "git", "worktree", "remove", "--force", dir);
+                log.Add(code == 0 ? "==> Ordner entfernt: " + dir : "!! Entfernen fehlgeschlagen: " + error.Trim());
             }
             Interlocked.Increment(ref stamp);
             return Results.Ok();
@@ -184,7 +189,10 @@ catch (IOException)
 Console.WriteLine($"VibanOS-Werkstatt läuft: {url}   (Beenden: Ctrl+C)");
 _ = Task.Run(Fetch).ContinueWith(_ => Interlocked.Increment(ref stamp));
 _ = LoadPrs().ContinueWith(_ => Interlocked.Increment(ref stamp));
-OpenBrowser(url);
+if (Environment.GetEnvironmentVariable("WERKSTATT_NEUSTART") == "1")
+    log.Add("==> Die Werkstatt wurde aktualisiert und neu gestartet."); // die offene Seite lädt von selbst neu
+else
+    OpenBrowser(url);
 await app.WaitForShutdownAsync();
 return;
 
@@ -233,14 +241,72 @@ async Task Pipeline(string dir, string? branch, string action)
     }
     finally
     {
+        bool restart;
         lock (gate)
         {
             busy = null;
             busyTarget = null;
             current = null;
             stamp++;
+            restart = restartPending;
         }
+        if (restart) TryRestart();
     }
+}
+
+// Spult den eigenen Klon vor (git merge --ff-only), damit auch die Werkstatt selbst aktuell bleibt.
+// Nur vorspulen: Eigene Commits und Änderungen gehen nie verloren, im Zweifel meldet git das und es bleibt alles, wie es ist.
+// Rückgabe true: Die Werkstatt hat sich geändert und startet gleich neu.
+bool UpdateOwnClone()
+{
+    lock (gate)
+        if (busyTarget == ".")
+        {
+            log.Add("==> Dein Klon wird gerade gebaut oder läuft, er wird beim nächsten Aktualisieren vorgespult.");
+            return false;
+        }
+    string before = Capture(repo, "git", "rev-parse", "HEAD").Output.Trim();
+    var (code, _, error) = Capture(repo, "git", "merge", "--ff-only", "@{u}");
+    if (code != 0)
+    {
+        log.Add("!! Dein Klon ließ sich nicht vorspulen, er bleibt, wie er ist. git meldet:");
+        foreach (string line in error.Trim().Split('\n')) log.Add("   " + line);
+        return false;
+    }
+    string after = Capture(repo, "git", "rev-parse", "HEAD").Output.Trim();
+    if (before == after)
+    {
+        log.Add("==> Dein Klon ist aktuell");
+        return false;
+    }
+    log.Add($"==> Dein Klon vorgespult: {before[..7]} -> {after[..7]}");
+    if (Capture(repo, "git", "diff", "--quiet", before, after, "--", "tools/Werkstatt").Code == 0) return false;
+    if (!canRestart)
+    {
+        log.Add("==> Die Werkstatt selbst hat sich geändert. Zum Übernehmen beenden (Ctrl+C) und neu starten.");
+        return false;
+    }
+    return TryRestart();
+}
+
+// Beendet die Werkstatt mit Code 42, der Starter baut sie dann neu und startet sie wieder.
+// Läuft gerade etwas, wartet der Neustart, bis es fertig ist.
+bool TryRestart()
+{
+    lock (gate)
+    {
+        if (busy != null)
+        {
+            restartPending = true;
+            log.Add($"==> Die Werkstatt hat sich geändert und startet neu, sobald „{busy}“ fertig ist.");
+            return false;
+        }
+        busy = "Startet neu"; // sperrt weitere Aktionen
+        stamp++;
+    }
+    log.Add("==> Die Werkstatt hat sich geändert, baut sich neu und startet gleich wieder.");
+    _ = Task.Delay(1000).ContinueWith(_ => Environment.Exit(42)); // erst die Antwort an die Seite schicken
+    return true;
 }
 
 async Task<bool> Update(string dir, string branch)
@@ -344,8 +410,6 @@ async Task<int> Step(string cwd, string file, params string[] arguments)
     if (cancelled) return -1;
     log.Add("$ " + file + " " + string.Join(" ", arguments));
     var psi = StartInfo(cwd, file, arguments);
-    psi.RedirectStandardError = true;
-    psi.StandardErrorEncoding = Encoding.UTF8;
     var proc = new Process { StartInfo = psi };
     proc.OutputDataReceived += (_, e) => { if (e.Data != null) log.Add(e.Data); };
     proc.ErrorDataReceived += (_, e) => { if (e.Data != null) log.Add(e.Data); };
@@ -373,19 +437,20 @@ async Task<int> Step(string cwd, string file, params string[] arguments)
 }
 
 // Kurzer Aufruf ohne Log, für Abfragen. Bricht nach einer Minute ab.
-(int Code, string Output) Capture(string cwd, string file, params string[] arguments)
+(int Code, string Output, string Error) Capture(string cwd, string file, params string[] arguments)
 {
     try
     {
         using var proc = Process.Start(StartInfo(cwd, file, arguments))!;
         var output = proc.StandardOutput.ReadToEndAsync();
+        var error = proc.StandardError.ReadToEndAsync();
         if (!proc.WaitForExit(60_000)) proc.Kill(entireProcessTree: true);
         proc.WaitForExit(5_000);
-        return (proc.ExitCode, output.Wait(5_000) ? output.Result : "");
+        return (proc.ExitCode, output.Wait(5_000) ? output.Result : "", error.Wait(5_000) ? error.Result : "");
     }
     catch (Exception e)
     {
-        return (-1, e.Message);
+        return (-1, "", e.Message);
     }
 }
 
@@ -397,7 +462,9 @@ ProcessStartInfo StartInfo(string cwd, string file, string[] arguments)
         UseShellExecute = false,
         RedirectStandardOutput = true,
         RedirectStandardInput = true, // QEMU liest COM1 von stdin, sonst nähme es dem Terminal der Werkstatt die Tasten weg
+        RedirectStandardError = true,
         StandardOutputEncoding = Encoding.UTF8,
+        StandardErrorEncoding = Encoding.UTF8,
     };
     foreach (string a in arguments) psi.ArgumentList.Add(a);
     return psi;
@@ -406,7 +473,7 @@ ProcessStartInfo StartInfo(string cwd, string file, string[] arguments)
 void Fetch()
 {
     log.Add("==> Hole die Branches von GitHub");
-    var (code, _) = Capture(repo, "git", "fetch", "--prune", "origin");
+    var (code, _, _) = Capture(repo, "git", "fetch", "--prune", "origin");
     log.Add(code == 0 ? "==> Branches aktuell" : "!! Abrufen fehlgeschlagen (offline?), zeige den zuletzt geholten Stand.");
 }
 
@@ -440,7 +507,7 @@ async Task LoadPrs()
     }
 }
 
-IResult Info()
+object Info()
 {
     List<object> branches = [];
     string refs = Capture(repo, "git", "for-each-ref", "--sort=-committerdate",
@@ -460,7 +527,7 @@ IResult Info()
         });
     }
     string changes = Capture(repo, "git", "status", "--porcelain").Output;
-    return Results.Json(new
+    return new
     {
         repo, branchesDir, web, prError, settings,
         mac = OperatingSystem.IsMacOS(),
@@ -479,7 +546,7 @@ IResult Info()
             cosmos = Which("cosmos"),
             qemu = OperatingSystem.IsMacOS() ? Which("qemu-system-x86_64") ?? "" : null, // sonst bringt cosmos run QEMU mit
         },
-    });
+    };
 }
 
 object? Local(string dir)
