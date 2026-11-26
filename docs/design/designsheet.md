@@ -121,6 +121,7 @@ Eingabefelder sind Pillen: Der Radius ist die halbe Höhe.
 | `Size.Control`, `Size.ControlGap` | 12, 8 | Durchmesser und Abstand der Fensterknöpfe |
 | `Size.DockIcon`, `Size.DockIndicator` | 48, 4 | Symbol im Dock und der Punkt „App läuft“ |
 | `Size.Field` | 30 | Höhe von Eingabefeldern und Knöpfen |
+| `Size.Caret` | 2 | Breite der Einfügemarke im Eingabefeld, hoch wie eine Zeile `Fonts.Body` |
 | `Size.Row` | 24 | Zeilenhöhe in Listen und Tabellen |
 | `Size.Avatar` | 88 | Nutzerbild auf dem Anmeldebildschirm |
 | `Size.AvatarSmall` | 64 | Nutzerbild in der Nutzerwahl des Anmeldebildschirms, der gewählte Nutzer hat einen Ring in `Accent` |
@@ -156,6 +157,7 @@ Fenster bewegen sich kurz und ruhig, nie verspielt. Die Werte stehen in `T.Motio
 | `Motion.Shake` | 400 ms | Falsches Passwort oder Eingabe: Das Feld schüttelt sich dreimal um höchstens `Space.S`, immer schwächer, wie bei macOS |
 | `Motion.Hover` | 120 ms | Nutzerbild unter der Maus: In der Nutzerwahl wächst es um `Space.XS` je Seite und bekommt den Ring in `Accent`, auf der Anmeldung zeigt ein Ring in `TextTertiary`, dass es klickbar ist |
 | `Motion.Fade` | 150 ms | Neuer Platzhalter im Feld (nächster Schritt beim Anlegen, Passwort wiederholen) blendet ein |
+| `Motion.Blink` | 500 ms | Einfügemarke im Eingabefeld: so lange an, dann so lange aus. Jede Taste fängt den Takt von vorn an, beim Tippen steht sie also still. Neu gezeichnet wird dabei nur die Marke |
 
 ![Minimieren, auf halbem Weg ins Dock](minimieren.png)
 
@@ -170,7 +172,7 @@ Fenster bewegen sich kurz und ruhig, nie verspielt. Die Werte stehen in `T.Motio
 - **Kachel**: Fläche `Raised`, Radius `M`, innen `M`. Oben die Beschriftung in `Fonts.Caption`, darunter der Wert in `Fonts.Display`.
 - **Tabelle**: Kopfzeile in `Fonts.Caption` und `TextSecondary`, darunter eine Linie in `Separator`. Zeilen in `Size.Row`. Ein farbiger Punkt vor dem Zustand.
 - **Terminal**: Fläche `Sunken`, Schrift `Fonts.Mono`, Rand `M`. Ausgaben in `TextPrimary`, frühere Eingaben und Hinweise in `TextSecondary`, Fehler in `Danger`, Einfügemarke in `Accent`.
-- **Eingabefeld**: Höhe `Size.Field`, Pillenform, 1-px-Rahmen. Platzhalter in `TextSecondary`.
+- **Eingabefeld**: Höhe `Size.Field`, Pillenform, 1-px-Rahmen. Platzhalter in `TextSecondary`. Die Einfügemarke in `Accent` wie im Terminal, `Size.Caret` breit, blinkt im Takt `Motion.Blink`. Im leeren Feld steht sie direkt vor dem Platzhalter, sonst hinter dem letzten Zeichen oder Punkt. Nimmt das Feld gerade nichts an (Nutzerwahl offen, Sperre nach Fehlversuchen), fehlt sie.
 - **Systemeinstellungen** (`Gui/SettingsWindow.cs`): links eine Seitenleiste in `TitleBar`, Breite `Size.Sidebar`, die gewählte Seite als Fläche in `Accent` mit Radius `S`. Rechts der Seitentitel in `Fonts.Display`, darunter Gruppen in `Grouped` mit Radius `M` und Rahmen, Zeilen von `Size.Field` + `Space.M`, getrennt durch `Separator`. Beschriftung links in `Fonts.Body`, das Bedienelement rechtsbündig mit Abstand `L`. Eine Meldung steht unter dem Inhalt der Seite: ein Fehler in `Danger`, ein Hinweis in `Warning`.
 - **Dateien** (`Gui/FilesWindow.cs`): dieselbe Seitenleiste mit den Orten. Rechts oben eine Leiste von `Size.Field` + 2 × `Space.S` mit Zurück-Knopf und „Neuer Ordner“ in `Raised`, Radius `S`. Darunter die Liste in Zeilen von `Size.Row`, jede zweite in `Grouped`, die gewählte in `Accent`. Die Vorschau einer Datei steht in `Fonts.Mono` auf `Sunken` wie im Terminal und bricht lange Zeilen genauso um. Die Spalte „Art“ nennt nur Endungen bis vier Zeichen, damit sie in ihre Breite passt. Unten eine Statuszeile in `TextSecondary`, Meldungen dort in `Danger`. Ein leerer Ordner und eine leere Datei sagen das mittig in `TextTertiary`.
 - **Schalter**: Pille `Size.ToggleWidth` × `Size.ToggleHeight`, an in `Accent`, aus in `Track`, weißer Knopf (`TextOnAccent`).
