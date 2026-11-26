@@ -31,8 +31,52 @@ namespace VibanOS.Platform
 
         public static void Shutdown() { ShutdownCalled = true; }
         public static void Reboot() { }
-        public static byte In(int port) { return 0x20; } // COM1: Senderegister frei, nichts empfangen
+        public static byte In(int port)
+        {
+            if (port == 0x511) return FwCfgFiles == null ? (byte)0xFF : fwCfgPos < fwCfgData.Length ? fwCfgData[fwCfgPos++] : (byte)0;
+            return 0x20; // COM1: Senderegister frei, nichts empfangen
+        }
+
         public static void Out(int port, byte value) { if (port == 0x3F8) SerialOut += (char)value; }
+
+        public static void Out16(int port, ushort value) { if (port == 0x510) FwCfgSelect(value); }
+
+        // fw_cfg wie in QEMU: Schlüssel an 0x510, Daten byteweise an 0x511. null: kein QEMU, der Port liefert 0xFF.
+        public static List<KeyValuePair<string, string>> FwCfgFiles;
+        private static byte[] fwCfgData = new byte[0];
+        private static int fwCfgPos;
+        private const int FwCfgFirstFile = 0x20;
+
+        private static void FwCfgSelect(ushort key)
+        {
+            List<byte> data = new List<byte>();
+            if (key == 0) data.AddRange(System.Text.Encoding.ASCII.GetBytes("QEMU"));
+            else if (key == 0x19 && FwCfgFiles != null)
+            {
+                AddBigEndian(data, (uint)FwCfgFiles.Count, 4);
+                for (int i = 0; i < FwCfgFiles.Count; i++)
+                {
+                    AddBigEndian(data, (uint)FwCfgFiles[i].Value.Length, 4);
+                    AddBigEndian(data, (uint)(FwCfgFirstFile + i), 2);
+                    AddBigEndian(data, 0, 2);
+                    byte[] name = new byte[56];
+                    System.Text.Encoding.ASCII.GetBytes(FwCfgFiles[i].Key).CopyTo(name, 0);
+                    data.AddRange(name);
+                }
+            }
+            else if (FwCfgFiles != null && key >= FwCfgFirstFile && key < FwCfgFirstFile + FwCfgFiles.Count)
+                data.AddRange(System.Text.Encoding.ASCII.GetBytes(FwCfgFiles[key - FwCfgFirstFile].Value));
+            fwCfgData = data.ToArray();
+            fwCfgPos = 0;
+        }
+
+        private static void AddBigEndian(List<byte> data, uint value, int bytes)
+        {
+            for (int i = bytes - 1; i >= 0; i--) data.Add((byte)(value >> (8 * i)));
+        }
+
+        // Nur Kernel.cs bringt das Bild an den Bildschirm, und den übersetzt die Vorschau nicht.
+        public static void Present(Surface screen, int x, int y, int width, int height) { }
 
         // Bildschirm wie die VMware-SVGA-Grafik: schaltet um, lehnt aber zu große Auflösungen ab.
         public static int ScreenWidth = T.Size.ScreenWidth, ScreenHeight = T.Size.ScreenHeight;
@@ -513,6 +557,60 @@ namespace VibanOS.Preview
             plain.Shadow(50, 30, 100, 60, T.Radius.L, T.Shadow.DockBlur, T.Shadow.DockOffset, T.Shadow.DockAlpha, T.Color.Shadow);
             Check(plain.Pixels[32 * 200 + 100] == plain.Pixels[0] && plain.Pixels[60 * 200 + 100] == plain.Pixels[0] && plain.Pixels[95 * 200 + 100] != plain.Pixels[0],
                 "Der Schatten liegt nur außerhalb der Form, auch in den Zeilen der Ecken");
+
+            // Auflösung passend zum Bildschirm des Rechners, nur geänderte Ausschnitte an den Bildschirm (VIB-37)
+            Platform.Hardware.FwCfgFiles = null;
+            Check(Settings.HostScreen().Width == 0, "Ohne QEMU gibt es keine Bildschirmgröße des Rechners");
+            Platform.Hardware.FwCfgFiles = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("etc/boot-fail-wait", "\0\0\0\0"),
+                new KeyValuePair<string, string>("opt/vibanos/screens", "1x1"),
+                new KeyValuePair<string, string>("opt/vibanos/screen", "1512x945"),
+            };
+            Resolution hostScreen = Settings.HostScreen();
+            Platform.Hardware.FwCfgFiles = null;
+            Check(hostScreen.Width == 1512 && hostScreen.Height == 945, "Die Bildschirmgröße kommt aus der fw_cfg-Datei von QEMU mit genau diesem Namen");
+            // Die Liste der VMware-SVGA-Grafik in COSMOS 3.0.99 (VmwareSvgaState.s_modes)
+            int[] svgaList = { 320, 200, 320, 240, 640, 480, 720, 480, 800, 600, 1024, 768, 1152, 768, 1280, 720, 1280, 768, 1280, 800,
+                1280, 1024, 1360, 768, 1440, 900, 1400, 1050, 1600, 1200, 1680, 1050, 1920, 1080, 1920, 1200, 2048, 1536, 2560, 1080,
+                2560, 1600, 2560, 2048, 3200, 2048, 3200, 2400, 3840, 2400 };
+            List<Resolution> svga = new List<Resolution>();
+            for (int i = 0; i < svgaList.Length; i += 2) svga.Add(new Resolution(svgaList[i], svgaList[i + 1]));
+            string picks = "";
+            int[] hosts = { 1512, 945, 1512, 982, 1728, 1080, 1440, 900, 1920, 1080, 2560, 1440, 1024, 700, 0, 0 };
+            for (int i = 0; i < hosts.Length; i += 2)
+            {
+                Resolution pick = Settings.StartMode(svga, new Resolution(hosts[i], hosts[i + 1]));
+                picks += pick.Width + "x" + pick.Height + " ";
+            }
+            Check(picks == "1440x900 1440x900 1680x1050 1440x900 1920x1080 1920x1080 800x600 1280x720 ",
+                "Zum Start wählt VibanOS die größte Auflösung mit dem Seitenverhältnis des Rechners, ohne Angabe die Entwurfsgröße (" + picks + ")");
+            Check(Settings.ParseSize("1512x945\n").Width == 1512 && Settings.ParseSize("x945").Width == 0 && Settings.ParseSize("-5x3").Width == 0
+                && Settings.ParseSize(null).Width == 0, "Nur eine Angabe wie 1512x945 gilt als Bildschirmgröße");
+            OS.Changed = true;
+            Check(desktop.Frame(screen) && desktop.DirtyX == 0 && desktop.DirtyY == 0 && desktop.DirtyWidth == screen.Width && desktop.DirtyHeight == screen.Height,
+                "Nach dem Neuzeichnen geht der ganze Bildschirm hinaus");
+            Settle();
+            bool cursorOnly = false;
+            for (int attempt = 0; attempt < 3 && !cursorOnly; attempt++)
+            {
+                // Mehrere Versuche: Wechselt dazwischen die Sekunde, zeichnet die Aktivität ohnehin alles neu.
+                desktop.OnMouse(400, 300, false);
+                desktop.Frame(screen);
+                int[] unmoved = (int[])screen.Pixels.Clone();
+                desktop.OnMouse(405, 297, false);
+                if (!desktop.Frame(screen) || desktop.DirtyWidth == screen.Width) continue;
+                int size = 20 * T.Size.CursorScale;
+                bool outsideSame = true;
+                for (int y = 0; y < screen.Height; y++)
+                    for (int x = 0; x < screen.Width; x++)
+                    {
+                        bool inDirty = x >= desktop.DirtyX && x < desktop.DirtyX + desktop.DirtyWidth && y >= desktop.DirtyY && y < desktop.DirtyY + desktop.DirtyHeight;
+                        if (!inDirty && screen.Pixels[y * screen.Width + x] != unmoved[y * screen.Width + x]) outsideSame = false;
+                    }
+                cursorOnly = outsideSame && desktop.DirtyX == 400 && desktop.DirtyY == 297 && desktop.DirtyWidth == size + 5 && desktop.DirtyHeight == size + 3;
+            }
+            Check(cursorOnly, "Bewegt sich nur die Maus, geht nur ihr Ausschnitt an den Bildschirm");
 
             // Einstellungen: Auflösung, Akzentfarbe, Uhr, Tastatur, Mauszeiger
             Click(DockIconX(Icons.Settings), dockRow);

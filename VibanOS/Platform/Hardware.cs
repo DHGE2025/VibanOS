@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using Cosmos.Kernel.HAL.Devices.Display;
 using Cosmos.Kernel.HAL.Devices.Storage;
+using Cosmos.Kernel.HAL.DriverKit.Resources;
 using Cosmos.Kernel.System;
 using Cosmos.Kernel.System.FileSystem;
 using Cosmos.Kernel.System.FileSystem.Fat;
@@ -10,6 +12,7 @@ using Cosmos.Kernel.System.Input;
 using Cosmos.Kernel.System.Input.Layouts;
 using Cosmos.Kernel.System.Storage;
 using VibanOS.Core;
+using VibanOS.Graphics;
 
 namespace VibanOS.Platform
 {
@@ -180,6 +183,47 @@ namespace VibanOS.Platform
             }
         }
 
+        /// <summary>
+        /// Bringt den Ausschnitt (x, y, width, height) von screen auf den Bildschirm. screen ist die Zeichenfläche über dem
+        /// Puffer des Canvas. Canvas.Display() kopiert dagegen immer das ganze Bild und meldet der Grafikkarte den ganzen
+        /// Bildschirm als geändert. Bei einer Mausbewegung wären das Megabytes für ein paar hundert geänderte Pixel.
+        /// </summary>
+        // COSMOS kennzeichnet die Schnittstelle der Grafiktreiber als Vorabversion (COSMOS0003). Bricht sie mit einer neuen
+        // COSMOS-Version, hier wieder canvas.Display() nehmen: Das ist langsamer, zeigt aber dasselbe Bild.
+#pragma warning disable COSMOS0003
+        public static void Present(Surface screen, int x, int y, int width, int height)
+        {
+            try
+            {
+                DisplayDevice device = DisplayManager.Primary;
+                IDisplay display;
+                if (device == null || !device.TryGetFacet(out display)) display = null;
+                DeviceRegion framebuffer = display != null ? display.Framebuffer : null;
+                DisplayMode mode = display != null ? display.Mode : default;
+                // Was der Weg hier nicht kennt (andere Farbtiefe, kein Framebuffer), erledigt COSMOS wie bisher.
+                if (framebuffer == null || mode.IsEmpty || mode.BitsPerPixel != 32 || framebuffer.Length < (ulong)mode.Height * (ulong)mode.Pitch)
+                {
+                    Canvas.GetFullScreen().Display();
+                    return;
+                }
+                int pitch = mode.Pitch / sizeof(int);
+                int right = Math.Min(Math.Min(x + width, screen.Width), Math.Min(mode.Width, pitch));
+                int bottom = Math.Min(Math.Min(y + height, screen.Height), mode.Height);
+                if (x < 0) x = 0;
+                if (y < 0) y = 0;
+                if (right <= x || bottom <= y) return;
+                Span<int> target = framebuffer.As<int>();
+                for (int row = y; row < bottom; row++)
+                    screen.Pixels.AsSpan(row * screen.Width + x, right - x).CopyTo(target.Slice(row * pitch + x, right - x));
+                display.Flush(x, y, right - x, bottom - y);
+            }
+            catch (InvalidOperationException)
+            {
+                // Die Anzeige verschwindet gerade (wie in Canvas.Display). Der nächste Durchlauf zeichnet neu.
+            }
+        }
+#pragma warning restore COSMOS0003
+
         public static void SetKeyboardLayout(bool german)
         {
             if (german) KeyboardManager.SetLayout(new DEStandardLayout());
@@ -191,6 +235,8 @@ namespace VibanOS.Platform
         public static byte In(int port) { return Read8(null, (ushort)port); }
 
         public static void Out(int port, byte value) { Write8(null, (ushort)port, value); }
+
+        public static void Out16(int port, ushort value) { Write16(null, (ushort)port, value); }
 
         // ponytail: COSMOS 3 gibt dem Kernel keine öffentlichen I/O-Ports. Die Aufgabe VIB-9 verlangt sie aber
         // (inb, outb, COM1-Treiber). Deshalb der von COSMOS beschriebene Notausgang UnsafeAccessor auf die
@@ -204,5 +250,8 @@ namespace VibanOS.Platform
 
         [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "Write8")]
         private static extern void Write8([UnsafeAccessorType(PortIo)] object io, ushort port, byte value);
+
+        [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "Write16")]
+        private static extern void Write16([UnsafeAccessorType(PortIo)] object io, ushort port, ushort value);
     }
 }

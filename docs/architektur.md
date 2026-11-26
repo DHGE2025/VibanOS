@@ -95,6 +95,8 @@ Eine neue, leere Platte hat weder Partitionstabelle noch Dateisystem. Der Befehl
 
 **Einen Treiber:** Klasse von `Driver` ableiten, in `OS.Boot()` registrieren. Portzugriffe laufen über `Hardware.In` und `Hardware.Out`.
 
+**Bildschirm (VIB-37):** Beim Start liest `Settings.HostScreen` über `Drivers/FwCfg.cs` die Größe des Bildschirms, auf dem QEMU läuft (fw_cfg-Datei `opt/vibanos/screen`, die Werkstatt setzt sie auf dem Mac). `Settings.StartMode` wählt daraus die größte angebotene Auflösung im selben Seitenverhältnis, ohne Angabe 1280x720. Eine in den Einstellungen gewählte Auflösung gilt nach der Anmeldung weiter vorrangig. `Desktop.Frame` meldet in `DirtyX`/`DirtyY`/`DirtyWidth`/`DirtyHeight`, was sich geändert hat, und `Hardware.Present` schickt nur diesen Ausschnitt an die Grafikkarte. Bei einer reinen Mausbewegung ist das ein kleiner Ausschnitt um die alte und die neue Stelle des Zeigers statt des ganzen Bildes.
+
 **Ein Fenster:** Klasse von `Window` ableiten und `DrawContent` schreiben, Symbol in `Gui/Icons.cs`, Eintrag in `Desktop.Open`. Wächst der Inhalt mit der Fenstergröße, `CanZoom` auf `true` setzen, dann vergrößert der grüne Knopf das Fenster. Öffnen, Schließen und Minimieren sind automatisch animiert (`Gui/Transition.cs`). Für das Aussehen gilt das [Designsheet](design/designsheet.md).
 
 ## Was unter COSMOS zu beachten ist
@@ -104,7 +106,7 @@ COSMOS 3.0 übersetzt den Kernel mit NativeAOT, dem Compiler von .NET selbst. Vi
 - **Keine Reflection.** Der Kernel kennt sie nicht. Deshalb werden Befehle von Hand in `CommandList` eingetragen, und die Schriften sind als C#-Daten einkompiliert (`Graphics/FontData.cs`) statt als eingebettete Ressource.
 - **Keine Sprach- und Ländereinstellungen.** Der Kernel läuft ohne Kulturdaten, Zahlen und Daten werden immer neutral formatiert. Deutsche Datumsangaben und feste Spaltenbreiten liefert `Core/Text.cs`.
 - **COSMOS nur in `Kernel.cs` und `Platform/Hardware.cs`.** Alles andere muss ohne COSMOS bauen, sonst läuft `tools/Preview` nicht mehr.
-- **Interne Teile von COSMOS meiden.** `Hardware.In` und `Hardware.Out` greifen über `UnsafeAccessor` auf die internen I/O-Ports zu, weil COSMOS sie nicht öffentlich anbietet. Das ist der eine, dokumentierte Sonderfall. Er gilt nur auf x64 und kann mit einer neuen COSMOS-Version brechen.
+- **Interne Teile von COSMOS meiden.** `Hardware.In`, `Hardware.Out` und `Hardware.Out16` greifen über `UnsafeAccessor` auf die internen I/O-Ports zu, weil COSMOS sie nicht öffentlich anbietet. Das ist der eine, dokumentierte Sonderfall. Er gilt nur auf x64 und kann mit einer neuen COSMOS-Version brechen. `Hardware.Present` nutzt die öffentliche, aber als Vorabversion gekennzeichnete Treiber-Schnittstelle (`IDisplay`, Warnung COSMOS0003 gezielt abgeschaltet).
 - **Interrupt-Handler kurz halten:** nur zählen oder in einen Puffer schreiben.
 - **Neues gegen die Doku von COSMOS 3.0 prüfen** (https://cosmosos.github.io/). Beispiele im Netz zu `Cosmos.System2` gelten für die alte Generation.
 

@@ -168,7 +168,7 @@ Was sie kann:
 
 So startet die Werkstatt QEMU:
 
-- macOS: das QEMU aus Homebrew direkt, mit denselben Einstellungen wie `cosmos run --disk disk.img -- -vga vmware`. Das Fenster lässt sich frei vergrößern, der Inhalt skaliert mit. Das mit COSMOS 3.0.99 gelieferte QEMU startet auf dem Mac nicht.
+- macOS: das QEMU aus Homebrew direkt, mit denselben Einstellungen wie `cosmos run --disk disk.img -- -vga vmware`. Das Fenster lässt sich frei vergrößern, der Inhalt skaliert mit. Das mit COSMOS 3.0.99 gelieferte QEMU startet auf dem Mac nicht. Die Werkstatt gibt VibanOS die Größe des Bildschirms mit (`-fw_cfg name=opt/vibanos/screen,string=1512x945`, sichtbare Fläche in Punkten). VibanOS startet dann mit der größten Auflösung im selben Seitenverhältnis, etwa 1440x900, und das Vollbild (Cmd+F) ist scharf und nicht gestreckt. QEMU skaliert dabei ohne Glätten, umschaltbar im QEMU-Menü unter View > Zoom Interpolation.
 - Windows und Linux: `cosmos run --disk disk.img -- -vga vmware`.
 
 Auch hier gilt: Der Klon muss in einem Pfad ohne Leerzeichen liegen, sonst meldet die Werkstatt das vor dem Bau.
