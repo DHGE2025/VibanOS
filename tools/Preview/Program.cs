@@ -76,7 +76,10 @@ namespace VibanOS.Platform
         }
 
         // Nur Kernel.cs bringt das Bild an den Bildschirm, und den übersetzt die Vorschau nicht.
-        public static void Present(Surface screen, int x, int y, int width, int height) { }
+        public static void Present(Surface screen, int x, int y, int width, int height, bool whole) { }
+
+        // Nur virtio-gpu kann weniger Zeilen zeigen, als es hat. Kernel.cs fragt danach.
+        public static bool CropScreen(int height) { return false; }
 
         // Bildschirm wie die VMware-SVGA-Grafik: schaltet um, lehnt aber zu große Auflösungen ab.
         public static int ScreenWidth = T.Size.ScreenWidth, ScreenHeight = T.Size.ScreenHeight;
@@ -166,7 +169,7 @@ namespace VibanOS.Preview
             Check(OS.Users.Current == null && OS.Users.NeedsSetup, "Zwei verschiedene Passwörter richten nichts ein");
             Type("geheim\ngeheim\n");
             Check(OS.Users.Current != null && OS.Users.Current.Name == "root", "root ist nach der Einrichtung angemeldet");
-            desktop.Frame(screen);
+            Draw();
             Check(desktop.Active is TerminalWindow, "Nach der Anmeldung öffnet sich das Terminal");
 
             // Leere Festplatte einrichten (VIB-2)
@@ -522,19 +525,19 @@ namespace VibanOS.Preview
             desktop.Open(Icons.About);
             app = desktop.Active;
             OS.Processes.Kill(app.Process.Id);
-            desktop.Frame(screen);
+            Draw();
             Check(!(desktop.Active is AboutWindow) && OS.Processes.All.Count == before, "kill auf den Prozess einer App schließt ihr Fenster");
             desktop.Open(Icons.About);
             app = desktop.Active;
             app.Process.OnSignal(Signal.Term);
-            desktop.Frame(screen);
+            Draw();
             Check(!(desktop.Active is AboutWindow), "Das Signal Term an eine App schließt ihr Fenster");
             desktop.Open(Icons.About);
             app = desktop.Active;
             Click(ControlX(app, Window.MinimizeButton), app.Y + T.Size.TitleBar / 2);
             Check(OS.Processes.Get(app.Process.Id) == app.Process, "Eine App im Dock bleibt ein Prozess");
             OS.Processes.Kill(app.Process.Id);
-            desktop.Frame(screen);
+            Draw();
             desktop.Open(Icons.About);
             Check(desktop.Active != app && desktop.Active.Process != null, "kill schließt auch eine App im Dock, sie startet danach neu");
             Click(ControlX(desktop.Active, Window.CloseButton), desktop.Active.Y + T.Size.TitleBar / 2);
@@ -587,9 +590,12 @@ namespace VibanOS.Preview
                 "Zum Start wählt VibanOS die größte Auflösung mit dem Seitenverhältnis des Rechners, ohne Angabe die Entwurfsgröße (" + picks + ")");
             Check(Settings.ParseSize("1512x945\n").Width == 1512 && Settings.ParseSize("x945").Width == 0 && Settings.ParseSize("-5x3").Width == 0
                 && Settings.ParseSize(null).Width == 0, "Nur eine Angabe wie 1512x945 gilt als Bildschirmgröße");
+            Draw(); // die Maus steht jetzt, wo sie gezeichnet ist
+            desktop.Redraw();
+            Check(desktop.Frame(screen) && desktop.DirtyCount == 1 && desktop.Dirty[0] == 0 && desktop.Dirty[1] == 0
+                && desktop.Dirty[2] >= screen.Width && desktop.Dirty[3] >= screen.Height, "Nach einem ganzen Neuzeichnen geht der ganze Bildschirm hinaus");
             OS.Changed = true;
-            Check(desktop.Frame(screen) && desktop.DirtyX == 0 && desktop.DirtyY == 0 && desktop.DirtyWidth == screen.Width && desktop.DirtyHeight == screen.Height,
-                "Nach dem Neuzeichnen geht der ganze Bildschirm hinaus");
+            Check(!desktop.Frame(screen), "Sieht das neue Bild aus wie das alte, geht nichts an den Bildschirm");
             Settle();
             Check(CursorOnly(screen), "Bewegt sich nur die Maus, geht nur ihr Ausschnitt an den Bildschirm");
 
@@ -725,13 +731,13 @@ namespace VibanOS.Preview
             Check(Settings.GermanKeyboard && Platform.Hardware.GermanKeyboard, "Und zurück auf Deutsch");
             ClickAt(settings.CenterOf(SettingsWindow.ToggleCursor));
             desktop.OnMouse(200, 200, false);
-            desktop.Frame(screen);
+            Draw();
             Shot(output, "8-einstellungen-tastatur");
             // Zeile 10 des Zeigers beginnt mit einem Randpixel. Doppelt so groß liegt es bei y + 20 statt y + 10.
             bool large = screen.Pixels[(200 + 2 * 10 + 1) * screen.Width + 200 + 1] == unchecked((int)T.Color.CursorEdge);
             ClickAt(settings.CenterOf(SettingsWindow.ToggleCursor));
             desktop.OnMouse(200, 200, false);
-            desktop.Frame(screen);
+            Draw();
             bool small2 = screen.Pixels[(200 + 2 * 10 + 1) * screen.Width + 200 + 1] != unchecked((int)T.Color.CursorEdge);
             Check(large && small2, "Der große Mauszeiger ist doppelt so groß und lässt sich wieder ausschalten");
             ClickAt(settings.CenterOf(0));
@@ -752,13 +758,13 @@ namespace VibanOS.Preview
             desktop.Open(Icons.About);
             Window info = desktop.Active;
             int edge = (info.Y + T.Size.TitleBar / 2) * screen.Width + info.X + T.Space.XS;
-            desktop.Frame(screen);
+            Draw();
             int hidden = screen.Pixels[edge];
             animTime += T.Motion.Open / 2;
-            desktop.Frame(screen);
+            Draw();
             Check(desktop.Animating && hidden != unchecked((int)T.Color.TitleBar) && screen.Pixels[edge] != unchecked((int)T.Color.TitleBar), "Ein neues Fenster blendet sich ein");
             animTime += T.Motion.Open;
-            desktop.Frame(screen);
+            Draw();
             Check(!desktop.Animating && screen.Pixels[edge] == unchecked((int)T.Color.TitleBar), "Nach dem Einblenden steht das Fenster fertig da");
             Click(ControlX(info, Window.ZoomButton), info.Y + T.Size.TitleBar / 2);
             Check(!desktop.Animating && info.Width == 340, "Fenster mit festem Inhalt vergrößert der grüne Knopf nicht");
@@ -777,7 +783,7 @@ namespace VibanOS.Preview
                 "Der grüne Knopf vergrößert das Terminal auf die freie Fläche");
             Click(ControlX(terminal, Window.ZoomButton), terminal.Y + T.Size.TitleBar / 2);
             animTime += T.Motion.Zoom / 2;
-            desktop.Frame(screen);
+            Draw();
             Check(terminal.Width > 720 && terminal.Width < T.Size.ScreenWidth - 2 * T.Space.S, "Beim Zoomen wächst das echte Fenster schrittweise");
             Settle();
             Check(terminal.Width == 720 && terminal.X == 70 && terminal.Y == 64, "Ein zweiter Klick stellt die alte Größe wieder her");
@@ -1053,10 +1059,11 @@ namespace VibanOS.Preview
             desktop.OnMouse(980, 600, false);
             Click(ControlX(terminal, Window.MinimizeButton), terminal.Y + T.Size.TitleBar / 2);
             animTime += T.Motion.Minimize / 2;
-            desktop.Frame(screen);
+            Draw();
             SavePng(screen, Path.Combine(output, "5-minimieren.png"));
             Settle();
             DesignSheet(output);
+            Pieces();
 
             Directory.SetCurrentDirectory(output);
             Directory.Delete(temp, true);
@@ -1099,7 +1106,7 @@ namespace VibanOS.Preview
                 "Text ist bei Retina genauso breit wie sonst, nur schärfer");
 
             OS.Changed = true;
-            desktop.Frame(screen);
+            Draw();
             Surface.DefaultScale = 2;
             desktop.Resize(T.Size.ScreenWidth, T.Size.ScreenHeight);
             Surface retina = new Surface(T.Size.ScreenWidth, T.Size.ScreenHeight);
@@ -1124,7 +1131,7 @@ namespace VibanOS.Preview
             Surface.DefaultScale = 1;
             desktop.Resize(T.Size.ScreenWidth, T.Size.ScreenHeight);
             OS.Changed = true;
-            desktop.Frame(screen);
+            Draw();
         }
 
         // Bewegt sich nur die Maus, ändert Frame nur Pixel im gemeldeten Ausschnitt (in Punkten, bei Retina mal 2).
@@ -1132,29 +1139,108 @@ namespace VibanOS.Preview
         {
             for (int attempt = 0; attempt < 3; attempt++)
             {
-                // Mehrere Versuche: Wechselt dazwischen die Sekunde, zeichnet die Aktivität ohnehin alles neu.
+                // Mehrere Versuche: Wechselt dazwischen die Sekunde, zeichnet die Aktivität ihre Zahlen neu.
                 desktop.OnMouse(400, 300, false);
                 desktop.Frame(front);
                 int[] unmoved = (int[])front.Pixels.Clone();
                 desktop.OnMouse(405, 297, false);
-                if (!desktop.Frame(front) || desktop.DirtyWidth == front.Width) continue;
+                if (!desktop.Frame(front) || desktop.DirtyCount != 1) continue;
                 int size = 20 * T.Size.CursorScale, k = front.Scale;
+                int[] d = desktop.Dirty;
                 for (int y = 0; y < front.PixelHeight; y++)
                     for (int x = 0; x < front.PixelWidth; x++)
                     {
-                        bool inDirty = x >= desktop.DirtyX * k && x < (desktop.DirtyX + desktop.DirtyWidth) * k
-                            && y >= desktop.DirtyY * k && y < (desktop.DirtyY + desktop.DirtyHeight) * k;
+                        bool inDirty = x >= d[0] * k && x < (d[0] + d[2]) * k && y >= d[1] * k && y < (d[1] + d[3]) * k;
                         if (!inDirty && front.Pixels[y * front.PixelWidth + x] != unmoved[y * front.PixelWidth + x]) return false;
                     }
-                if (desktop.DirtyX != 400 || desktop.DirtyY != 297 || desktop.DirtyWidth != size + 5 || desktop.DirtyHeight != size + 3) return false;
+                if (d[0] != 400 || d[1] != 297 || d[2] != size + 5 || d[3] != size + 3) return false;
                 // Und das Bild ist dasselbe wie nach einem ganzen Neuzeichnen: Der alte Zeiger ist weg, der neue da.
                 int[] moved = (int[])front.Pixels.Clone();
-                OS.Changed = true;
+                desktop.Redraw();
                 desktop.Frame(front);
                 if (front.Pixels.AsSpan().SequenceEqual(moved)) return true;
                 // sonst hat dazwischen die Sekunde gewechselt: noch einmal
             }
             return false;
+        }
+
+        // Zeichnet wie der Kernel und vergleicht jedes Mal: Das stückweise neu gezeichnete Bild muss dasselbe sein wie ein
+        // ganz neu gezeichnetes. Uhr und Aktivität hängen an der Sekunde, wechselt sie dazwischen, zählt der Vergleich nicht.
+        private static int compared;
+        private static long dirtyArea; // so viele Punkte hat das letzte Draw neu an den Bildschirm geschickt
+
+        private static bool Draw() { return Draw(screen); }
+
+        private static bool Draw(Surface front)
+        {
+            int second = DateTime.Now.Second;
+            bool shown = desktop.Frame(front);
+            dirtyArea = 0;
+            for (int i = 0; shown && i < 4 * desktop.DirtyCount; i += 4)
+                dirtyArea += (long)Math.Min(desktop.Dirty[i + 2], front.Width - desktop.Dirty[i]) * Math.Min(desktop.Dirty[i + 3], front.Height - desktop.Dirty[i + 1]);
+            int[] pieces = (int[])front.Pixels.Clone();
+            desktop.Redraw();
+            desktop.Frame(front);
+            if (DateTime.Now.Second != second) return shown;
+            for (int i = 0; i < pieces.Length; i++)
+                if (pieces[i] != front.Pixels[i])
+                    throw new Exception("Prüfung fehlgeschlagen: Stückweise neu gezeichnet sieht das Bild anders aus als ganz neu gezeichnet (Vergleich "
+                        + compared + ", Pixel " + i % front.PixelWidth + "," + i / front.PixelWidth + ")");
+            compared++;
+            return shown;
+        }
+
+        // Stückweises Neuzeichnen in der Größe von Antonios Mac im Vollbild (1470x923 Punkte, doppelt gezeichnet):
+        // Tippen und Fensterziehen zeichnen nur ihre Umgebung neu. Am Ende die Zeiten, zum Vergleichen vor und nach einem Umbau.
+        private static void Pieces()
+        {
+            Check(Settings.Rows(new Resolution(2940, 1848), new Resolution(1470, 923), 2) == 1846
+                && Settings.Rows(new Resolution(2940, 1848), new Resolution(1470, 924), 2) == 1848
+                && Settings.Rows(new Resolution(2940, 1848), new Resolution(1470, 950), 2) == 1848
+                && Settings.Rows(new Resolution(1440, 900), new Resolution(1470, 923), 1) == 900
+                && Settings.Rows(new Resolution(2940, 1848), new Resolution(0, 0), 1) == 1848,
+                "Meldet QEMU mehr Zeilen, als sein Fenster hat, zeigt VibanOS nur die Zeilen des Fensters");
+            Check(!Settings.Stretched(2940, 1846, new Resolution(1470, 923), 2) && Settings.Stretched(2940, 1848, new Resolution(1470, 923), 2)
+                && Settings.Stretched(1440, 900, new Resolution(1470, 923), 1) && !Settings.Stretched(1440, 900, new Resolution(0, 0), 1),
+                "Nur wenn das Bild nicht genau auf den Bildschirm des Rechners passt, gilt es als gestreckt");
+
+            Surface.DefaultScale = 2;
+            desktop.Resize(1470, 923);
+            Surface front = new Surface(1470, 923);
+            desktop.Open(Icons.Terminal);
+            animTime += 1000;
+            Draw(front);
+            Window w = desktop.Active;
+            Check(w is TerminalWindow && compared > 40, "Nach jedem Schritt des Selbsttests ergab stückweises Neuzeichnen dasselbe Bild wie ein ganzes (" + compared + " Vergleiche)");
+
+            long all = (long)front.Width * front.Height;
+            Type("x");
+            Check(Draw(front) && dirtyArea * 20 < all, "Ein getippter Buchstabe zeichnet nur seine Umgebung neu (" + dirtyArea * 100 / all + " % des Bildes)");
+            int gripX = w.X + w.Width / 2, gripY = w.Y + T.Size.TitleBar / 2;
+            desktop.OnMouse(gripX, gripY, true);
+            Draw(front);
+            desktop.OnMouse(gripX + 12, gripY + 7, true);
+            Check(Draw(front) && dirtyArea >= (long)w.Width * w.Height && dirtyArea < (long)(w.Width + 200) * (w.Height + 200),
+                "Ein gezogenes Fenster zeichnet nur sich und seinen Schatten neu (" + dirtyArea * 100 / all + " % des Bildes)");
+
+            // Zeiten: je 20 Bilder
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            for (int i = 0; i < 20; i++) { desktop.Redraw(); desktop.Frame(front); }
+            double whole = watch.Elapsed.TotalMilliseconds / 20;
+            watch.Restart();
+            for (int i = 0; i < 20; i++) { desktop.OnMouse(gripX + 12 + 5 * (i + 1), gripY + 7 + 3 * (i + 1), true); desktop.Frame(front); }
+            double drag = watch.Elapsed.TotalMilliseconds / 20;
+            desktop.OnMouse(gripX, gripY, false);
+            desktop.Frame(front);
+            watch.Restart();
+            for (int i = 0; i < 20; i++) { Type("x"); desktop.Frame(front); }
+            double type = watch.Elapsed.TotalMilliseconds / 20;
+            watch.Restart();
+            for (int i = 0; i < 20; i++) { desktop.OnMouse(300 + 7 * i, 200 + 5 * i, false); desktop.Frame(front); }
+            double mouse = watch.Elapsed.TotalMilliseconds / 20;
+            Console.WriteLine("Zeit je Bild bei " + front.PixelWidth + "x" + front.PixelHeight + ": alles neu " + whole.ToString("0.0") + " ms, Fenster ziehen "
+                + drag.ToString("0.0") + " ms, Buchstabe tippen " + type.ToString("0.00") + " ms, nur Maus " + mouse.ToString("0.000") + " ms");
+            Surface.DefaultScale = 1;
         }
 
         private static void Check(bool ok, string what)
@@ -1196,7 +1282,7 @@ namespace VibanOS.Preview
             if (point == null) throw new Exception("Prüfung fehlgeschlagen: Klickfläche nicht gefunden");
             Click(point[0], point[1]);
             OS.Changed = true;
-            desktop.Frame(screen); // neu zeichnen, damit die Klickflächen zum neuen Stand passen
+            Draw(); // neu zeichnen, damit die Klickflächen zum neuen Stand passen
         }
 
         // Was Kernel.cs tut, wenn der Canvas eine neue Größe hat.
@@ -1205,7 +1291,7 @@ namespace VibanOS.Preview
             if (screen.Width == Platform.Hardware.ScreenWidth && screen.Height == Platform.Hardware.ScreenHeight) return;
             screen = new Surface(Platform.Hardware.ScreenWidth, Platform.Hardware.ScreenHeight);
             desktop.Resize(screen.Width, screen.Height);
-            desktop.Frame(screen);
+            Draw();
         }
 
         // Der erste Eintrag, den die Liste von Dateien gerade zeigt, oder -1.
@@ -1235,7 +1321,7 @@ namespace VibanOS.Preview
         private static void Settle()
         {
             animTime += 1000;
-            desktop.Frame(screen);
+            Draw();
         }
 
         // Mitte eines Fensterknopfs, waagerecht.
@@ -1267,7 +1353,7 @@ namespace VibanOS.Preview
             desktop.OnMouse(2, 300, false);
             animTime += 1000;
             OS.Changed = true;
-            desktop.Frame(screen);
+            Draw();
             long sum = 17;
             for (int y = r[1]; y < r[3]; y++)
                 for (int x = r[0]; x < r[2]; x++) sum = sum * 31 + screen.Pixels[y * screen.Width + x];
@@ -1288,7 +1374,7 @@ namespace VibanOS.Preview
         {
             animTime += 1000;
             OS.Changed = true;
-            desktop.Frame(screen);
+            Draw();
             long sum = 17;
             for (int y = w.Y + T.Size.TitleBar; y < w.Y + w.Height; y++)
                 for (int x = w.X; x < w.X + w.Width; x++) sum = sum * 31 + screen.Pixels[y * screen.Width + x];
@@ -1299,7 +1385,7 @@ namespace VibanOS.Preview
         {
             animTime += 1000;
             OS.Changed = true;
-            desktop.Frame(screen);
+            Draw();
             SavePng(screen, Path.Combine(dir, name + ".png"));
         }
 

@@ -191,7 +191,7 @@ namespace VibanOS.Platform
         // COSMOS kennzeichnet die Schnittstelle der Grafiktreiber als Vorabversion (COSMOS0003). Bricht sie mit einer neuen
         // COSMOS-Version, hier wieder canvas.Display() nehmen: Das ist langsamer, zeigt aber dasselbe Bild.
 #pragma warning disable COSMOS0003
-        public static void Present(Surface screen, int x, int y, int width, int height)
+        public static void Present(Surface screen, int x, int y, int width, int height, bool whole)
         {
             try
             {
@@ -217,14 +217,55 @@ namespace VibanOS.Platform
                 Span<int> target = framebuffer.As<int>();
                 for (int row = y; row < bottom; row++)
                     screen.Pixels.AsSpan(row * screen.PixelWidth + x, right - x).CopyTo(target.Slice(row * pitch + x, right - x));
-                display.Flush(x, y, right - x, bottom - y);
+                // whole: QEMU streckt das Bild auf sein Fenster. Die Mac-Anzeige von QEMU zeichnet dann einen gemeldeten
+                // Ausschnitt um Bruchteile eines Pixels versetzt neu, an Kanten sieht man das (etwa unter dem Mauszeiger).
+                // Deshalb soll sie das ganze Bild neu zeichnen. Kopiert ist trotzdem nur der Ausschnitt.
+                if (whole) display.Flush(0, 0, Math.Min(mode.Width, pitch), mode.Height);
+                else display.Flush(x, y, right - x, bottom - y);
             }
             catch (InvalidOperationException)
             {
                 // Die Anzeige verschwindet gerade (wie in Canvas.Display). Der nächste Durchlauf zeichnet neu.
             }
         }
+
+        /// <summary>
+        /// Zeigt nur die oberen height Pixelzeilen des Bildschirms, wenn die Grafik das kann (virtio-gpu). false: alles
+        /// bleibt, wie es war. Siehe Settings.Rows, wozu das nötig ist.
+        /// </summary>
+        public static bool CropScreen(int height)
+        {
+            try
+            {
+                DisplayDevice device = DisplayManager.Primary;
+                IDisplay display;
+                if (device == null || !device.TryGetFacet(out display) || display.Name != "virtio-gpu") return false;
+                int full = display.Mode.Height;
+                if (height < 16 || height >= full) return false; // unter 16 Zeilen lehnt virtio-gpu ab
+                GpuHeight(display) = height;
+                if (GpuSetScanout(display)) return true;
+                GpuHeight(display) = full;
+                return false;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
 #pragma warning restore COSMOS0003
+
+        // ponytail: COSMOS 3 liest die Größe von virtio-gpu einmal beim Start und zeigt immer die ganze Fläche, ändern lässt
+        // sie sich öffentlich nicht. Deshalb wie bei den I/O-Ports unten der Notausgang UnsafeAccessor: die Höhe im Treiber
+        // kleiner setzen und SET_SCANOUT noch einmal schicken. Der Puffer bleibt, QEMU zeigt nur weniger Zeilen davon.
+        // Bricht das mit einer neuen COSMOS-Version, wirft der Aufruf, CropScreen meldet false und das Bild bleibt wie bisher.
+        // Sauberer Weg, sobald COSMOS ihn hat: die Größe über IDisplayModes setzen.
+        private const string VirtioGpu = "Cosmos.Kernel.Drivers.Virtio.Display.VirtioGpu.VirtioGpuState, Cosmos.Kernel.Drivers";
+
+        [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_height")]
+        private static extern ref int GpuHeight([UnsafeAccessorType(VirtioGpu)] object state);
+
+        [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "SetScanout")]
+        private static extern bool GpuSetScanout([UnsafeAccessorType(VirtioGpu)] object state);
 
         public static void SetKeyboardLayout(bool german)
         {

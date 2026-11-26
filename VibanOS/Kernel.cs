@@ -31,6 +31,11 @@ namespace VibanOS
         private Canvas canvas;
         private Surface front;
         private Desktop desktop;
+        private Resolution host;      // Bildschirm des Rechners laut Werkstatt, 0x0: unbekannt
+        private int canvasHeight;     // Höhe des Canvas, zu der front gehört
+        private bool stretched;       // QEMU streckt das Bild: immer das ganze anzeigen
+        private long second, slowest; // für die Zeile im Protokoll: laufende Sekunde und ihr langsamstes Bild
+        private int drawn;
 
         protected override void BeforeRun()
         {
@@ -46,20 +51,32 @@ namespace VibanOS
             // Grafik (VMware SVGA) startet mit 1024x768. Sie bekommt die Auflösung, die zum Bildschirm des Rechners passt,
             // den die Werkstatt QEMU mitgibt, sonst die Entwurfsgröße. Danach immer die echte Größe nehmen, nicht annehmen.
             canvas = Canvas.GetFullScreen();
-            Resolution host = Settings.HostScreen();
+            host = Settings.HostScreen();
             Resolution start = Settings.StartMode(Hardware.ScreenModes(), host);
             if (start.Width > 0 && (start.Width != canvas.Width || start.Height != canvas.Height))
                 Hardware.SetScreenMode(start.Width, start.Height);
             // Retina: Hat der Bildschirm doppelt so viele Pixel wie der Rechner Punkte, zeichnet alles in doppelter Auflösung.
             // Die Oberfläche rechnet weiter in Punkten, nur die Flächen haben viermal so viele Pixel (Surface.Scale).
             Surface.DefaultScale = Settings.ScaleFor(new Resolution(canvas.Width, canvas.Height), host);
-            Log.WriteString("[VibanOS] Bildschirm des Rechners " + host.Width + "x" + host.Height + ", Auflösung " + canvas.Width + "x" + canvas.Height + ", Faktor " + Surface.DefaultScale + "\n");
-            // Die Zeichenfläche schreibt direkt in den Puffer des Canvas, Hardware.Present bringt ihn auf den Bildschirm.
-            front = new Surface(canvas.GetBuffer(), canvas.Width, canvas.Height, Surface.DefaultScale);
-            MouseManager.SetScreenSize(front.Width, front.Height);
+            Attach();
+            Log.WriteString("[VibanOS] Bildschirm des Rechners " + host.Width + "x" + host.Height + ", Auflösung " + canvas.Width + "x" + canvas.Height
+                + ", gezeigt " + front.PixelWidth + "x" + front.PixelHeight + (stretched ? " gestreckt" : "") + ", Faktor " + Surface.DefaultScale + "\n");
             // Deutsche Tastatur, in den Einstellungen umschaltbar.
             KeyboardManager.SetLayout(new DEStandardLayout());
             desktop = new Desktop(front.Width, front.Height);
+        }
+
+        // Legt die Zeichenfläche über den Puffer des Canvas, Hardware.Present bringt ihn auf den Bildschirm. Sie endet nach
+        // den Zeilen, die ins Fenster von QEMU passen (Settings.Rows), der Rest des Puffers bleibt ungenutzt.
+        private void Attach()
+        {
+            int scale = Surface.DefaultScale;
+            int rows = Settings.Rows(new Resolution(canvas.Width, canvas.Height), host, scale);
+            if (rows != canvas.Height && !Hardware.CropScreen(rows)) rows = canvas.Height;
+            stretched = Settings.Stretched(canvas.Width, rows, host, scale);
+            front = new Surface(canvas.GetBuffer(), canvas.Width, rows, scale);
+            canvasHeight = canvas.Height;
+            MouseManager.SetScreenSize(front.Width, front.Height);
         }
 
         /// <summary>
@@ -100,14 +117,28 @@ namespace VibanOS
             desktop.OnMouse(MouseManager.X, MouseManager.Y, MouseManager.LeftButton);
             OS.Tick();
             // Die Einstellungen haben die Auflösung umgeschaltet: Der Canvas hat jetzt einen neuen, anders großen Puffer.
-            if (canvas.Width != front.PixelWidth || canvas.Height != front.PixelHeight)
+            if (canvas.Width != front.PixelWidth || canvas.Height != canvasHeight)
             {
-                front = new Surface(canvas.GetBuffer(), canvas.Width, canvas.Height, Surface.DefaultScale);
-                MouseManager.SetScreenSize(front.Width, front.Height);
+                Attach();
                 desktop.Resize(front.Width, front.Height);
             }
-            // Nur wenn sich etwas geändert hat, geht ein neues Bild an den Bildschirm, und nur der geänderte Teil.
-            if (desktop.Frame(front)) Hardware.Present(front, desktop.DirtyX, desktop.DirtyY, desktop.DirtyWidth, desktop.DirtyHeight);
+            // Nur wenn sich etwas geändert hat, geht ein neues Bild an den Bildschirm, und nur die geänderten Teile.
+            long before = Transition.Milliseconds();
+            if (desktop.Frame(front))
+            {
+                for (int i = 0; i < 4 * desktop.DirtyCount; i += 4)
+                    Hardware.Present(front, desktop.Dirty[i], desktop.Dirty[i + 1], desktop.Dirty[i + 2], desktop.Dirty[i + 3], stretched);
+                drawn++;
+            }
+            // Einmal je Sekunde ins Protokoll, wie viele Bilder es gab und wie lange das langsamste brauchte. Daran sieht
+            // man in der Werkstatt, ob das Zeichnen auf diesem Rechner flüssig ist. Ohne neues Bild keine Zeile.
+            long after = Transition.Milliseconds();
+            if (after - before > slowest) slowest = after - before;
+            if (after / 1000 == second) return;
+            if (drawn > 0) Log.WriteString("[VibanOS] " + drawn + " Bilder, das langsamste " + slowest + " ms\n");
+            second = after / 1000;
+            slowest = 0;
+            drawn = 0;
         }
 
         private static Gui.Key Translate(Sys.Input.Key key)

@@ -380,6 +380,8 @@ async Task RunVm(string kernel)
                 // Die Grafik bekommt genau so viele Pixel, wie QEMU im Vollbild füllt. Dann zeigt QEMU jedes Pixel 1:1, nichts
                 // wird gestreckt, und VibanOS zeichnet auf einem Retina-Bildschirm in doppelter Auflösung (Surface.Scale).
                 // Umschalten lässt sich die Auflösung dann nicht: COSMOS liest die Größe von virtio-gpu nur beim Start.
+                // xres/yres gelten nur, bis QEMU der Grafik seine eigene Fenstergröße meldet. Die kann höher sein als das
+                // Fenster (siehe MacScreen), VibanOS zeigt dann nur die Zeilen, die hineinpassen (Settings.Rows).
                 display = ["-vga", "none", "-device", $"virtio-vga,xres={s.W * s.Scale},yres={s.H * s.Scale}", "-full-screen"];
                 log.Add($"    Bildschirm: {s.W}x{s.H} Punkte, {s.W * s.Scale}x{s.H * s.Scale} Pixel. VibanOS startet im Vollbild in genau dieser Größe.");
             }
@@ -392,15 +394,23 @@ async Task RunVm(string kernel)
     if (!cancelled) log.Add(code == 0 ? "==> VM beendet" : $"!! QEMU endete mit Code {code}");
 }
 
-// Größe des Mac-Bildschirms in Punkten, ohne Menüleiste und Kamera-Aussparung: die Fläche, die QEMU im Vollbild füllt.
-// Dazu Pixel je Punkt (2 bei Retina). VibanOS liest die Punkte über fw_cfg (Drivers/FwCfg.cs): Mit virtio-vga erkennt es
-// daran Retina, mit -vga vmware nimmt es die größte Auflösung mit demselben Seitenverhältnis.
+// Größe des Mac-Bildschirms in Punkten: die Fläche, die das Fenster von QEMU im Vollbild wirklich füllt. Dazu Pixel je
+// Punkt (2 bei Retina). VibanOS liest die Punkte über fw_cfg (Drivers/FwCfg.cs): Mit virtio-vga erkennt es daran Retina,
+// mit -vga vmware nimmt es die größte Auflösung mit demselben Seitenverhältnis.
+// Ohne Kamera-Aussparung ist das der ganze Bildschirm. Mit Aussparung bleibt oben der Streifen der Menüleiste frei, und
+// der ist höher als die Aussparung, die QEMU selbst abzieht (gemessen auf einem MacBook Air mit 1470x956 Punkten:
+// Aussparung 32, Menüleiste 33, QEMU meldet der Grafik 1470x924, sein Fenster hat 1470x923). Deshalb die Menüleiste
+// abziehen: Rand des Bildschirms minus Rand der nutzbaren Fläche. Blendet jemand die Menüleiste immer aus, ist die 0,
+// dann gilt die Aussparung.
 (int W, int H, int Scale)? MacScreen()
 {
     const string script = """
         ObjC.import("AppKit");
-        var s = $.NSScreen.mainScreen, w = s.frame.size.width, h = s.frame.size.height, i = s.safeAreaInsets;
-        if (i && i.top >= 0) { w -= (i.left || 0) + (i.right || 0); h -= (i.top || 0) + (i.bottom || 0); }
+        var s = $.NSScreen.mainScreen, f = s.frame, v = s.visibleFrame, i = s.safeAreaInsets, w = f.size.width, h = f.size.height;
+        if (i && i.top > 0) {
+            w -= (i.left || 0) + (i.right || 0);
+            h -= Math.max(i.top, f.origin.y + h - v.origin.y - v.size.height) + (i.bottom || 0);
+        }
         Math.round(w) + "x" + Math.round(h) + "@" + Math.round(s.backingScaleFactor)
         """;
     var m = Regex.Match(Capture(repo, "osascript", "-l", "JavaScript", "-e", script).Output, @"^(\d{3,5})x(\d{3,5})@([12])\s*$");
@@ -639,6 +649,9 @@ class LogBuffer
 
     public void Add(string line)
     {
+        // COSMOS schreibt bei jedem Thread.Sleep des Kernels vier solche Zeilen, einige hundert je Sekunde. Sie würden
+        // nach einer Minute alles andere aus dem Log schieben, auch die Zeilen von VibanOS selbst.
+        if (line.StartsWith("[LowLevelMonitor]")) return;
         lock (lines)
         {
             lines.Add(Ansi.Replace(line, ""));
