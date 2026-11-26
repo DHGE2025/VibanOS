@@ -206,15 +206,17 @@ namespace VibanOS.Platform
                     Canvas.GetFullScreen().Display();
                     return;
                 }
+                // Der Ausschnitt ist in Punkten, auf dem Bildschirm zählen Pixel (bei Retina doppelt so viele).
+                x *= screen.Scale; y *= screen.Scale; width *= screen.Scale; height *= screen.Scale;
                 int pitch = mode.Pitch / sizeof(int);
-                int right = Math.Min(Math.Min(x + width, screen.Width), Math.Min(mode.Width, pitch));
-                int bottom = Math.Min(Math.Min(y + height, screen.Height), mode.Height);
+                int right = Math.Min(Math.Min(x + width, screen.PixelWidth), Math.Min(mode.Width, pitch));
+                int bottom = Math.Min(Math.Min(y + height, screen.PixelHeight), mode.Height);
                 if (x < 0) x = 0;
                 if (y < 0) y = 0;
                 if (right <= x || bottom <= y) return;
                 Span<int> target = framebuffer.As<int>();
                 for (int row = y; row < bottom; row++)
-                    screen.Pixels.AsSpan(row * screen.Width + x, right - x).CopyTo(target.Slice(row * pitch + x, right - x));
+                    screen.Pixels.AsSpan(row * screen.PixelWidth + x, right - x).CopyTo(target.Slice(row * pitch + x, right - x));
                 display.Flush(x, y, right - x, bottom - y);
             }
             catch (InvalidOperationException)

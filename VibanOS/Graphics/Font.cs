@@ -8,9 +8,12 @@ namespace VibanOS.Graphics
         internal readonly byte[] Data;
         internal readonly int First;
         internal readonly int[] Offset; // Position des Glyphen-Kopfs in Data
+        /// <summary>Dieselbe Schrift doppelt so groß, für Flächen mit Scale 2 (Retina).</summary>
+        public readonly Font Double;
 
-        public Font(byte[] data)
+        public Font(byte[] data, byte[] twice = null)
         {
+            if (twice != null) Double = new Font(twice);
             Data = data;
             LineHeight = data[0];
             Ascent = data[1];
@@ -52,11 +55,11 @@ namespace VibanOS.Graphics
 
         public static void Load()
         {
-            Body = new Font(FontData.Body);
-            Strong = new Font(FontData.Strong);
-            Caption = new Font(FontData.Caption);
-            Display = new Font(FontData.Display);
-            Mono = new Font(FontData.Mono);
+            Body = new Font(FontData.Body, FontData.Body2x);
+            Strong = new Font(FontData.Strong, FontData.Strong2x);
+            Caption = new Font(FontData.Caption, FontData.Caption2x);
+            Display = new Font(FontData.Display, FontData.Display2x);
+            Mono = new Font(FontData.Mono, FontData.Mono2x);
         }
     }
 }

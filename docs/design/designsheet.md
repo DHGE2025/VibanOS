@@ -95,6 +95,7 @@ Zwei Schriftfamilien, fünf Rollen. Andere Größen gibt es nicht.
 | `Fonts.Mono` | JetBrains Mono Regular 13 | Terminal |
 
 Die Schriften sind als geglättete Atlanten in `VibanOS/Graphics/FontData.cs` einkompiliert und decken Latin-1 ab (also auch ä, ö, ü, ß).
+Jede Rolle gibt es zusätzlich doppelt so groß für Retina-Bildschirme. Alle Größen und Maße in diesem Blatt sind Punkte: Auf einem Retina-Bildschirm zeichnet VibanOS jeden Punkt mit 2x2 Pixeln, die Oberfläche bleibt gleich groß und wird schärfer.
 Wer eine Größe ändert, passt `tools/make-fonts.py` an und führt es aus, das Skript schreibt die Datei neu. Inter und JetBrains Mono stehen unter der SIL Open Font License.
 
 ## Abstände, Radien, Maße

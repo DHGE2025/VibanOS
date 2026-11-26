@@ -6,19 +6,34 @@ namespace VibanOS.Graphics
     /// Zeichenfläche auf einem int[]-Bildpuffer (0xAARRGGBB). Kennt COSMOS nicht:
     /// Der Kernel schiebt den Puffer nur noch auf den Bildschirm. Alle Formen sind
     /// kantengeglättet und können durchscheinend sein.
+    /// Koordinaten und Maße sind in Punkten. Auf einem Retina-Bildschirm (Scale 2) hat ein Punkt 2x2 Pixel:
+    /// Formen und Schrift werden dann in voller Auflösung gezeichnet und sind scharf, die Oberfläche bleibt gleich groß.
     /// </summary>
     public class Surface
     {
-        public readonly int Width;
-        public readonly int Height;
+        /// <summary>Größe in Punkten. Danach richtet sich die Oberfläche.</summary>
+        public readonly int Width, Height;
+
+        /// <summary>Pixel je Punkt (1 oder 2) und die Größe in Pixeln, also die des Puffers.</summary>
+        public readonly int Scale, PixelWidth, PixelHeight;
+
         public readonly int[] Pixels;
 
-        public Surface(int width, int height) : this(width, height, new int[width * height]) { }
+        /// <summary>Pixel je Punkt für neue Flächen. Der Kernel setzt es beim Start passend zum Bildschirm.</summary>
+        public static int DefaultScale = 1;
 
-        public Surface(int width, int height, int[] pixels)
+        public Surface(int width, int height) : this(width, height, DefaultScale) { }
+
+        public Surface(int width, int height, int scale) : this(new int[width * scale * height * scale], width * scale, height * scale, scale) { }
+
+        /// <summary>Fläche über einem fertigen Puffer, etwa dem des Bildschirms. Ein Rest unter einem Punkt bleibt ungenutzt.</summary>
+        public Surface(int[] pixels, int pixelWidth, int pixelHeight, int scale)
         {
-            Width = width;
-            Height = height;
+            Scale = scale;
+            PixelWidth = pixelWidth;
+            PixelHeight = pixelHeight;
+            Width = pixelWidth / scale;
+            Height = pixelHeight / scale;
             Pixels = pixels;
             ResetClip();
         }
@@ -28,18 +43,19 @@ namespace VibanOS.Graphics
 
         public void SetClip(int x, int y, int w, int h)
         {
+            x *= Scale; y *= Scale; w *= Scale; h *= Scale;
             clipX0 = x < 0 ? 0 : x;
             clipY0 = y < 0 ? 0 : y;
-            clipX1 = x + w > Width ? Width : x + w;
-            clipY1 = y + h > Height ? Height : y + h;
+            clipX1 = x + w > PixelWidth ? PixelWidth : x + w;
+            clipY1 = y + h > PixelHeight ? PixelHeight : y + h;
         }
 
         public void ResetClip()
         {
             clipX0 = 0;
             clipY0 = 0;
-            clipX1 = Width;
-            clipY1 = Height;
+            clipX1 = PixelWidth;
+            clipY1 = PixelHeight;
         }
 
         /// <summary>Mischt zwei Farben, t = 0 ergibt a, t = 255 ergibt b.</summary>
@@ -76,7 +92,7 @@ namespace VibanOS.Graphics
         private void Plot(int x, int y, uint color, int coverage)
         {
             if (x < clipX0 || y < clipY0 || x >= clipX1 || y >= clipY1) return;
-            Blend(y * Width + x, color, coverage);
+            Blend(y * PixelWidth + x, color, coverage);
         }
 
         // Waagerechte Linie von x0 (einschließlich) bis x1 (ausschließlich).
@@ -85,8 +101,8 @@ namespace VibanOS.Graphics
             if (y < clipY0 || y >= clipY1) return;
             if (x0 < clipX0) x0 = clipX0;
             if (x1 > clipX1) x1 = clipX1;
-            int i = y * Width + x0;
-            int end = y * Width + x1;
+            int i = y * PixelWidth + x0;
+            int end = y * PixelWidth + x1;
             if (color >> 24 == 255)
             {
                 int c = (int)color;
@@ -100,6 +116,7 @@ namespace VibanOS.Graphics
 
         public void FillRect(int x, int y, int w, int h, uint color)
         {
+            x *= Scale; y *= Scale; w *= Scale; h *= Scale;
             for (int j = 0; j < h; j++) Span(x, x + w, y + j, color);
         }
 
@@ -120,6 +137,7 @@ namespace VibanOS.Graphics
         /// <summary>Abgerundetes Rechteck mit senkrechtem Verlauf von top nach bottom.</summary>
         public void FillRoundRect(int x, int y, int w, int h, int r, uint top, uint bottom)
         {
+            x *= Scale; y *= Scale; w *= Scale; h *= Scale; r *= Scale;
             if (w <= 0 || h <= 0) return;
             if (r * 2 > w) r = w / 2;
             if (r * 2 > h) r = h / 2;
@@ -142,10 +160,17 @@ namespace VibanOS.Graphics
             }
         }
 
-        /// <summary>1 px breiter Rahmen innen entlang eines abgerundeten Rechtecks.</summary>
+        /// <summary>Ein Punkt breiter Rahmen innen entlang eines abgerundeten Rechtecks.</summary>
         public void StrokeRoundRect(int x, int y, int w, int h, int r, uint color)
         {
+            // Je Pixel Breite ein Ring, jeder eins weiter innen.
+            for (int i = 0; i < Scale; i++) StrokePixels(x * Scale + i, y * Scale + i, w * Scale - 2 * i, h * Scale - 2 * i, r * Scale - i, color);
+        }
+
+        private void StrokePixels(int x, int y, int w, int h, int r, uint color)
+        {
             if (w <= 1 || h <= 1) return;
+            if (r < 0) r = 0;
             if (r * 2 > w) r = w / 2;
             if (r * 2 > h) r = h / 2;
             Span(x + r, x + w - r, y, color);
@@ -182,12 +207,13 @@ namespace VibanOS.Graphics
         /// </summary>
         public void Shadow(int x, int y, int w, int h, int r, int blur, int offsetY, int alpha, uint color)
         {
+            x *= Scale; y *= Scale; w *= Scale; h *= Scale; r *= Scale; blur *= Scale; offsetY *= Scale;
             int sy = y + offsetY;
             float halfW = w / 2f - r, halfH = h / 2f - r;
             float cx = x + w / 2f, cy = sy + h / 2f;
             for (int py = sy - blur; py < sy + h + blur; py++)
             {
-                if (py < 0 || py >= Height) continue;
+                if (py < 0 || py >= PixelHeight) continue;
                 // Von coverFrom bis coverTo (ausschließlich) deckt die Form diese Zeile voll. In den Eckzeilen
                 // beginnt das dort, wo FillRoundRect die erste voll gedeckte Stelle zeichnet.
                 int coverFrom = 0, coverTo = 0, j = py - y;
@@ -206,7 +232,7 @@ namespace VibanOS.Graphics
                 for (int px = x - blur; px < x + w + blur; px++)
                 {
                     if (px == coverFrom && coverTo > coverFrom) px = coverTo;
-                    if (px < 0 || px >= Width) continue;
+                    if (px < 0 || px >= PixelWidth) continue;
                     float qx = px + 0.5f - cx, qy = py + 0.5f - cy;
                     qx = (qx < 0 ? -qx : qx) - halfW;
                     qy = (qy < 0 ? -qy : qy) - halfH;
@@ -215,21 +241,27 @@ namespace VibanOS.Graphics
                     else d = (qx > qy ? qx : qy) - r;
                     if (d >= blur) continue;
                     float t = d <= 0 ? 1 : 1 - d / blur;
-                    Blend(py * Width + px, color, (int)(alpha * t * t));
+                    Blend(py * PixelWidth + px, color, (int)(alpha * t * t));
                 }
             }
         }
 
-        /// <summary>Schreibt Text, y ist die Oberkante der Zeile. Gibt die x-Position nach dem Text zurück.</summary>
+        /// <summary>
+        /// Schreibt Text, y ist die Oberkante der Zeile. Gibt die x-Position nach dem Text zurück.
+        /// Mit Scale 2 kommen die Zeichen aus dem doppelt so großen Atlas, die Abstände aber aus dem normalen.
+        /// So läuft der Text genauso weit wie Font.Measure sagt, und die Oberfläche bleibt gleich angeordnet.
+        /// </summary>
         public int DrawText(Font font, string text, int x, int y, uint color)
         {
-            byte[] data = font.Data;
-            int pen = x * 4;
+            Font shapes = Scale == 2 && font.Double != null ? font.Double : font;
+            byte[] data = shapes.Data;
+            y = y * Scale + font.Ascent * Scale - shapes.Ascent; // gleiche Grundlinie wie bei Scale 1
+            int pen = x * 4; // in Viertelpunkten
             for (int n = 0; n < text.Length; n++)
             {
-                int g = font.Glyph(text[n]);
+                int g = shapes.Glyph(text[n]);
                 int gw = data[g + 1], gh = data[g + 2];
-                int gx = (pen + 2) / 4 + (sbyte)data[g + 3];
+                int gx = (pen * Scale + 2) / 4 + (sbyte)data[g + 3];
                 int gy = y + (sbyte)data[g + 4];
                 int p = g + 5;
                 for (int j = 0; j < gh; j++)
@@ -240,7 +272,7 @@ namespace VibanOS.Graphics
                         if (c != 0) Plot(gx + i, gy + j, color, c);
                     }
                 }
-                pen += data[g];
+                pen += font.Data[font.Glyph(text[n])];
             }
             return (pen + 3) / 4;
         }
@@ -257,10 +289,11 @@ namespace VibanOS.Graphics
         /// </summary>
         public void DrawScaled(Surface source, int x, int y, int w, int h, int r, int alpha)
         {
+            x *= Scale; y *= Scale; w *= Scale; h *= Scale; r *= Scale;
             if (w <= 0 || h <= 0 || alpha <= 0) return;
             if (2 * r > w) r = w / 2;
             if (2 * r > h) r = h / 2;
-            int stepX = (source.Width << 16) / w, stepY = (source.Height << 16) / h;
+            int stepX = (source.PixelWidth << 16) / w, stepY = (source.PixelHeight << 16) / h;
             for (int j = 0; j < h; j++)
             {
                 int py = y + j;
@@ -275,10 +308,10 @@ namespace VibanOS.Graphics
                 int x0 = x + inset, x1 = x + w - inset;
                 if (x0 < clipX0) x0 = clipX0;
                 if (x1 > clipX1) x1 = clipX1;
-                int row = ((j * stepY) >> 16) * source.Width;
+                int row = ((j * stepY) >> 16) * source.PixelWidth;
                 int sx = (x0 - x) * stepX;
                 for (int px = x0; px < x1; px++, sx += stepX)
-                    Blend(py * Width + px, (uint)source.Pixels[row + (sx >> 16)], alpha);
+                    Blend(py * PixelWidth + px, (uint)source.Pixels[row + (sx >> 16)], alpha);
             }
         }
 
@@ -290,13 +323,14 @@ namespace VibanOS.Graphics
         /// <summary>Kopiert einen Ausschnitt an dieselbe Stelle (für das Wiederherstellen unter dem Mauszeiger).</summary>
         public void CopyRect(Surface source, int x, int y, int w, int h)
         {
+            x *= Scale; y *= Scale; w *= Scale; h *= Scale;
             if (x < 0) { w += x; x = 0; }
             if (y < 0) { h += y; y = 0; }
-            if (x + w > Width) w = Width - x;
-            if (y + h > Height) h = Height - y;
+            if (x + w > PixelWidth) w = PixelWidth - x;
+            if (y + h > PixelHeight) h = PixelHeight - y;
             if (w <= 0) return;
             for (int j = 0; j < h; j++)
-                Array.Copy(source.Pixels, (y + j) * Width + x, Pixels, (y + j) * Width + x, w);
+                Array.Copy(source.Pixels, (y + j) * PixelWidth + x, Pixels, (y + j) * PixelWidth + x, w);
         }
     }
 }
