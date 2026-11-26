@@ -99,6 +99,7 @@ namespace VibanOS.Design
             public const int DockIcon = 48;
             public const int DockIndicator = 4;
             public const int Field = 30;        // Höhe von Eingabefeldern und Knöpfen
+            public const int Caret = 2;         // Breite der Einfügemarke im Eingabefeld
             public const int Row = 24;          // Zeilenhöhe in Listen
             public const int Avatar = 88;
             public const int AvatarSmall = 64; // Nutzerbild in der Nutzerwahl
@@ -137,6 +138,7 @@ namespace VibanOS.Design
             public const int Shake = 400;       // Feld schüttelt sich bei falschem Passwort
             public const int Hover = 120;       // Nutzerbild unter der Maus wächst, Ring blendet ein
             public const int Fade = 150;        // neuer Platzhalter im Feld blendet ein
+            public const int Blink = 500;       // Einfügemarke im Feld: so lange an, dann so lange aus
         }
     }
 }

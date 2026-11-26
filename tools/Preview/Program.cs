@@ -478,9 +478,11 @@ namespace VibanOS.Preview
             for (int i = 0; i < 3; i++) { login.OnKey(Key.None, 'x'); login.OnKey(Key.Enter, '\n'); }
             foreach (char ch in "geheim\n") login.OnKey(ch == '\n' ? Key.Enter : Key.None, ch);
             Check(OS.Users.Current == null, "Während der Sperre nach drei Fehlversuchen hilft auch das richtige Passwort nicht");
+            Check(!login.CaretShown, "Während der Sperre fehlt die Einfügemarke, das Feld nimmt nichts an");
             DateTime now = DateTime.Now;
             Check(!login.LockExpired(now) && login.LockExpired(now.AddSeconds(6)) && !login.LockExpired(now.AddSeconds(7)),
                 "Die Sperre nach drei Fehlversuchen läuft ab und meldet das genau einmal");
+            Check(login.CaretShown, "Nach der Sperre ist die Einfügemarke gleich wieder da");
             Type("\tfalsch\n");
             Check(OS.Users.Current == null, "Falsches Passwort wird abgelehnt");
             Shot(output, "2-anmeldung-fehler");
@@ -610,8 +612,30 @@ namespace VibanOS.Preview
             Check(screenLogin.Animating(animTime), "Nach dem Abmelden blendet die Anmeldung ein");
             animTime += T.Motion.Appear;
             Check(!screenLogin.Animating(animTime), "Danach steht die Anmeldung still");
+
+            // Einfügemarke im Feld: blinkt, steht beim Tippen still und wandert mit, fehlt in der Nutzerwahl
+            int caretPixels = T.Size.Caret * Fonts.Body.LineHeight * screen.Scale * screen.Scale;
+            Draw();
+            int caretX, typedX, unused, empty = Caret(out caretX);
+            Check(screenLogin.CaretShown && empty == caretPixels, "Im leeren Feld steht die Einfügemarke");
+            animTime += T.Motion.Blink;
+            bool blinked = Draw();
+            Check(blinked && !screenLogin.CaretShown && Caret(out unused) == 0 && dirtyArea * 100 < (long)screen.Width * screen.Height,
+                "Die Einfügemarke blinkt, dabei entsteht nur ihr kleiner Ausschnitt neu (" + dirtyArea + " Punkte)");
+            animTime += T.Motion.Blink;
+            Check(Draw() && screenLogin.CaretShown && Caret(out unused) == caretPixels, "Nach einem Takt ist sie wieder da");
+            animTime += T.Motion.Blink / 2;
+            Type("ab");
+            animTime += T.Motion.Blink - 1;
+            Draw();
+            int typed = Caret(out typedX);
+            Check(screenLogin.CaretShown && typed == caretPixels, "Beim Tippen steht die Einfügemarke still und blinkt erst danach weiter");
+            Check(typedX == caretX + T.Size.Caret + 2 * T.Space.M, "Die Einfügemarke wandert hinter den letzten Punkt");
+            Press(Key.Escape);
+
             ClickAt(screenLogin.AvatarCenter());
             Check(screenLogin.Picking && screenLogin.Animating(animTime), "Ein Klick auf das Nutzerbild fächert die Nutzerwahl auf");
+            Check(!screenLogin.CaretShown, "In der Nutzerwahl hat das Feld keine Einfügemarke");
             animTime += T.Motion.Picker / 3;
             OS.Changed = true;
             Draw();
@@ -638,6 +662,12 @@ namespace VibanOS.Preview
             ClickAt(screenLogin.AvatarCenter());
             ClickAt(screenLogin.TileCenter(OS.Users.All.Count));
             Check(screenLogin.Creating, "Das Plus in der Nutzerwahl legt einen neuen Nutzer an");
+            Settle();
+            Type("Dora");
+            Draw();
+            int nameX, named = Caret(out nameX);
+            Check(screenLogin.CaretShown && named == caretPixels && nameX == caretX + T.Size.Caret + Fonts.Body.Measure("dora"),
+                "Beim Anlegen steht die Einfügemarke hinter dem getippten Namen");
             Press(Key.Escape);
             Check(!screenLogin.Creating && !screenLogin.Picking, "Esc bricht das Anlegen ab");
             ClickAt(screenLogin.AvatarCenter());
@@ -1837,6 +1867,21 @@ namespace VibanOS.Preview
             long sum = 17;
             for (int i = 0; i < T.Size.MenuBar * screen.Width; i++) sum = sum * 31 + screen.Pixels[i];
             return sum;
+        }
+
+        // Zählt die Bildpunkte in der Farbe der Einfügemarke, x ist der am weitesten links (in Punkten), sonst -1.
+        // Auf dem Anmeldebildschirm hat außerhalb der Nutzerwahl nur sie genau diese Farbe.
+        private static int Caret(out int x)
+        {
+            int count = 0, left = int.MaxValue;
+            for (int i = 0; i < screen.Pixels.Length; i++)
+            {
+                if (((uint)screen.Pixels[i] & 0xFFFFFF) != (T.Color.Accent & 0xFFFFFF)) continue;
+                count++;
+                if (i % screen.PixelWidth < left) left = i % screen.PixelWidth;
+            }
+            x = count > 0 ? left / screen.Scale : -1;
+            return count;
         }
 
         // Stellt die Uhr weiter, bis jede Animation fertig ist, und zeichnet neu.

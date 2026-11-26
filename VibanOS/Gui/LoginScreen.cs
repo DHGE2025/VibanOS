@@ -16,6 +16,7 @@ namespace VibanOS.Gui
     /// Bewegung wie bei macOS, kurz und ruhig: Die Nutzerwahl fächert sich aus dem großen Bild auf und fällt
     /// beim Schließen in das gewählte zurück, das Feld schüttelt sich bei einem falschen Passwort, und nach dem
     /// Abmelden blendet die Anmeldung von unten ein. Die Zeiten kommen aus der Uhr Clock, nicht aus der Bildrate.
+    /// Im Feld blinkt eine Einfügemarke und zeigt, wo getippt wird. Beim Tippen steht sie still.
     /// </summary>
     public class LoginScreen
     {
@@ -65,6 +66,12 @@ namespace VibanOS.Gui
         private int hover = -1;
         private bool hoverAvatar;
 
+        // Einfügemarke im Feld: blinkt im Takt Motion.Blink, gezählt ab der letzten Taste. Beim Tippen bleibt sie so stehen.
+        // caretOn ist ihr Stand im laufenden Bild. NeedsFrame legt ihn einmal je Bild fest, damit das Vermessen und das
+        // stückweise Zeichnen desselben Bildes dasselbe sehen, auch wenn die Uhr dazwischen über die Grenze läuft.
+        private long typedAt;
+        private bool caretOn = true;
+
         /// <summary>true, solange die Nutzerwahl offen ist.</summary>
         public bool Picking { get { return mode == Mode.Picker; } }
 
@@ -77,6 +84,7 @@ namespace VibanOS.Gui
             if (lockedUntil == DateTime.MinValue || now < lockedUntil) return false;
             lockedUntil = DateTime.MinValue;
             error = "";
+            Solid(); // Das Feld nimmt wieder an: Die Einfügemarke kommt sofort zurück.
             return true;
         }
 
@@ -93,12 +101,37 @@ namespace VibanOS.Gui
         /// </summary>
         public bool NeedsFrame(long now)
         {
+            // Springt die Einfügemarke um, braucht es ein Bild. Neu gezeichnet wird dabei nur ihr kleiner Ausschnitt.
+            bool caret = CaretPhase(now);
+            bool blink = caret != caretOn && FieldActive;
+            caretOn = caret;
             if (Animating(now)) { moving = true; return true; }
             bool last = moving;
             moving = false;
-            return last;
+            return last || blink;
         }
         private bool moving;
+
+        /// <summary>true, wenn die Einfügemarke im laufenden Bild zu sehen ist. Für den Selbsttest.</summary>
+        public bool CaretShown { get { return caretOn && FieldActive && Openness(Clock()) == 0; } }
+
+        // Das Feld nimmt Tasten an: keine Nutzerwahl, keine Sperre nach Fehlversuchen, und die Nutzerdatei ist da.
+        // Die Sperre gilt bis LockExpired, nicht bis zur Uhrzeit: So wechselt sie nie mitten in einem Bild.
+        private bool FieldActive { get { return mode != Mode.Picker && lockedUntil == DateTime.MinValue && OS.Users.LoadError == null; } }
+
+        // An oder aus zur Zeit now: Die erste Hälfte jedes Takts an, ab der letzten Taste gezählt.
+        private bool CaretPhase(long now)
+        {
+            long t = now - typedAt;
+            return t < 0 || t / T.Motion.Blink % 2 == 0;
+        }
+
+        // Die Einfügemarke steht sichtbar still und blinkt erst nach Motion.Blink weiter.
+        private void Solid()
+        {
+            typedAt = Clock();
+            caretOn = true;
+        }
 
         /// <summary>Der Bildschirm ist gerade gesperrt worden: Die Anmeldung blendet von unten ein.</summary>
         public void Appear()
@@ -106,6 +139,7 @@ namespace VibanOS.Gui
             appearAt = Clock();
             hover = -1;
             hoverAvatar = false;
+            Solid();
         }
 
         /// <summary>
@@ -130,6 +164,7 @@ namespace VibanOS.Gui
         public void OnKey(Key key, char c)
         {
             if (DateTime.Now < lockedUntil) return;
+            Solid();
             if (mode == Mode.Picker) PickerKey(key);
             else if (mode == Mode.Create) CreateKey(key, c);
             else PasswordKey(key, c);
@@ -292,6 +327,7 @@ namespace VibanOS.Gui
             pickerAt = Clock();
             pickerOpening = false;
             hover = -1;
+            Solid();
         }
 
         private void CreateKey(Key key, char c)
@@ -482,9 +518,11 @@ namespace VibanOS.Gui
             s.FillRoundRect(fx, ty, FieldWidth, T.Size.Field, T.Size.Field / 2, Fade(T.Color.Dock, alpha));
             s.StrokeRoundRect(fx, ty, FieldWidth, T.Size.Field, T.Size.Field / 2, Fade(T.Color.Border, alpha));
             int textY = ty + (T.Size.Field - Fonts.Body.LineHeight) / 2;
+            // Die Einfügemarke steht im leeren Feld vor dem Platzhalter, sonst hinter dem letzten Zeichen oder Punkt.
+            int caretX = fx + T.Space.M - T.Size.Caret;
             if (creating && step == Step.Name && newName != "")
             {
-                s.DrawText(Fonts.Body, newName, fx + T.Space.M, textY, Fade(T.Color.TextPrimary, alpha));
+                caretX = s.DrawText(Fonts.Body, newName, fx + T.Space.M, textY, Fade(T.Color.TextPrimary, alpha));
             }
             else if (password == "" || (creating && step == Step.Name))
             {
@@ -496,12 +534,16 @@ namespace VibanOS.Gui
             }
             else
             {
-                // Punkte statt Zeichen. Zu lange Eingaben zeigen nur das Ende.
-                int dots = password.Length, max = (FieldWidth - 2 * T.Space.M) / T.Space.M;
+                // Punkte statt Zeichen. Zu lange Eingaben zeigen nur das Ende. Hinter dem letzten bleibt Platz für die Marke.
+                int dots = password.Length, max = (FieldWidth - 2 * T.Space.M - T.Size.Caret) / T.Space.M;
                 if (dots > max) dots = max;
                 for (int i = 0; i < dots; i++)
                     s.FillCircle(fx + T.Space.M + 4 + i * T.Space.M, ty + T.Size.Field / 2, 8, Fade(T.Color.TextPrimary, alpha));
+                caretX = fx + T.Space.M + dots * T.Space.M; // wo der nächste Punkt hinkäme
             }
+            // avatar heißt auch: Die Nutzerwahl ist ganz zu. Solange sie auf- oder zugeht, hat das Feld keine Marke.
+            if (avatar && caretOn && FieldActive)
+                s.FillRect(caretX, textY, T.Size.Caret, Fonts.Body.LineHeight, Fade(T.Color.Accent, alpha));
             ty += T.Size.Field + T.Space.M;
 
             string hint;
