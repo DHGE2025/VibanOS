@@ -1265,12 +1265,25 @@ namespace VibanOS.Preview
             damage(() => { s.SetClip(0, 0, 64, 40); s.FillRect(0, 0, 64, 64, a); s.ResetClip(); });
             Check(damage(() => { s.SetClip(0, 0, 64, 48); s.FillRect(0, 0, 64, 64, a); s.ResetClip(); }) == 1,
                 "Dieselbe Form anders beschnitten gilt als Änderung");
+            damage(() => { s.SetClip(0, 0, 64, 64); s.FillRoundRect(-8, -40, 100, 400, 0, a, b); s.ResetClip(); });
+            Check(damage(() => { s.SetClip(0, 0, 64, 64); s.FillRoundRect(-8, -48, 100, 400, 0, a, b); s.ResetClip(); }) == 1,
+                "Ein Verlauf, der unter demselben Zuschnitt verschoben ist, gilt als Änderung");
             damage(() => { });
             Check(damage(() => { for (int i = 0; i < 6; i++) s.FillRect(i * 32, i * 32, 8, 8, a); }) == 6 && r[20] == 160 && r[21] == 160 && r[22] == 32,
                 "Bis zu sechs getrennte Bereiche werden einzeln gemeldet");
             damage(() => { });
             Check(damage(() => { for (int i = 0; i < 7; i++) s.FillRect(i * 32, i * 32, 8, 8, a); }) == 1 && r[0] == 0 && r[1] == 0 && r[2] == 224 && r[3] == 224,
                 "Mehr als sechs Bereiche werden zu einem, der alle umfasst");
+            // Die Ecken kommen aus einer Tabelle für die linke obere, die anderen drei sind gespiegelt.
+            Surface round = new Surface(64, 48, 2);
+            round.FillRoundRect(3, 2, 57, 43, 9, a);
+            round.StrokeRoundRect(3, 2, 57, 43, 9, b);
+            bool mirrored = round.Pixels[4 * 128 + 6] == 0 && round.Pixels[5 * 128 + 6 + 18] != 0; // die Ecke selbst bleibt frei
+            for (int j = 0; j < 86 && mirrored; j++)
+                for (int i = 0; i < 114 && mirrored; i++)
+                    mirrored = round.Pixels[(4 + j) * 128 + 6 + i] == round.Pixels[(4 + 85 - j) * 128 + 6 + 113 - i]
+                        && round.Pixels[(4 + j) * 128 + 6 + i] == round.Pixels[(4 + j) * 128 + 6 + 113 - i];
+            Check(mirrored, "Abgerundete Ecken und ihr Rahmen sind oben und unten, links und rechts gleich");
             Surface twice = new Surface(64, 64, 2);
             twice.Measure();
             twice.Damage(r);
