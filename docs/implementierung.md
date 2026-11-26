@@ -45,8 +45,9 @@ Der Browser öffnet sich mit http://127.0.0.1:5099. Dort siehst du alle Branches
 ## 4. Aufgabe aus Linear nehmen
 
 1. In Linear im Team **VIB** eine Aufgabe nehmen, die dir zugewiesen ist.
-2. Auf **In Progress** setzen.
-3. Unter „Workflow“ in der Aufgabe stehen Branchname und PR-Titel. Nimm genau diese, nicht „Copy git branch name“ von Linear.
+2. **Nur Aufgaben, die nicht geblockt sind.** Steht in der Aufgabe „Blocked by“ mit einer anderen Aufgabe, die noch nicht fertig ist, lass sie liegen und nimm eine andere. Sie baut auf etwas auf, das es noch nicht gibt.
+3. Auf **In Progress** setzen.
+4. Unter „Workflow“ in der Aufgabe stehen Branchname und PR-Titel. Nimm genau diese, nicht „Copy git branch name“ von Linear.
 
 ## 5. Branch von development anlegen
 
