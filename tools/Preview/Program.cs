@@ -697,6 +697,62 @@ namespace VibanOS.Preview
             desktop.OnMouse(0, T.Size.ScreenHeight - 1, false);
             Check(terminal.X + terminal.Width >= T.Size.DockIcon && terminal.Y + T.Size.TitleBar <= dockTop,
                 "Ein Fenster lässt sich nicht ganz aus dem Bildschirm oder unter das Dock ziehen");
+
+            // Fenstergröße an Rändern und Ecken ziehen
+            terminal.X = 200; terminal.Y = 100;
+            int termW = terminal.Width, termH = terminal.Height;
+            int edgeX = terminal.X + termW + 2, edgeY = terminal.Y + 200; // knapp außerhalb des rechten Rands
+            desktop.OnMouse(edgeX, edgeY, false);
+            Draw();
+            Check(screen.Pixels[edgeY * screen.Width + edgeX - 8] == unchecked((int)T.Color.CursorEdge)
+                && screen.Pixels[edgeY * screen.Width + edgeX] == unchecked((int)T.Color.CursorFill),
+                "Über dem rechten Rand zeigt der Zeiger einen Doppelpfeil mit der Maus in der Mitte");
+            desktop.OnMouse(edgeX, edgeY, true);
+            desktop.OnMouse(edgeX + 40, edgeY + 30, true);
+            desktop.OnMouse(edgeX + 50, edgeY + 30, false);
+            Check(terminal.Width == termW + 50 && terminal.Height == termH && terminal.X == 200,
+                "Am rechten Rand wird das Fenster breiter, auch der letzte Schritt beim Loslassen zählt");
+            Draw();
+            desktop.OnMouse(edgeX, edgeY, false);
+            Check(terminal.Width == termW + 50, "Ein losgelassener Rand folgt der Maus nicht mehr");
+            desktop.OnMouse(400, 300, false);
+            Draw();
+            Check(screen.Pixels[300 * screen.Width + 400] == unchecked((int)T.Color.CursorEdge), "Im Fenster ist der Zeiger wieder ein Pfeil");
+            int cornerX = terminal.X + 1, cornerY = terminal.Y + 1;
+            desktop.OnMouse(cornerX, cornerY, true);
+            desktop.OnMouse(cornerX + 2000, cornerY + 2000, false);
+            Check(terminal.Width == terminal.MinWidth && terminal.Height == terminal.MinHeight
+                && terminal.X + terminal.Width == 200 + termW + 50 && terminal.Y + terminal.Height == 100 + termH,
+                "An der linken oberen Ecke schrumpft das Fenster bis zur Mindestgröße, rechts unten bleibt es stehen");
+            Draw();
+            cornerX = terminal.X - 2; cornerY = terminal.Y + 3;
+            desktop.OnMouse(cornerX, cornerY, true);
+            desktop.OnMouse(cornerX - 100, 0, false);
+            Check(terminal.Y == T.Size.MenuBar && terminal.X == 200 + termW + 50 - terminal.MinWidth - 100 && terminal.Y + terminal.Height == 100 + termH,
+                "Nach oben wächst ein Fenster höchstens bis an die Menüleiste");
+            int bottomEdge = terminal.Y + terminal.Height - 2;
+            desktop.OnMouse(terminal.X + terminal.Width / 2, bottomEdge, true);
+            desktop.OnMouse(terminal.X + terminal.Width / 2, bottomEdge + 40, false);
+            Check(terminal.Height == 100 + termH - T.Size.MenuBar + 40, "Am unteren Rand wird das Fenster höher");
+            Draw();
+            int infoBefore = OS.Processes.All.Count;
+            desktop.Open(Icons.About);
+            Window aboutBox = desktop.Active;
+            desktop.OnMouse(aboutBox.X + aboutBox.Width + 2, aboutBox.Y + 100, true);
+            desktop.OnMouse(aboutBox.X + aboutBox.Width + 60, aboutBox.Y + 100, false);
+            Check(aboutBox.Width == 340, "Fenster mit festem Inhalt (Info) lassen sich nicht an den Rändern ziehen");
+            Click(ControlX(aboutBox, Window.CloseButton), aboutBox.Y + T.Size.TitleBar / 2);
+            Settle();
+            Check(OS.Processes.All.Count == infoBefore, "Info ist wieder zu");
+            Click(ControlX(terminal, Window.ZoomButton), terminal.Y + T.Size.TitleBar / 2);
+            Settle();
+            int zoomedW = terminal.Width;
+            desktop.OnMouse(terminal.X + terminal.Width - 1, terminal.Y + 200, true);
+            desktop.OnMouse(terminal.X + terminal.Width - 101, terminal.Y + 200, false);
+            Check(!terminal.Zoomed && terminal.Width == zoomedW - 100, "Ein vergrößertes Fenster lässt sich verkleinern und gilt dann nicht mehr als vergrößert");
+            terminal.X = oldX - 60; terminal.Y = 100; terminal.Width = termW; terminal.Height = termH;
+            OS.Changed = true;
+            Draw();
             Click(DockIconX(Icons.Activity), dockRow);
             Check(desktop.Active is ActivityWindow, "Klick im Dock öffnet die App");
             Window activity = desktop.Active;

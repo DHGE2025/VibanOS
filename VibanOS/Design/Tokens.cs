@@ -107,6 +107,10 @@ namespace VibanOS.Design
             public const int ToggleHeight = 22;
             public const int Swatch = 20;       // Farbpunkt der Akzentfarbe
             public const int CursorScale = 2;   // Vergrößerung des großen Mauszeigers
+            public const int ResizeGrab = 4;    // so weit greift der Fensterrand zum Ziehen, innen wie außen
+            public const int ResizeCorner = 12; // so weit reicht eine Ecke an den Rändern entlang
+            public const int WindowMinWidth = 480;  // kleiner lässt sich ein Fenster nicht ziehen
+            public const int WindowMinHeight = 280;
         }
 
         /// <summary>Schatten: Unschärfe, Versatz nach unten, Deckkraft (0–255).</summary>

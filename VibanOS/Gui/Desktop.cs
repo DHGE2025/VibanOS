@@ -36,6 +36,84 @@ namespace VibanOS.Gui
             "       XX   ",
         };
 
+        // Doppelpfeile über einem Fensterrand, die Maus zeigt auf ihre Mitte. Reihenfolge wie die Werte von Shape.
+        private const int ArrowShape = 0, ResizeHorizontal = 1, ResizeVertical = 2, ResizeFalling = 3, ResizeRising = 4;
+        private static readonly string[][] ResizeCursors =
+        {
+            new string[]
+            {
+                "   XXX     XXX   ",
+                "  XX.X     X.XX  ",
+                " XX..X     X..XX ",
+                "XX...XXXXXXX...XX",
+                "X...............X",
+                "XX...XXXXXXX...XX",
+                " XX..X     X..XX ",
+                "  XX.X     X.XX  ",
+                "   XXX     XXX   ",
+            },
+            new string[]
+            {
+                "    XXX    ",
+                "   XX.XX   ",
+                "  XX...XX  ",
+                " XX.....XX ",
+                " X.......X ",
+                " XXXX.XXXX ",
+                "    X.X    ",
+                "    X.X    ",
+                "    X.X    ",
+                "    X.X    ",
+                "    X.X    ",
+                " XXXX.XXXX ",
+                " X.......X ",
+                " XX.....XX ",
+                "  XX...XX  ",
+                "   XX.XX   ",
+                "    XXX    ",
+            },
+            new string[]
+            {
+                "XXXXXXX          ",
+                "X.....X          ",
+                "X....XX          ",
+                "X...XX           ",
+                "X..X.XX          ",
+                "X.XXX.XX         ",
+                "XXX XX.XX        ",
+                "     XX.XX       ",
+                "      XX.XX      ",
+                "       XX.XX     ",
+                "        XX.XX XXX",
+                "         XX.XXX.X",
+                "          XX.X..X",
+                "           XX...X",
+                "          XX....X",
+                "          X.....X",
+                "          XXXXXXX",
+            },
+            new string[]
+            {
+                "          XXXXXXX",
+                "          X.....X",
+                "          XX....X",
+                "           XX...X",
+                "          XX.X..X",
+                "         XX.XXX.X",
+                "        XX.XX XXX",
+                "       XX.XX     ",
+                "      XX.XX      ",
+                "     XX.XX       ",
+                "XXX XX.XX        ",
+                "X.XXX.XX         ",
+                "X..X.XX          ",
+                "X...XX           ",
+                "X....XX          ",
+                "X.....X          ",
+                "XXXXXXX          ",
+            },
+        };
+
         private Surface wallpaper;
         private Surface scene;
         private readonly LoginScreen login = new LoginScreen();
@@ -52,6 +130,7 @@ namespace VibanOS.Gui
 
         private int mouseX, mouseY, drawnX = -1, drawnY = -1;
         private bool drawnLarge; // so groß steht der Mauszeiger gerade auf dem Bildschirm
+        private int shape, drawnShape; // Pfeil oder Doppelpfeil (*Shape, Resize*): gewünscht und auf dem Bildschirm
 
         /// <summary>
         /// Nach Frame() mit true: Nur diese Ausschnitte haben sich geändert und müssen an den Bildschirm.
@@ -82,6 +161,8 @@ namespace VibanOS.Gui
         private bool mouseDown;
         private Window dragging;
         private int dragX, dragY;
+        private Window resizing;   // wird gerade an einem Rand gezogen
+        private int resizeEdge, resizeX, resizeY, startX, startY, startWidth, startHeight;
         private int lastSecond = -1, lastMinute = -1;
         private bool wasLocked = true;
 
@@ -186,15 +267,24 @@ namespace VibanOS.Gui
                 // Am Anmeldebildschirm: Das Nutzerbild öffnet die Nutzerwahl. Anmelden geht nur mit der Tastatur.
                 login.OnMove(x, y);
                 if (pressed) { login.OnClick(x, y); OS.Changed = true; }
+                shape = ArrowShape;
                 return;
             }
 
             // Erst an die Stelle der Maus, dann loslassen: Bewegung und Loslassen können im selben Durchlauf ankommen,
             // das Fenster bliebe sonst einen Schritt hinter der Maus zurück.
             if (dragging != null) Place(dragging, x - dragX, y - dragY);
-            if (!down) dragging = null;
-            if (!pressed) return;
+            if (resizing != null) ResizeTo(x, y);
+            if (!down) { dragging = null; resizing = null; }
+            if (pressed) Press(x, y);
+            // Über einem Rand, der sich ziehen lässt, zeigt der Zeiger einen Doppelpfeil, und während des Ziehens bleibt er.
+            // Mit gedrückter Taste aus einem Fenster heraus nicht: Dann zieht man gerade etwas anderes.
+            shape = resizing != null ? ShapeOf(resizeEdge) : down ? ArrowShape : ShapeOf(EdgeUnder(x, y));
+        }
 
+        // Ein Klick: Dock, Fensterrand, Fensterknopf, Titelleiste oder Inhalt.
+        private void Press(int x, int y)
+        {
             int icon = DockIconAt(x, y);
             if (icon >= 0) { Open(icon); return; }
             // Ein Klick auf den Rand des Docks trifft kein Fenster darunter.
@@ -202,6 +292,8 @@ namespace VibanOS.Gui
             for (int i = windows.Count - 1; i >= 0; i--)
             {
                 Window w = windows[i];
+                int edge = w.EdgeAt(x, y);
+                if (edge != 0) { StartResize(w, edge, x, y); return; }
                 if (!w.Contains(x, y)) continue;
                 int control = w.ControlAt(x, y);
                 if (control == Window.CloseButton) { Close(w); return; }
@@ -217,6 +309,61 @@ namespace VibanOS.Gui
                 else w.OnClick(x, y);
                 return;
             }
+        }
+
+        // Der Rand unter der Maus, an dem ein Klick das Fenster größer und kleiner zöge. 0: keiner.
+        // Wie beim Klick gilt das vorderste Fenster, ein Rand unter einem anderen Fenster oder dem Dock zählt nicht.
+        private int EdgeUnder(int x, int y)
+        {
+            if (x >= DockX && x < DockX + DockWidth && y >= DockY && y < DockY + DockHeight) return 0;
+            for (int i = windows.Count - 1; i >= 0; i--)
+            {
+                int edge = windows[i].EdgeAt(x, y);
+                if (edge != 0) return edge;
+                if (windows[i].Contains(x, y)) return 0;
+            }
+            return 0;
+        }
+
+        private static int ShapeOf(int edge)
+        {
+            bool left = (edge & Window.EdgeLeft) != 0, right = (edge & Window.EdgeRight) != 0;
+            bool top = (edge & Window.EdgeTop) != 0, bottom = (edge & Window.EdgeBottom) != 0;
+            if ((left || right) && !top && !bottom) return ResizeHorizontal;
+            if ((top || bottom) && !left && !right) return ResizeVertical;
+            if ((left && top) || (right && bottom)) return ResizeFalling;
+            if ((right && top) || (left && bottom)) return ResizeRising;
+            return ArrowShape;
+        }
+
+        private void StartResize(Window w, int edge, int x, int y)
+        {
+            Focus(w);
+            Cancel(w); // ein laufender Zoom springt an sein Ziel, gezogen wird von dort aus
+            w.Zoomed = false; // von Hand gezogen ist es nicht mehr vergrößert, der grüne Knopf vergrößert wieder
+            resizing = w;
+            resizeEdge = edge;
+            resizeX = x; resizeY = y;
+            startX = w.X; startY = w.Y; startWidth = w.Width; startHeight = w.Height;
+        }
+
+        // Der gezogene Rand folgt der Maus. Der gegenüberliegende bleibt stehen, auch wenn die Mindestgröße erreicht ist.
+        private void ResizeTo(int x, int y)
+        {
+            Window w = resizing;
+            bool left = (resizeEdge & Window.EdgeLeft) != 0, top = (resizeEdge & Window.EdgeTop) != 0;
+            int width = startWidth, height = startHeight;
+            if (left) width = startWidth - (x - resizeX);
+            else if ((resizeEdge & Window.EdgeRight) != 0) width = startWidth + x - resizeX;
+            if (top) height = startHeight - (y - resizeY);
+            else if ((resizeEdge & Window.EdgeBottom) != 0) height = startHeight + y - resizeY;
+            if (top && startY + startHeight - height < T.Size.MenuBar) height = startY + startHeight - T.Size.MenuBar; // nicht unter die Menüleiste
+            if (width < w.MinWidth) width = w.MinWidth;
+            if (height < w.MinHeight) height = w.MinHeight;
+            int nx = left ? startX + startWidth - width : startX, ny = top ? startY + startHeight - height : startY;
+            if (nx == w.X && ny == w.Y && width == w.Width && height == w.Height) return;
+            w.X = nx; w.Y = ny; w.Width = width; w.Height = height;
+            OS.Changed = true;
         }
 
         /// <summary>Öffnet eine App aus dem Dock, holt ihr Fenster nach vorn oder aus dem Dock zurück.</summary>
@@ -376,7 +523,16 @@ namespace VibanOS.Gui
 
             // Als bewegt gilt auch ein Zeiger, der anders aussehen soll, als er auf dem Bildschirm steht (Größe umgeschaltet):
             // Er liegt nur auf front und geht in keine Kachel ein, sein Ausschnitt muss also eigens an den Bildschirm.
-            bool moved = mouseX != drawnX || mouseY != drawnY || Settings.LargeCursor != drawnLarge;
+            // Gezeichnet wird ab der linken oberen Ecke des Zeigers: Beim Pfeil ist das die Spitze, beim Doppelpfeil liegt die Maus in der Mitte.
+            int k = Settings.LargeCursor ? T.Size.CursorScale : 1;
+            int cursorX = mouseX, cursorY = mouseY;
+            if (shape != ArrowShape)
+            {
+                string[] rows = ResizeCursors[shape - 1];
+                cursorX -= rows[0].Length / 2 * k;
+                cursorY -= rows.Length / 2 * k;
+            }
+            bool moved = cursorX != drawnX || cursorY != drawnY || Settings.LargeCursor != drawnLarge || shape != drawnShape;
             if (!OS.Changed && !moved) return false;
             DirtyCount = 0;
             if (OS.Changed)
@@ -409,19 +565,21 @@ namespace VibanOS.Gui
             if (hit)
             {
                 front.CopyRect(scene, drawnX, drawnY, size, size);
-                DrawCursor(front, mouseX, mouseY);
+                DrawCursor(front, cursorX, cursorY, shape);
             }
             if (moved)
             {
                 // Alte und neue Stelle in einem Ausschnitt. Steht er still, liegt alles Geänderte schon in den Bereichen oben.
                 int n = 4 * DirtyCount++;
-                Dirty[n] = Math.Min(drawnX, mouseX);
-                Dirty[n + 1] = Math.Min(drawnY, mouseY);
-                Dirty[n + 2] = Math.Max(drawnX, mouseX) + size - Dirty[n];
-                Dirty[n + 3] = Math.Max(drawnY, mouseY) + size - Dirty[n + 1];
-                drawnX = mouseX;
-                drawnY = mouseY;
+                // Ein Doppelpfeil am Rand des Bildschirms beginnt links oder oben davor, der Ausschnitt nicht.
+                Dirty[n] = Math.Max(0, Math.Min(drawnX, cursorX));
+                Dirty[n + 1] = Math.Max(0, Math.Min(drawnY, cursorY));
+                Dirty[n + 2] = Math.Max(drawnX, cursorX) + size - Dirty[n];
+                Dirty[n + 3] = Math.Max(drawnY, cursorY) + size - Dirty[n + 1];
+                drawnX = cursorX;
+                drawnY = cursorY;
                 drawnLarge = Settings.LargeCursor;
+                drawnShape = shape;
             }
             return DirtyCount > 0;
         }
@@ -505,12 +663,13 @@ namespace VibanOS.Gui
             return -1;
         }
 
-        private static void DrawCursor(Surface s, int x, int y)
+        private static void DrawCursor(Surface s, int x, int y, int shape)
         {
             int k = Settings.LargeCursor ? T.Size.CursorScale : 1;
-            for (int j = 0; j < Cursor.Length; j++)
+            string[] rows = shape == ArrowShape ? Cursor : ResizeCursors[shape - 1];
+            for (int j = 0; j < rows.Length; j++)
             {
-                string row = Cursor[j];
+                string row = rows[j];
                 for (int i = 0; i < row.Length; i++)
                 {
                     if (row[i] == ' ') continue;
