@@ -1,10 +1,11 @@
 using VibanOS.Core;
+using VibanOS.Platform;
 using VibanOS.Processes;
 using VibanOS.Users;
 
 namespace VibanOS.Cli.Commands
 {
-    /// <summary>Basis der Befehle, die in einen Prozess eingreifen (kill, alloc).</summary>
+    /// <summary>Basis der Befehle, die in einen Prozess eingreifen (kill, block, unblock, alloc).</summary>
     public abstract class ProcessCommand : Command
     {
         /// <summary>
@@ -62,6 +63,11 @@ namespace VibanOS.Cli.Commands
             int priority = p.Priority;
             if (args.Length > 1 && !int.TryParse(args[1], out priority)) { shell.Error("Die Priorität muss eine ganze Zahl sein."); return; }
             p.Priority = priority;
+            if (OS.Processes.All.Count >= ProcessManager.MaxProcesses)
+            {
+                shell.Error("Zu viele Prozesse: Mehr als " + ProcessManager.MaxProcesses + " gibt es nicht zugleich. 'kill <pid>' räumt beendete weg.");
+                return;
+            }
             if (OS.Processes.Start(p) == null) { shell.Error("Speicher voll: Für den Prozess ist kein Rahmen frei."); return; }
             shell.WriteLine("Prozess " + p.Id + " (" + p.Name + ") gestartet.");
         }
@@ -79,6 +85,78 @@ namespace VibanOS.Cli.Commands
             if (p == null) return;
             OS.Processes.Kill(p.Id);
             shell.WriteLine("Prozess " + p.Id + " beendet.");
+        }
+    }
+
+    public class BlockCommand : ProcessCommand
+    {
+        public override string Name { get { return "block"; } }
+        public override string Usage { get { return "block <pid>"; } }
+        public override string Description { get { return "Prozess blockieren, bis unblock ihn weckt"; } }
+
+        public override void Execute(string[] args, Shell shell)
+        {
+            Process p = Target(args, shell);
+            if (p == null) return;
+            if (!OS.Processes.Block(p))
+            {
+                shell.Error("Prozess " + p.Id + " ist " + (p.State == ProcessState.Terminated ? "beendet." : "schon blockiert."));
+                return;
+            }
+            shell.WriteLine("Prozess " + p.Id + " blockiert, 'unblock " + p.Id + "' lässt ihn weiterlaufen.");
+        }
+    }
+
+    public class UnblockCommand : ProcessCommand
+    {
+        public override string Name { get { return "unblock"; } }
+        public override string Usage { get { return "unblock <pid>"; } }
+        public override string Description { get { return "Blockierten Prozess wecken"; } }
+
+        public override void Execute(string[] args, Shell shell)
+        {
+            Process p = Target(args, shell);
+            if (p == null) return;
+            if (!OS.Processes.Unblock(p)) { shell.Error("Prozess " + p.Id + " ist nicht blockiert."); return; }
+            shell.WriteLine("Prozess " + p.Id + " ist wieder bereit.");
+        }
+    }
+
+    /// <summary>Zeigt, was beim Kontextwechsel von einem Prozess stehen bleibt: Thread, Stack und gesicherte Register.</summary>
+    public class ContextCommand : ProcessCommand
+    {
+        public override string Name { get { return "context"; } }
+        public override string Usage { get { return "context <pid>"; } }
+        public override string Description { get { return "Thread, Stack und gesicherte Register eines Prozesses"; } }
+
+        public override void Execute(string[] args, Shell shell)
+        {
+            Process p = Target(args, shell);
+            if (p == null) return;
+            shell.WriteLine("Prozess " + p.Id + " (" + p.Name + "), " + p.StateText + ", " + p.Steps + " mal an der CPU");
+            if (p.Context == null)
+            {
+                shell.WriteLine(p.State == ProcessState.Terminated ? "Beendet: Sein Stack ist abgebaut."
+                    : p.Passive ? "Ein Fenster ohne eigenes Programm: Der Scheduler zählt es mit, die CPU und einen Stack braucht es nicht."
+                    : "Noch nicht gelaufen: Den Stack bekommt er beim ersten Wechsel.", LineStyle.Muted);
+                return;
+            }
+            ThreadInfo info = Hardware.InspectThread(p.Context.Handle);
+            if (info == null)
+            {
+                shell.WriteLine("Thread " + p.Context.ThreadId + ", eigener Stack mit " + Text.Bytes(Context.StackSize));
+                shell.WriteLine("Die gesicherten Register zeigt nur der Kernel unter COSMOS.", LineStyle.Muted);
+                return;
+            }
+            shell.WriteLine("Thread " + info.Id + ", eigener Stack mit " + Text.Bytes(info.StackSize) + " ab 0x" + Text.Hex(info.StackBase, 16));
+            if (info.Registers == null) { shell.WriteLine("Der Thread läuft gerade, seine Register sind in der CPU.", LineStyle.Muted); return; }
+            shell.WriteLine("Gesichert beim letzten Wechsel, auf dem Stack des Prozesses:", LineStyle.Muted);
+            string line = "";
+            for (int i = 0; i < info.Registers.Length; i++)
+            {
+                line += Text.Pad(ThreadInfo.RegisterNames[i], 7) + "0x" + Text.Hex(info.Registers[i], 16) + "  ";
+                if (i % 2 == 1 || i == info.Registers.Length - 1) { shell.WriteLine(line.TrimEnd()); line = ""; }
+            }
         }
     }
 }

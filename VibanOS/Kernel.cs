@@ -91,9 +91,10 @@ namespace VibanOS
             while (!Stopped)
             {
                 long began = Transition.Milliseconds();
+                bool ran = false;
                 try
                 {
-                    Frame();
+                    ran = Frame();
                     failures = 0;
                 }
                 catch (Exception e)
@@ -105,13 +106,14 @@ namespace VibanOS
                     OS.Shell.Error("Interner Fehler: " + e.Message);
                 }
                 // Nach einem Durchlauf, der selbst schon so lange gebraucht hat (ein großes Stück neu gezeichnet), sofort
-                // weiter: Die Pause käme sonst zu jedem Bild dazu, und ein gezogenes Fenster ruckelt.
-                if (Transition.Milliseconds() - began < FramePause || Stopwatch.Frequency <= 0) Thread.Sleep(FramePause);
+                // weiter: Die Pause käme sonst zu jedem Bild dazu, und ein gezogenes Fenster ruckelt. Auch nach einem
+                // Durchlauf, in dem ein Prozess die CPU hatte und der Kernel beim Wechsel schon gewartet hat (siehe Frame).
+                if (Transition.Milliseconds() - began < (ran ? 1 : FramePause) || Stopwatch.Frequency <= 0) Thread.Sleep(FramePause);
             }
         }
 
-        // Ein Durchlauf: Eingaben verteilen, Kern weiterschalten, bei Bedarf neu zeichnen.
-        private void Frame()
+        // Ein Durchlauf: Eingaben verteilen, bei Bedarf neu zeichnen, dann bekommt ein Prozess die CPU. true: Einer war dran.
+        private bool Frame()
         {
             KeyEvent key;
             while (KeyboardManager.TryReadKey(out key))
@@ -120,7 +122,6 @@ namespace VibanOS
                 desktop.OnKey(Translate(key.Key), key.KeyChar);
             }
             desktop.OnMouse(MouseManager.X, MouseManager.Y, MouseManager.LeftButton);
-            OS.Tick();
             // Die Einstellungen haben die Auflösung umgeschaltet: Der Canvas hat jetzt einen neuen, anders großen Puffer.
             if (canvas.Width != front.PixelWidth || canvas.Height != canvasHeight)
             {
@@ -151,11 +152,15 @@ namespace VibanOS
                 if (took > slowest) slowest = took;
                 drawn++;
             }
+            // Erst jetzt, wo das Bild steht, bekommt ein Prozess die CPU: Der Wechsel zu ihm ist ein echter Kontextwechsel,
+            // und den vollzieht COSMOS erst beim nächsten Interrupt, spätestens beim Tick seines Timers nach 10 ms. So lange
+            // steht der Kernel hier, die Eingabe von eben ist aber schon zu sehen. Zurück geht es sofort.
+            bool ran = OS.Tick();
             // Einmal je Sekunde ins Protokoll, wie viele Bilder es gab und wie lange sie brauchten: das langsamste, alle
             // zusammen, und davon Vermessen, Zeichnen und Anzeigen. Daran sieht man in der Werkstatt, ob das Zeichnen auf
             // diesem Rechner flüssig ist und woran es hängt. Ohne neues Bild keine Zeile.
             long now = Transition.Milliseconds() / 1000;
-            if (now == second) return;
+            if (now == second) return ran;
             long f = Stopwatch.Frequency;
             if (drawn > 0 && f > 0)
                 Log.WriteString("[VibanOS] " + drawn + " Bilder, das langsamste " + slowest * 1000 / f + " ms, zusammen " + busy * 1000 / f + " ms (vermessen "
@@ -163,6 +168,7 @@ namespace VibanOS
             second = now;
             slowest = busy = shown = desktop.Measured = desktop.Painted = 0;
             drawn = 0;
+            return ran;
         }
 
         private static Gui.Key Translate(Sys.Input.Key key)

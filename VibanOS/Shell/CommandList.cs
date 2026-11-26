@@ -36,6 +36,9 @@ namespace VibanOS.Cli
             shell.Register(new PsCommand());
             shell.Register(new StartCommand());
             shell.Register(new KillCommand());
+            shell.Register(new BlockCommand());
+            shell.Register(new UnblockCommand());
+            shell.Register(new ContextCommand());
 
             // Speicher (VIB-5)
             shell.Register(new MemCommand());

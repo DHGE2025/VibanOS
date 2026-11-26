@@ -50,12 +50,15 @@ namespace VibanOS.Core
             if (!Drivers.Start("com1")) Shell.Error("Der Treiber com1 ließ sich nicht starten, 'send' geht deshalb nicht.");
         }
 
-        /// <summary>Ein Durchlauf der Kernel-Schleife: Timer-Tick und ein Schritt des Schedulers.</summary>
-        public static void Tick()
+        /// <summary>
+        /// Ein Durchlauf der Kernel-Schleife: Timer-Tick, dann bekommt ein bereiter Prozess die CPU, bis er sie abgibt.
+        /// false: Kein Prozess hatte die CPU, weil keiner bereit war oder der gewählte kein Programm hat (ein Fenster).
+        /// </summary>
+        public static bool Tick()
         {
             Ticks++;
             Interrupts.Raise(InterruptManager.Timer);
-            Processes.Tick();
+            return Processes.Tick();
         }
     }
 }

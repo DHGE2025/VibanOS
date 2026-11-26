@@ -6,14 +6,16 @@ namespace VibanOS.Processes
     /// <summary>Zählt endlos hoch.</summary>
     public class CounterProcess : Process
     {
-        private int count;
-
         public CounterProcess() { Name = "counter"; }
 
-        public override void Step()
+        public override void Run()
         {
-            count++;
-            Output = "Zähler " + count;
+            // Der Zähler ist eine lokale Variable: Er liegt auf dem Stack des Prozesses und übersteht jeden Wechsel.
+            for (int count = 1; ; count++)
+            {
+                Output = "Zähler " + count;
+                Yield();
+            }
         }
     }
 
@@ -32,20 +34,21 @@ namespace VibanOS.Processes
     /// <summary>Sucht Primzahlen und beendet sich nach einer festen Zahl von Schritten.</summary>
     public class BusyProcess : Process
     {
-        private int candidate = 2;
-        private int found;
-
         public BusyProcess() { Name = "busy"; EstimatedSteps = 2000; }
 
-        public override void Step()
+        public override void Run()
         {
-            bool prime = true;
-            for (int d = 2; d * d <= candidate; d++)
-                if (candidate % d == 0) { prime = false; break; }
-            if (prime) found++;
-            Output = found + " Primzahlen bis " + candidate;
-            candidate++;
-            if (Steps + 1 >= EstimatedSteps) State = ProcessState.Terminated;
+            int found = 0;
+            for (int candidate = 2; ; candidate++)
+            {
+                bool prime = true;
+                for (int d = 2; d * d <= candidate; d++)
+                    if (candidate % d == 0) { prime = false; break; }
+                if (prime) found++;
+                Output = found + " Primzahlen bis " + candidate;
+                if (Steps + 1 >= EstimatedSteps) return; // Mit dem Ende von Run ist der Prozess beendet.
+                Yield();
+            }
         }
     }
 }
