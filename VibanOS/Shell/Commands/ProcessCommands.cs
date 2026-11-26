@@ -137,7 +137,7 @@ namespace VibanOS.Cli.Commands
             if (p.Context == null)
             {
                 shell.WriteLine(p.State == ProcessState.Terminated ? "Beendet: Sein Stack ist abgebaut."
-                    : p.Passive ? "Ein Fenster ohne eigenes Programm: Es braucht keinen Stack."
+                    : p.Passive ? "Ein Fenster ohne eigenes Programm: Der Scheduler zählt es mit, die CPU und einen Stack braucht es nicht."
                     : "Noch nicht gelaufen: Den Stack bekommt er beim ersten Wechsel.", LineStyle.Muted);
                 return;
             }
