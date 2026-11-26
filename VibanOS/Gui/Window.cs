@@ -62,6 +62,12 @@ namespace VibanOS.Gui
 
         /// <summary>Vergrößert durch den grünen Knopf. Normal* ist dann die Größe davor.</summary>
         public bool Zoomed;
+
+        /// <summary>
+        /// An Bildschirmränder angedockt (Edge*): ein Rand füllt diese Hälfte, zwei (Ecke) dieses Viertel. 0: nicht angedockt.
+        /// Normal* ist dann die Größe davor.
+        /// </summary>
+        public int Snapped;
         public int NormalX, NormalY, NormalWidth, NormalHeight;
 
         /// <summary>true: Das Fenster lässt sich an Rändern und Ecken größer und kleiner ziehen. Wie beim Zoom nur, wenn der Inhalt mitwächst.</summary>

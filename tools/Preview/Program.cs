@@ -694,9 +694,10 @@ namespace VibanOS.Preview
             int dockRow = T.Size.ScreenHeight - T.Space.S - T.Space.M - T.Size.DockIcon / 2, dockTop = dockRow - T.Size.DockIcon / 2 - T.Space.S;
             desktop.OnMouse(terminal.X + terminal.Width - 5, terminal.Y + 10, true);
             desktop.OnMouse(0, T.Size.ScreenHeight - 1, true);
-            desktop.OnMouse(0, T.Size.ScreenHeight - 1, false);
             Check(terminal.X + terminal.Width >= T.Size.DockIcon && terminal.Y + T.Size.TitleBar <= dockTop,
                 "Ein Fenster lässt sich nicht ganz aus dem Bildschirm oder unter das Dock ziehen");
+            desktop.OnMouse(300, 300, false); // nicht in der Ecke loslassen, sonst dockt es dort an
+            Check(terminal.Snapped == 0, "Mitten auf dem Bildschirm losgelassen dockt ein Fenster nicht an");
 
             // Fenstergröße an Rändern und Ecken ziehen
             terminal.X = 200; terminal.Y = 100;
@@ -751,6 +752,58 @@ namespace VibanOS.Preview
             desktop.OnMouse(terminal.X + terminal.Width - 101, terminal.Y + 200, false);
             Check(!terminal.Zoomed && terminal.Width == zoomedW - 100, "Ein vergrößertes Fenster lässt sich verkleinern und gilt dann nicht mehr als vergrößert");
             terminal.X = oldX - 60; terminal.Y = 100; terminal.Width = termW; terminal.Height = termH;
+            OS.Changed = true;
+            Draw();
+
+            // Andocken: an einen Bildschirmrand gezogen füllt ein Fenster diese Hälfte, in einer Ecke ein Viertel
+            int areaX = T.Space.S, areaY = T.Size.MenuBar + T.Space.S, areaW = T.Size.ScreenWidth - 2 * T.Space.S;
+            int areaH = T.Size.ScreenHeight - (T.Size.DockIcon + T.Space.S + T.Space.M) - T.Space.S - T.Space.S - areaY;
+            int halfW = (areaW - T.Space.S) / 2, halfH = (areaH - T.Space.S) / 2;
+            int probe = (areaY + areaH - 20) * screen.Width + 100; // links unten in der Hälfte, nicht unter dem Fenster
+            int beforeSnap = screen.Pixels[probe];
+            desktop.OnMouse(terminal.X + 300, terminal.Y + 10, true);
+            desktop.OnMouse(0, 60, true);
+            Draw();
+            Check(screen.Pixels[probe] != beforeSnap, "Am linken Rand zeigt eine Fläche, wohin das Fenster andockt");
+            SavePng(screen, Path.Combine(output, "5-andocken.png"));
+            desktop.OnMouse(0, 60, false);
+            Settle();
+            Check(terminal.Snapped == Window.EdgeLeft && terminal.X == areaX && terminal.Y == areaY && terminal.Width == halfW && terminal.Height == areaH,
+                "Am linken Rand losgelassen füllt das Fenster die linke Hälfte");
+            Check(screen.Pixels[probe] != beforeSnap, "Nach dem Andocken liegt das Fenster dort, wo die Fläche war");
+            desktop.OnMouse(terminal.X + 300, terminal.Y + 10, true);
+            desktop.OnMouse(700, 300, true);
+            Check(terminal.Snapped == 0 && terminal.Width == termW && terminal.Height == termH && terminal.X < 700 && terminal.X + terminal.Width > 700,
+                "Weggezogen bekommt ein angedocktes Fenster seine alte Größe zurück und bleibt unter der Maus");
+            desktop.OnMouse(T.Size.ScreenWidth - 1, 0, false);
+            Settle();
+            Check(terminal.Snapped == (Window.EdgeRight | Window.EdgeTop) && terminal.X + terminal.Width == areaX + areaW && terminal.Y == areaY
+                && terminal.Width == halfW && terminal.Height == halfH, "In der Ecke rechts oben losgelassen füllt das Fenster dieses Viertel");
+            desktop.OnMouse(terminal.X + 200, terminal.Y + 10, true);
+            desktop.OnMouse(T.Size.ScreenWidth / 2, T.Size.ScreenHeight - 1, false);
+            Settle();
+            Check(terminal.Snapped == Window.EdgeBottom && terminal.Y + terminal.Height == areaY + areaH && terminal.Width == areaW && terminal.Height == halfH,
+                "Am unteren Rand losgelassen füllt das Fenster die untere Hälfte");
+            desktop.OnMouse(terminal.X + 200, terminal.Y + 10, true);
+            desktop.OnMouse(T.Size.ScreenWidth / 2, 0, false);
+            Settle();
+            Check(terminal.Snapped == Window.EdgeTop && terminal.Y == areaY && terminal.Height == halfH, "Am oberen Rand losgelassen füllt das Fenster die obere Hälfte");
+            Click(ControlX(terminal, Window.ZoomButton), terminal.Y + T.Size.TitleBar / 2);
+            Settle();
+            Check(terminal.Zoomed && terminal.Snapped == 0 && terminal.Width == areaW, "Der grüne Knopf vergrößert auch ein angedocktes Fenster");
+            Click(ControlX(terminal, Window.ZoomButton), terminal.Y + T.Size.TitleBar / 2);
+            Settle();
+            Check(!terminal.Zoomed && terminal.Width == termW && terminal.Height == termH, "Danach stellt er die Größe von vor dem Andocken her");
+            desktop.Open(Icons.About);
+            Settle();
+            Window snapAbout = desktop.Active;
+            desktop.OnMouse(snapAbout.X + 200, snapAbout.Y + 10, true);
+            desktop.OnMouse(0, 300, false);
+            Settle();
+            Check(snapAbout.Snapped == 0 && snapAbout.Width == 340, "Fenster mit festem Inhalt docken nicht an");
+            Click(ControlX(snapAbout, Window.CloseButton), snapAbout.Y + T.Size.TitleBar / 2);
+            Settle();
+            terminal.X = oldX - 60; terminal.Y = 100;
             OS.Changed = true;
             Draw();
             Click(DockIconX(Icons.Activity), dockRow);

@@ -82,6 +82,7 @@ Alle Farben sind `0xAARRGGBB`. Werte mit Deckkraft unter `FF` scheinen durch.
 | `WallBlob1` bis `WallBlob4` | `#7B3FE4`, `#E4477E`, `#FF9552`, `#2A7BEA` | weiche Farbflecken. `WallBlob1` → `WallBlob2` ist auch der Verlauf des Logos |
 | `Folder`, `FolderBack` | `#5AB4F5`, `#3A8FDB` | Ordnersymbol in der App Dateien und im Dock: vorn die Mappe, dahinter Reiter und Rückseite |
 | `Shadow` | `#000000` | Schattenfarbe, die Deckkraft kommt aus `T.Shadow` |
+| `SnapAlpha` | 64 von 255 | Vorschau beim Andocken: `Accent` mit dieser Deckkraft, Rahmen in `Border` |
 | `CursorFill`, `CursorEdge` | `#111113`, `#FFFFFF` | Mauszeiger, auch die Doppelpfeile über einem Fensterrand |
 
 ## Schrift
@@ -130,6 +131,8 @@ Eingabefelder sind Pillen: Der Radius ist die halbe Höhe.
 | `Size.CursorScale` | 2 | Vergrößerung des großen Mauszeigers |
 | `Size.ResizeGrab` | 4 | So weit greift ein Fensterrand zum Größerziehen, innen wie außen |
 | `Size.ResizeCorner` | 12 | So weit reicht eine Ecke an beiden Rändern entlang |
+| `Size.SnapEdge` | 4 | So nah am Bildschirmrand dockt ein gezogenes Fenster an |
+| `Size.SnapCorner` | 48 | So weit reicht eine Ecke beim Andocken an den Rändern entlang |
 | `Size.WindowMinWidth`, `Size.WindowMinHeight` | 480, 280 | Kleinste Fenstergröße beim Ziehen. Dateien braucht neben der Seitenleiste mehr Platz und bleibt mindestens 560 breit |
 
 ## Schatten
@@ -166,7 +169,7 @@ Fenster bewegen sich kurz und ruhig, nie verspielt. Die Werte stehen in `T.Motio
 
 ## Bausteine
 
-- **Fenster** (`Gui/Window.cs`): Radius `M`, Titelleiste in `TitleBar` mit zentriertem Titel in `Fonts.Strong`, links die drei Knöpfe mit Abstand `M` zum Rand. 1-px-Rahmen in `Border`, darunter der Schatten. Inaktive Fenster: Knöpfe grau, Titel in `TextTertiary`, schwächerer Schatten. Der grüne Knopf ist auch im aktiven Fenster grau, wenn der Inhalt nicht mitwächst (nur Terminal und Dateien lassen sich zoomen). Dieselben Fenster lassen sich an allen Rändern und Ecken größer und kleiner ziehen, über einem solchen Rand wird der Mauszeiger zum Doppelpfeil (waagerecht, senkrecht oder schräg), die Maus liegt in seiner Mitte.
+- **Fenster** (`Gui/Window.cs`): Radius `M`, Titelleiste in `TitleBar` mit zentriertem Titel in `Fonts.Strong`, links die drei Knöpfe mit Abstand `M` zum Rand. 1-px-Rahmen in `Border`, darunter der Schatten. Inaktive Fenster: Knöpfe grau, Titel in `TextTertiary`, schwächerer Schatten. Der grüne Knopf ist auch im aktiven Fenster grau, wenn der Inhalt nicht mitwächst (nur Terminal und Dateien lassen sich zoomen). Dieselben Fenster lassen sich an allen Rändern und Ecken größer und kleiner ziehen, über einem solchen Rand wird der Mauszeiger zum Doppelpfeil (waagerecht, senkrecht oder schräg), die Maus liegt in seiner Mitte. Zieht man so ein Fenster an der Titelleiste an einen Bildschirmrand, zeigt eine durchscheinende Fläche in der Akzentfarbe, wohin es beim Loslassen andockt: an einem Rand die Hälfte der Fläche zwischen Menüleiste und Dock, in einer Ecke ein Viertel, mit Abstand `S` zum Rand und dazwischen. Weggezogen bekommt es seine alte Größe zurück.
 - **Menüleiste**: volle Breite, durchscheinend. Links Logo und Titel des aktiven Fensters, rechts Nutzer (`TextSecondary`), Datum und Uhrzeit.
 - **Dock**: mittig am unteren Rand, Abstand `S` zum Rand, Radius `L`, durchscheinend mit Rahmen. Symbole 48 px mit Abstand `M`. Ein kleiner Punkt zeigt, dass die App offen ist.
 - **App-Symbol** (`Gui/Icons.cs`): abgerundetes Quadrat mit senkrechtem Verlauf, 1-px-Rahmen, ein einfaches helles Zeichen. Symbole werden gezeichnet, nicht als Bild geladen.

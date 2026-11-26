@@ -162,6 +162,7 @@ namespace VibanOS.Gui
         private Window dragging;
         private int dragX, dragY;
         private Window resizing;   // wird gerade an einem Rand gezogen
+        private int snapEdges;      // beim Loslassen dockt das gezogene Fenster an diese Ränder an (Window.Edge*), 0: nicht
         private int resizeEdge, resizeX, resizeY, startX, startY, startWidth, startHeight;
         private int lastSecond = -1, lastMinute = -1;
         private bool wasLocked = true;
@@ -199,9 +200,10 @@ namespace VibanOS.Gui
             {
                 Window w = apps[i];
                 if (w == null) continue;
-                if (w.Zoomed)
+                if (w.Zoomed || w.Snapped != 0)
                 {
-                    ZoomArea(out w.X, out w.Y, out w.Width, out w.Height);
+                    if (w.Zoomed) ZoomArea(out w.X, out w.Y, out w.Width, out w.Height);
+                    else SnapArea(w.Snapped, out w.X, out w.Y, out w.Width, out w.Height);
                     Keep(ref w.NormalX, ref w.NormalY, w.NormalWidth); // auch die Größe davor muss auf den Schirm passen
                 }
                 else Place(w, w.X, w.Y);
@@ -235,6 +237,37 @@ namespace VibanOS.Gui
             y = T.Size.MenuBar + T.Space.S;
             width = scene.Width - 2 * T.Space.S;
             height = DockY - T.Space.S - y;
+        }
+
+        // Der Teil der Zoom-Fläche, an den ein Fenster andockt (Window.Edge*): ein Rand die Hälfte, eine Ecke ein Viertel.
+        // Zwischen den Teilen Abstand S wie am Rand.
+        private void SnapArea(int edges, out int x, out int y, out int width, out int height)
+        {
+            ZoomArea(out x, out y, out width, out height);
+            if ((edges & (Window.EdgeLeft | Window.EdgeRight)) != 0)
+            {
+                int half = (width - T.Space.S) / 2;
+                if ((edges & Window.EdgeRight) != 0) x += width - half;
+                width = half;
+            }
+            if ((edges & (Window.EdgeTop | Window.EdgeBottom)) != 0)
+            {
+                int half = (height - T.Space.S) / 2;
+                if ((edges & Window.EdgeBottom) != 0) y += height - half;
+                height = half;
+            }
+        }
+
+        // An welche Ränder dockt ein Fenster an, das an der Stelle der Maus losgelassen wird? Ganz am Bildschirmrand
+        // eine Hälfte, in einer Ecke ein Viertel. Die Ecke greift SnapCorner weit, damit man sie nicht genau treffen muss.
+        private int SnapEdgesAt(int x, int y)
+        {
+            int edge = T.Size.SnapEdge, corner = T.Size.SnapCorner;
+            int horizontal = x < edge ? Window.EdgeLeft : x >= scene.Width - edge ? Window.EdgeRight : 0;
+            int vertical = y < edge ? Window.EdgeTop : y >= scene.Height - edge ? Window.EdgeBottom : 0;
+            if (horizontal != 0 && vertical == 0) vertical = y < corner ? Window.EdgeTop : y >= scene.Height - corner ? Window.EdgeBottom : 0;
+            if (vertical != 0 && horizontal == 0) horizontal = x < corner ? Window.EdgeLeft : x >= scene.Width - corner ? Window.EdgeRight : 0;
+            return horizontal | vertical;
         }
 
         private static bool Locked { get { return OS.Users.Current == null; } }
@@ -273,9 +306,15 @@ namespace VibanOS.Gui
 
             // Erst an die Stelle der Maus, dann loslassen: Bewegung und Loslassen können im selben Durchlauf ankommen,
             // das Fenster bliebe sonst einen Schritt hinter der Maus zurück.
-            if (dragging != null) Place(dragging, x - dragX, y - dragY);
+            if (dragging != null) DragTo(x, y);
             if (resizing != null) ResizeTo(x, y);
-            if (!down) { dragging = null; resizing = null; }
+            if (!down)
+            {
+                if (dragging != null && snapEdges != 0) Snap(dragging, snapEdges);
+                dragging = null;
+                resizing = null;
+                snapEdges = 0;
+            }
             if (pressed) Press(x, y);
             // Über einem Rand, der sich ziehen lässt, zeigt der Zeiger einen Doppelpfeil, und während des Ziehens bleibt er.
             // Mit gedrückter Taste aus einem Fenster heraus nicht: Dann zieht man gerade etwas anderes.
@@ -305,6 +344,7 @@ namespace VibanOS.Gui
                     dragging = w;
                     dragX = x - w.X;
                     dragY = y - w.Y;
+                    startX = w.X; startY = w.Y; // dorthin stellt der grüne Knopf ein angedocktes Fenster zurück
                 }
                 else w.OnClick(x, y);
                 return;
@@ -336,11 +376,48 @@ namespace VibanOS.Gui
             return ArrowShape;
         }
 
+        // Ein Fenster an der Titelleiste folgt der Maus. Ein angedocktes bekommt dabei seine alte Größe zurück, die Maus
+        // bleibt an derselben Stelle der Titelleiste (anteilig). Ganz am Bildschirmrand zeigt eine Fläche, wohin es beim
+        // Loslassen andockt.
+        private void DragTo(int x, int y)
+        {
+            Window w = dragging;
+            if (w.Snapped != 0 && (x != w.X + dragX || y != w.Y + dragY))
+            {
+                Cancel(w);
+                dragX = dragX * w.NormalWidth / w.Width;
+                w.Width = w.NormalWidth;
+                w.Height = w.NormalHeight;
+                w.Snapped = 0;
+                OS.Changed = true;
+            }
+            Place(w, x - dragX, y - dragY);
+            int side = w.CanResize ? SnapEdgesAt(x, y) : 0;
+            if (side != snapEdges) { snapEdges = side; OS.Changed = true; }
+        }
+
+        // Dockt w an eine Bildschirmhälfte oder ein Viertel an, mit derselben Bewegung wie der grüne Knopf.
+        private void Snap(Window w, int side)
+        {
+            Cancel(w);
+            if (!w.Zoomed && w.Snapped == 0)
+            {
+                w.NormalX = startX; w.NormalY = startY; w.NormalWidth = w.Width; w.NormalHeight = w.Height;
+            }
+            w.Zoomed = false;
+            w.Snapped = side;
+            int x, y, width, height;
+            SnapArea(side, out x, out y, out width, out height);
+            transitions.Add(new Transition(w, Motion.Zoom, Clock(), true, x, y, width, height));
+            OS.Changed = true;
+        }
+
         private void StartResize(Window w, int edge, int x, int y)
         {
             Focus(w);
             Cancel(w); // ein laufender Zoom springt an sein Ziel, gezogen wird von dort aus
             w.Zoomed = false; // von Hand gezogen ist es nicht mehr vergrößert, der grüne Knopf vergrößert wieder
+            w.Snapped = 0;
             resizing = w;
             resizeEdge = edge;
             resizeX = x; resizeY = y;
@@ -438,10 +515,12 @@ namespace VibanOS.Gui
             }
             else
             {
-                w.NormalX = w.X; w.NormalY = w.Y; w.NormalWidth = w.Width; w.NormalHeight = w.Height;
+                // Ein angedocktes Fenster hat seine Größe davor schon gemerkt, zurück geht es dann auf diese.
+                if (w.Snapped == 0) { w.NormalX = w.X; w.NormalY = w.Y; w.NormalWidth = w.Width; w.NormalHeight = w.Height; }
                 ZoomArea(out x, out y, out width, out height);
             }
             w.Zoomed = !w.Zoomed;
+            w.Snapped = 0;
             transitions.Add(new Transition(w, Motion.Zoom, Clock(), true, x, y, width, height));
             OS.Changed = true;
         }
@@ -594,6 +673,7 @@ namespace VibanOS.Gui
             }
             for (int i = 0; i < windows.Count; i++)
             {
+                if (windows[i] == dragging && snapEdges != 0) DrawSnapPreview();
                 Transition t = IncomingFor(windows[i]);
                 if (t != null) t.Draw(scene, ms);
                 else windows[i].Draw(scene, windows[i] == Active);
@@ -603,6 +683,15 @@ namespace VibanOS.Gui
             // Was geht, liegt obenauf: Beim Minimieren taucht das Fenster so sichtbar ins Dock.
             for (int i = 0; i < transitions.Count; i++)
                 if (!transitions[i].Incoming) transitions[i].Draw(scene, ms);
+        }
+
+        // Die Fläche, an die das gezogene Fenster beim Loslassen andockt: durchscheinend in der Akzentfarbe, unter dem Fenster.
+        private void DrawSnapPreview()
+        {
+            int x, y, width, height;
+            SnapArea(snapEdges, out x, out y, out width, out height);
+            scene.FillRoundRect(x, y, width, height, T.Radius.M, (T.Color.Accent & 0x00FFFFFF) | (T.Color.SnapAlpha << 24));
+            scene.StrokeRoundRect(x, y, width, height, T.Radius.M, T.Color.Border);
         }
 
         private Transition IncomingFor(Window w)

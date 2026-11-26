@@ -62,6 +62,7 @@ namespace VibanOS.Design
             public const uint Shadow = 0xFF000000;
             public const uint CursorFill = 0xFF111113;
             public const uint CursorEdge = 0xFFFFFFFF;
+            public const uint SnapAlpha = 0x40;          // Vorschau beim Andocken: Akzent mit dieser Deckkraft (0–255)
         }
 
         /// <summary>Abstände im 4-px-Raster.</summary>
@@ -111,6 +112,8 @@ namespace VibanOS.Design
             public const int ResizeCorner = 12; // so weit reicht eine Ecke an den Rändern entlang
             public const int WindowMinWidth = 480;  // kleiner lässt sich ein Fenster nicht ziehen
             public const int WindowMinHeight = 280;
+            public const int SnapEdge = 4;      // so nah am Bildschirmrand dockt ein gezogenes Fenster an
+            public const int SnapCorner = 48;   // so weit reicht eine Ecke beim Andocken an den Rändern entlang
         }
 
         /// <summary>Schatten: Unschärfe, Versatz nach unten, Deckkraft (0–255).</summary>
