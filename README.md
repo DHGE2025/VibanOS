@@ -106,6 +106,7 @@ docs/
   design/          Designsheet mit allen Tokens
 tools/
   Preview/         Selbsttest und Bildschirmfotos ohne VM
+  Werkstatt/       Lokale Web-App: Branches holen, bauen und in QEMU starten
   make-fonts.py    Erzeugt die Schrift-Atlanten (Graphics/FontData.cs)
 ```
 
@@ -143,6 +144,34 @@ dotnet run --project tools/Preview
 ```
 
 Fährt den Kern und die Oberfläche ohne COSMOS hoch, prüft die Grundfunktionen und legt Bildschirmfotos in `preview/` ab. Das geht schnell und fängt Logikfehler ab. Vor einem Pull Request trotzdem mit `cosmos build` und `cosmos run` starten: Ob COSMOS den Code übersetzt und die Hardware mitspielt, zeigt nur die VM.
+
+## Werkstatt: Branches per Klick bauen und starten
+
+`tools/Werkstatt` ist eine kleine Web-App, die nur auf dem eigenen Rechner läuft. Sie holt einen Branch von GitHub, baut ihn mit `cosmos build` und startet ihn in QEMU. Sie braucht dasselbe wie oben (.NET 10 und COSMOS 3.0.99), auf dem Mac zusätzlich QEMU aus Homebrew (`brew install qemu`).
+
+Starten:
+
+- macOS: `tools/Werkstatt/start.command` im Finder doppelklicken
+- Windows: `tools\Werkstatt\start.cmd` im Explorer doppelklicken
+- überall im Terminal: `dotnet run --project tools/Werkstatt`
+
+Der Browser öffnet sich mit http://127.0.0.1:5099. Die Werkstatt läuft, solange ihr Terminalfenster offen ist. Ctrl+C beendet sie und eine laufende VM. Ein zweiter Start öffnet nur den Browser.
+
+Was sie kann:
+
+- Alle Branches von GitHub mit letztem Commit, offenem Pull Request und Linear-Aufgabe (aus der VIB-Kennung im Namen), dazu ein Suchfeld. „Aktualisieren“ holt den neuesten Stand.
+- **Holen, bauen und starten:** Jeder Branch bekommt einen eigenen Ordner neben dem Klon, `<Klon>-werkstatt/<branch>` (ein git worktree), mit eigener `disk.img`. Ein Start setzt diesen Ordner hart auf den Stand von GitHub zurück. Änderungen dort gehen also verloren, gearbeitet wird im eigenen Klon.
+- **Dein Klon** baut und startet den Ordner, in dem die Werkstatt liegt, so wie er ist, auch mit nicht eingecheckten Änderungen. git fasst ihn dabei nicht an.
+- Außerdem: nur starten (letzter Bau), nur bauen, Selbsttest (`tools/Preview`) mit den Bildschirmfotos, Festplatte leeren, Ordner öffnen und entfernen, `cosmos check`.
+- Die Ausgabe läuft live mit: Bau, Selbsttest und die serielle Ausgabe des Kernels. „VM stoppen“ beendet QEMU sofort. Besser vorher `shutdown` im System tippen, dann ist die Festplatte sauber ausgehängt.
+- In den Einstellungen: zusätzliche QEMU-Argumente (etwa `-accel whpx` unter Windows, unversucht) und ausführlicher Bau (`cosmos build -v`).
+
+So startet die Werkstatt QEMU:
+
+- macOS: das QEMU aus Homebrew direkt, mit denselben Einstellungen wie `cosmos run --disk disk.img -- -vga vmware`. Das Fenster lässt sich frei vergrößern, der Inhalt skaliert mit. Das mit COSMOS 3.0.99 gelieferte QEMU startet auf dem Mac nicht.
+- Windows und Linux: `cosmos run --disk disk.img -- -vga vmware`.
+
+Auch hier gilt: Der Klon muss in einem Pfad ohne Leerzeichen liegen, sonst meldet die Werkstatt das vor dem Bau.
 
 ## Branch-Workflow
 
