@@ -11,7 +11,7 @@ namespace VibanOS.Drivers
     /// </summary>
     public static class FwCfg
     {
-        /// <summary>Bildschirm des Rechners als "BreitexHöhe" in Punkten, ohne Menüleiste und Kamera-Aussparung.</summary>
+        /// <summary>Bildschirm des Rechners als "BreitexHöhe" in Punkten: die Fläche, die das Fenster von QEMU im Vollbild füllt.</summary>
         public const string ScreenFile = "opt/vibanos/screen";
 
         private const int SelectorPort = 0x510;

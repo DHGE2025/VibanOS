@@ -76,7 +76,10 @@ namespace VibanOS.Platform
         }
 
         // Nur Kernel.cs bringt das Bild an den Bildschirm, und den übersetzt die Vorschau nicht.
-        public static void Present(Surface screen, int x, int y, int width, int height) { }
+        public static void Present(Surface screen, int x, int y, int width, int height, bool whole) { }
+
+        // Nur virtio-gpu kann weniger Zeilen zeigen, als es hat. Kernel.cs fragt danach.
+        public static bool CropScreen(int height) { return false; }
 
         // Bildschirm wie die VMware-SVGA-Grafik: schaltet um, lehnt aber zu große Auflösungen ab.
         public static int ScreenWidth = T.Size.ScreenWidth, ScreenHeight = T.Size.ScreenHeight;
@@ -166,7 +169,7 @@ namespace VibanOS.Preview
             Check(OS.Users.Current == null && OS.Users.NeedsSetup, "Zwei verschiedene Passwörter richten nichts ein");
             Type("geheim\ngeheim\n");
             Check(OS.Users.Current != null && OS.Users.Current.Name == "root", "root ist nach der Einrichtung angemeldet");
-            desktop.Frame(screen);
+            Draw();
             Check(desktop.Active is TerminalWindow, "Nach der Anmeldung öffnet sich das Terminal");
 
             // Leere Festplatte einrichten (VIB-2)
@@ -498,14 +501,17 @@ namespace VibanOS.Preview
             Check(desktop.Active is TerminalWindow, "Der rote Knopf schließt das Fenster");
             Window terminal = desktop.Active;
             int oldX = terminal.X;
-            desktop.OnMouse(terminal.X + 300, terminal.Y + 10, true);
-            desktop.OnMouse(terminal.X + 240, terminal.Y + 10, true);
-            desktop.OnMouse(0, 0, false);
-            Check(terminal.X == oldX - 60, "Fenster lassen sich an der Titelleiste ziehen");
+            int gripX = terminal.X + 300, gripY = terminal.Y + 10;
+            desktop.OnMouse(gripX, gripY, true);
+            desktop.OnMouse(gripX - 50, gripY, true);
+            desktop.OnMouse(gripX - 60, gripY, false); // Bewegung und Loslassen kommen im selben Durchlauf an
+            Check(terminal.X == oldX - 60, "Fenster lassen sich an der Titelleiste ziehen, auch der letzte Schritt beim Loslassen zählt");
+            desktop.OnMouse(gripX, gripY, false);
+            Check(terminal.X == oldX - 60, "Ein losgelassenes Fenster folgt der Maus nicht mehr");
             int dockRow = T.Size.ScreenHeight - T.Space.S - T.Space.M - T.Size.DockIcon / 2, dockTop = dockRow - T.Size.DockIcon / 2 - T.Space.S;
             desktop.OnMouse(terminal.X + terminal.Width - 5, terminal.Y + 10, true);
             desktop.OnMouse(0, T.Size.ScreenHeight - 1, true);
-            desktop.OnMouse(0, 0, false);
+            desktop.OnMouse(0, T.Size.ScreenHeight - 1, false);
             Check(terminal.X + terminal.Width >= T.Size.DockIcon && terminal.Y + T.Size.TitleBar <= dockTop,
                 "Ein Fenster lässt sich nicht ganz aus dem Bildschirm oder unter das Dock ziehen");
             Click(DockIconX(Icons.Activity), dockRow);
@@ -522,19 +528,19 @@ namespace VibanOS.Preview
             desktop.Open(Icons.About);
             app = desktop.Active;
             OS.Processes.Kill(app.Process.Id);
-            desktop.Frame(screen);
+            Draw();
             Check(!(desktop.Active is AboutWindow) && OS.Processes.All.Count == before, "kill auf den Prozess einer App schließt ihr Fenster");
             desktop.Open(Icons.About);
             app = desktop.Active;
             app.Process.OnSignal(Signal.Term);
-            desktop.Frame(screen);
+            Draw();
             Check(!(desktop.Active is AboutWindow), "Das Signal Term an eine App schließt ihr Fenster");
             desktop.Open(Icons.About);
             app = desktop.Active;
             Click(ControlX(app, Window.MinimizeButton), app.Y + T.Size.TitleBar / 2);
             Check(OS.Processes.Get(app.Process.Id) == app.Process, "Eine App im Dock bleibt ein Prozess");
             OS.Processes.Kill(app.Process.Id);
-            desktop.Frame(screen);
+            Draw();
             desktop.Open(Icons.About);
             Check(desktop.Active != app && desktop.Active.Process != null, "kill schließt auch eine App im Dock, sie startet danach neu");
             Click(ControlX(desktop.Active, Window.CloseButton), desktop.Active.Y + T.Size.TitleBar / 2);
@@ -557,6 +563,20 @@ namespace VibanOS.Preview
             plain.Shadow(50, 30, 100, 60, T.Radius.L, T.Shadow.DockBlur, T.Shadow.DockOffset, T.Shadow.DockAlpha, T.Color.Shadow);
             Check(plain.Pixels[32 * 200 + 100] == plain.Pixels[0] && plain.Pixels[60 * 200 + 100] == plain.Pixels[0] && plain.Pixels[95 * 200 + 100] != plain.Pixels[0],
                 "Der Schatten liegt nur außerhalb der Form, auch in den Zeilen der Ecken");
+            Check(ShadowMatches(1, 20, 20, 100, 60, T.Radius.L, T.Shadow.DockBlur, T.Shadow.DockOffset, T.Shadow.DockAlpha)
+                && ShadowMatches(2, 30, 30, 81, 45, T.Radius.M, T.Shadow.WindowBlur, T.Shadow.WindowOffset, T.Shadow.WindowAlpha)
+                && ShadowMatches(2, 40, 50, 60, 20, 0, 12, 0, 255) && ShadowMatches(1, 50, 50, 40, 20, 18, 9, 4, 70)
+                && ShadowMatches(2, -15, 100, 70, 60, 12, 25, 10, 130),
+                "Der Schatten aus der Tabelle gleicht Pixel für Pixel dem mit Kommazahlen gerechneten");
+            // Dieselbe Form mit je einem anderen Wert: Für jeden gilt eine eigene Tabelle. Mit denen der Prüfung davor sind
+            // es mehr, als gemerkt werden: Die Tabelle des Docks ist bis zum letzten Aufruf verdrängt und entsteht dort neu.
+            Check(ShadowMatches(1, 20, 20, 100, 60, T.Radius.L, T.Shadow.DockBlur, T.Shadow.DockOffset, 200)
+                && ShadowMatches(1, 20, 20, 100, 60, T.Radius.M, T.Shadow.DockBlur, T.Shadow.DockOffset, 200)
+                && ShadowMatches(1, 20, 20, 100, 60, T.Radius.M, T.Shadow.WindowBlur, T.Shadow.DockOffset, 200)
+                && ShadowMatches(1, 20, 20, 100, 60, 3, 7, 2, 90)
+                && ShadowMatches(1, 20, 20, 100, 60, T.Radius.L, T.Shadow.DockBlur, T.Shadow.DockOffset, T.Shadow.DockAlpha),
+                "Schatten mit anderem Radius, anderer Unschärfe oder anderer Deckkraft teilen sich keine Tabelle");
+            Tiles();
 
             // Auflösung passend zum Bildschirm des Rechners, nur geänderte Ausschnitte an den Bildschirm (VIB-37)
             Platform.Hardware.FwCfgFiles = null;
@@ -587,9 +607,12 @@ namespace VibanOS.Preview
                 "Zum Start wählt VibanOS die größte Auflösung mit dem Seitenverhältnis des Rechners, ohne Angabe die Entwurfsgröße (" + picks + ")");
             Check(Settings.ParseSize("1512x945\n").Width == 1512 && Settings.ParseSize("x945").Width == 0 && Settings.ParseSize("-5x3").Width == 0
                 && Settings.ParseSize(null).Width == 0, "Nur eine Angabe wie 1512x945 gilt als Bildschirmgröße");
+            Draw(); // die Maus steht jetzt, wo sie gezeichnet ist
+            desktop.Redraw();
+            Check(desktop.Frame(screen) && desktop.DirtyCount == 1 && desktop.Dirty[0] == 0 && desktop.Dirty[1] == 0
+                && desktop.Dirty[2] >= screen.Width && desktop.Dirty[3] >= screen.Height, "Nach einem ganzen Neuzeichnen geht der ganze Bildschirm hinaus");
             OS.Changed = true;
-            Check(desktop.Frame(screen) && desktop.DirtyX == 0 && desktop.DirtyY == 0 && desktop.DirtyWidth == screen.Width && desktop.DirtyHeight == screen.Height,
-                "Nach dem Neuzeichnen geht der ganze Bildschirm hinaus");
+            Check(!desktop.Frame(screen), "Sieht das neue Bild aus wie das alte, geht nichts an den Bildschirm");
             Settle();
             Check(CursorOnly(screen), "Bewegt sich nur die Maus, geht nur ihr Ausschnitt an den Bildschirm");
 
@@ -723,15 +746,23 @@ namespace VibanOS.Preview
             Check(!Settings.GermanKeyboard && !Platform.Hardware.GermanKeyboard, "US-Tastaturbelegung lässt sich wählen");
             ClickAt(settings.CenterOf(SettingsWindow.PickGerman));
             Check(Settings.GermanKeyboard && Platform.Hardware.GermanKeyboard, "Und zurück auf Deutsch");
-            ClickAt(settings.CenterOf(SettingsWindow.ToggleCursor));
+            // Die Maus steht schon auf dem Schalter, wenn der Klick kommt: Der Zeiger wechselt die Größe, ohne sich zu
+            // bewegen. Draw prüft, dass auch dann alles Geänderte in einem gemeldeten Ausschnitt liegt.
+            int[] toggle = settings.CenterOf(SettingsWindow.ToggleCursor);
+            desktop.OnMouse(toggle[0], toggle[1], false);
+            Draw();
+            ClickAt(toggle);
             desktop.OnMouse(200, 200, false);
-            desktop.Frame(screen);
+            Draw();
             Shot(output, "8-einstellungen-tastatur");
             // Zeile 10 des Zeigers beginnt mit einem Randpixel. Doppelt so groß liegt es bei y + 20 statt y + 10.
             bool large = screen.Pixels[(200 + 2 * 10 + 1) * screen.Width + 200 + 1] == unchecked((int)T.Color.CursorEdge);
-            ClickAt(settings.CenterOf(SettingsWindow.ToggleCursor));
+            toggle = settings.CenterOf(SettingsWindow.ToggleCursor);
+            desktop.OnMouse(toggle[0], toggle[1], false);
+            Draw();
+            ClickAt(toggle);
             desktop.OnMouse(200, 200, false);
-            desktop.Frame(screen);
+            Draw();
             bool small2 = screen.Pixels[(200 + 2 * 10 + 1) * screen.Width + 200 + 1] != unchecked((int)T.Color.CursorEdge);
             Check(large && small2, "Der große Mauszeiger ist doppelt so groß und lässt sich wieder ausschalten");
             ClickAt(settings.CenterOf(0));
@@ -752,13 +783,13 @@ namespace VibanOS.Preview
             desktop.Open(Icons.About);
             Window info = desktop.Active;
             int edge = (info.Y + T.Size.TitleBar / 2) * screen.Width + info.X + T.Space.XS;
-            desktop.Frame(screen);
+            Draw();
             int hidden = screen.Pixels[edge];
             animTime += T.Motion.Open / 2;
-            desktop.Frame(screen);
+            Draw();
             Check(desktop.Animating && hidden != unchecked((int)T.Color.TitleBar) && screen.Pixels[edge] != unchecked((int)T.Color.TitleBar), "Ein neues Fenster blendet sich ein");
             animTime += T.Motion.Open;
-            desktop.Frame(screen);
+            Draw();
             Check(!desktop.Animating && screen.Pixels[edge] == unchecked((int)T.Color.TitleBar), "Nach dem Einblenden steht das Fenster fertig da");
             Click(ControlX(info, Window.ZoomButton), info.Y + T.Size.TitleBar / 2);
             Check(!desktop.Animating && info.Width == 340, "Fenster mit festem Inhalt vergrößert der grüne Knopf nicht");
@@ -777,7 +808,7 @@ namespace VibanOS.Preview
                 "Der grüne Knopf vergrößert das Terminal auf die freie Fläche");
             Click(ControlX(terminal, Window.ZoomButton), terminal.Y + T.Size.TitleBar / 2);
             animTime += T.Motion.Zoom / 2;
-            desktop.Frame(screen);
+            Draw();
             Check(terminal.Width > 720 && terminal.Width < T.Size.ScreenWidth - 2 * T.Space.S, "Beim Zoomen wächst das echte Fenster schrittweise");
             Settle();
             Check(terminal.Width == 720 && terminal.X == 70 && terminal.Y == 64, "Ein zweiter Klick stellt die alte Größe wieder her");
@@ -1053,10 +1084,11 @@ namespace VibanOS.Preview
             desktop.OnMouse(980, 600, false);
             Click(ControlX(terminal, Window.MinimizeButton), terminal.Y + T.Size.TitleBar / 2);
             animTime += T.Motion.Minimize / 2;
-            desktop.Frame(screen);
+            Draw();
             SavePng(screen, Path.Combine(output, "5-minimieren.png"));
             Settle();
             DesignSheet(output);
+            Pieces();
 
             Directory.SetCurrentDirectory(output);
             Directory.Delete(temp, true);
@@ -1099,7 +1131,7 @@ namespace VibanOS.Preview
                 "Text ist bei Retina genauso breit wie sonst, nur schärfer");
 
             OS.Changed = true;
-            desktop.Frame(screen);
+            Draw();
             Surface.DefaultScale = 2;
             desktop.Resize(T.Size.ScreenWidth, T.Size.ScreenHeight);
             Surface retina = new Surface(T.Size.ScreenWidth, T.Size.ScreenHeight);
@@ -1124,7 +1156,7 @@ namespace VibanOS.Preview
             Surface.DefaultScale = 1;
             desktop.Resize(T.Size.ScreenWidth, T.Size.ScreenHeight);
             OS.Changed = true;
-            desktop.Frame(screen);
+            Draw();
         }
 
         // Bewegt sich nur die Maus, ändert Frame nur Pixel im gemeldeten Ausschnitt (in Punkten, bei Retina mal 2).
@@ -1132,29 +1164,226 @@ namespace VibanOS.Preview
         {
             for (int attempt = 0; attempt < 3; attempt++)
             {
-                // Mehrere Versuche: Wechselt dazwischen die Sekunde, zeichnet die Aktivität ohnehin alles neu.
+                // Mehrere Versuche: Wechselt dazwischen die Sekunde, zeichnet die Aktivität ihre Zahlen neu.
                 desktop.OnMouse(400, 300, false);
                 desktop.Frame(front);
                 int[] unmoved = (int[])front.Pixels.Clone();
                 desktop.OnMouse(405, 297, false);
-                if (!desktop.Frame(front) || desktop.DirtyWidth == front.Width) continue;
+                if (!desktop.Frame(front) || desktop.DirtyCount != 1) continue;
                 int size = 20 * T.Size.CursorScale, k = front.Scale;
+                int[] d = desktop.Dirty;
                 for (int y = 0; y < front.PixelHeight; y++)
                     for (int x = 0; x < front.PixelWidth; x++)
                     {
-                        bool inDirty = x >= desktop.DirtyX * k && x < (desktop.DirtyX + desktop.DirtyWidth) * k
-                            && y >= desktop.DirtyY * k && y < (desktop.DirtyY + desktop.DirtyHeight) * k;
+                        bool inDirty = x >= d[0] * k && x < (d[0] + d[2]) * k && y >= d[1] * k && y < (d[1] + d[3]) * k;
                         if (!inDirty && front.Pixels[y * front.PixelWidth + x] != unmoved[y * front.PixelWidth + x]) return false;
                     }
-                if (desktop.DirtyX != 400 || desktop.DirtyY != 297 || desktop.DirtyWidth != size + 5 || desktop.DirtyHeight != size + 3) return false;
+                if (d[0] != 400 || d[1] != 297 || d[2] != size + 5 || d[3] != size + 3) return false;
                 // Und das Bild ist dasselbe wie nach einem ganzen Neuzeichnen: Der alte Zeiger ist weg, der neue da.
                 int[] moved = (int[])front.Pixels.Clone();
-                OS.Changed = true;
+                desktop.Redraw();
                 desktop.Frame(front);
                 if (front.Pixels.AsSpan().SequenceEqual(moved)) return true;
                 // sonst hat dazwischen die Sekunde gewechselt: noch einmal
             }
             return false;
+        }
+
+        // Zeichnet wie der Kernel und vergleicht jedes Mal: Das stückweise neu gezeichnete Bild muss dasselbe sein wie ein
+        // ganz neu gezeichnetes. Uhr und Aktivität hängen an der Sekunde, wechselt sie dazwischen, zählt der Vergleich nicht.
+        private static int compared;
+        private static long dirtyArea; // so viele Punkte hat das letzte Draw neu an den Bildschirm geschickt
+
+        private static bool Draw() { return Draw(screen); }
+
+        private static bool Draw(Surface front)
+        {
+            int second = DateTime.Now.Second;
+            int[] before = (int[])front.Pixels.Clone();
+            bool shown = desktop.Frame(front);
+            dirtyArea = 0;
+            for (int i = 0; shown && i < 4 * desktop.DirtyCount; i += 4)
+                dirtyArea += (long)Math.Min(desktop.Dirty[i + 2], front.Width - desktop.Dirty[i]) * Math.Min(desktop.Dirty[i + 3], front.Height - desktop.Dirty[i + 1]);
+            // Der Kernel schickt nur die gemeldeten Ausschnitte an den Bildschirm. Was Frame außerhalb davon ändert, käme
+            // dort nie an.
+            int scale = front.Scale;
+            for (int i = 0; i < before.Length; i++)
+            {
+                if (before[i] == front.Pixels[i]) continue;
+                int px = i % front.PixelWidth, py = i / front.PixelWidth;
+                bool inside = false;
+                for (int d = 0; shown && d < 4 * desktop.DirtyCount && !inside; d += 4)
+                    inside = px >= desktop.Dirty[d] * scale && px < (desktop.Dirty[d] + desktop.Dirty[d + 2]) * scale
+                        && py >= desktop.Dirty[d + 1] * scale && py < (desktop.Dirty[d + 1] + desktop.Dirty[d + 3]) * scale;
+                if (!inside)
+                    throw new Exception("Prüfung fehlgeschlagen: Frame hat ein Pixel geändert, das in keinem gemeldeten Ausschnitt liegt (" + px + "," + py + ")");
+            }
+            int[] pieces = (int[])front.Pixels.Clone();
+            desktop.Redraw();
+            desktop.Frame(front);
+            if (DateTime.Now.Second != second) return shown;
+            for (int i = 0; i < pieces.Length; i++)
+                if (pieces[i] != front.Pixels[i])
+                    throw new Exception("Prüfung fehlgeschlagen: Stückweise neu gezeichnet sieht das Bild anders aus als ganz neu gezeichnet (Vergleich "
+                        + compared + ", Pixel " + i % front.PixelWidth + "," + i / front.PixelWidth + ")");
+            compared++;
+            return shown;
+        }
+
+        // Surface.Shadow liest die Deckung je Abstand aus einer Tabelle. Hier dieselbe Rechnung für jedes Pixel einzeln mit
+        // Kommazahlen, so wie Shadow sie früher machte.
+        private static bool ShadowMatches(int scale, int x, int y, int w, int h, int r, int blur, int offsetY, int alpha)
+        {
+            Surface s = new Surface(160, 140, scale);
+            uint color = T.Color.Shadow;
+            s.FillRect(0, 0, s.Width, s.Height, T.Color.TextOnAccent);
+            int paper = s.Pixels[0];
+            s.Shadow(x, y, w, h, r, blur, offsetY, alpha, color);
+            x *= scale; y *= scale; w *= scale; h *= scale; r *= scale; blur *= scale; offsetY *= scale;
+            int sy = y + offsetY;
+            float halfW = w / 2f - r, halfH = h / 2f - r, cx = x + w / 2f, cy = sy + h / 2f;
+            for (int py = 0; py < s.PixelHeight; py++)
+                for (int px = 0; px < s.PixelWidth; px++)
+                {
+                    int expected = paper, j = py - y;
+                    bool covered = false; // unter der Form selbst bleibt alles stehen
+                    if (j >= 0 && j < h)
+                    {
+                        int inset = 0;
+                        if (j < r || j >= h - r)
+                        {
+                            float dy = j < r ? r - j - 0.5f : j - (h - r) + 0.5f;
+                            float reach = (r - 0.5f) * (r - 0.5f) - dy * dy;
+                            inset = reach <= 0 ? r : r - (int)((float)Math.Sqrt(reach) + 0.5f);
+                        }
+                        covered = px >= x + inset && px < x + w - inset;
+                    }
+                    float qx = Math.Abs(px + 0.5f - cx) - halfW, qy = Math.Abs(py + 0.5f - cy) - halfH;
+                    float d = qx > 0 && qy > 0 ? (float)Math.Sqrt(qx * qx + qy * qy) - r : Math.Max(qx, qy) - r;
+                    if (!covered && d < blur)
+                    {
+                        float t = d <= 0 ? 1 : 1 - d / blur;
+                        int a = (int)(color >> 24) * (int)(alpha * t * t) / 255, u = 255 - a;
+                        if (a > 0)
+                            expected = (255 << 24) | ((((int)(color >> 16) & 255) * a + ((paper >> 16) & 255) * u) / 255 << 16)
+                                | ((((int)(color >> 8) & 255) * a + ((paper >> 8) & 255) * u) / 255 << 8)
+                                | (((int)color & 255) * a + (paper & 255) * u) / 255;
+                    }
+                    if (s.Pixels[py * s.PixelWidth + px] != expected) return false;
+                }
+            return true;
+        }
+
+        // Was sich geändert hat, merkt sich die Zeichenfläche je Kachel (Surface.Measure, Surface.Damage). Hier an einer
+        // kleinen Fläche durchgespielt: 10 x 8 Kacheln.
+        private static void Tiles()
+        {
+            int[] r = new int[4 * Surface.MaxDamage];
+            Surface s = new Surface(320, 256, 1);
+            Func<Action, int> damage = draw => { s.Measure(); draw(); return s.Damage(r); };
+            uint a = T.Color.Accent, b = T.Color.Danger;
+            Check(damage(() => { }) == 1 && r[0] == 0 && r[1] == 0 && r[2] == 320 && r[3] == 256 && damage(() => { }) == 0,
+                "Das erste Bild gilt ganz als geändert, ein gleiches danach gar nicht");
+            Check(damage(() => s.FillRect(40, 40, 100, 100, a)) == 1 && r[0] == 32 && r[1] == 32 && r[2] == 128 && r[3] == 128
+                && damage(() => s.FillRect(40, 40, 100, 100, a)) == 0 && s.Pixels[50 * 320 + 50] == 0,
+                "Geändert sind genau die Kacheln unter einer neuen Form, und beim Vermessen entsteht kein Pixel");
+            Check(damage(() => s.FillRect(40, 40, 100, 100, b)) == 1 && damage(() => s.FillRect(41, 40, 100, 100, b)) == 1
+                && damage(() => { s.DrawText(Fonts.Body, "ab", 8, 8, a); }) == 2 && damage(() => { s.DrawText(Fonts.Body, "ad", 8, 8, a); }) == 1 && r[1] == 0 && r[3] == 32,
+                "Eine andere Farbe, eine andere Lage oder ein anderer Buchstabe gelten als Änderung");
+            damage(() => { s.FillRect(0, 0, 64, 64, a); s.FillRect(32, 32, 64, 64, b); });
+            Check(damage(() => { s.FillRect(32, 32, 64, 64, b); s.FillRect(0, 0, 64, 64, a); }) == 1 && r[0] == 32 && r[1] == 32 && r[2] == 32 && r[3] == 32,
+                "Liegen zwei Formen in anderer Reihenfolge übereinander, ist nur ihre Überschneidung geändert");
+            damage(() => { s.SetClip(0, 0, 64, 40); s.FillRect(0, 0, 64, 64, a); s.ResetClip(); });
+            Check(damage(() => { s.SetClip(0, 0, 64, 48); s.FillRect(0, 0, 64, 64, a); s.ResetClip(); }) == 1,
+                "Dieselbe Form anders beschnitten gilt als Änderung");
+            damage(() => { s.SetClip(0, 0, 64, 64); s.FillRoundRect(-8, -40, 100, 400, 0, a, b); s.ResetClip(); });
+            Check(damage(() => { s.SetClip(0, 0, 64, 64); s.FillRoundRect(-8, -48, 100, 400, 0, a, b); s.ResetClip(); }) == 1,
+                "Ein Verlauf, der unter demselben Zuschnitt verschoben ist, gilt als Änderung");
+            damage(() => { });
+            Check(damage(() => { for (int i = 0; i < 6; i++) s.FillRect(i * 32, i * 32, 8, 8, a); }) == 6 && r[20] == 160 && r[21] == 160 && r[22] == 32,
+                "Bis zu sechs getrennte Bereiche werden einzeln gemeldet");
+            damage(() => { });
+            Check(damage(() => { for (int i = 0; i < 7; i++) s.FillRect(i * 32, i * 32, 8, 8, a); }) == 1 && r[0] == 0 && r[1] == 0 && r[2] == 224 && r[3] == 224,
+                "Mehr als sechs Bereiche werden zu einem, der alle umfasst");
+            // Die Ecken kommen aus einer Tabelle für die linke obere, die anderen drei sind gespiegelt.
+            Surface round = new Surface(64, 48, 2);
+            round.FillRoundRect(3, 2, 57, 43, 9, a);
+            round.StrokeRoundRect(3, 2, 57, 43, 9, b);
+            bool mirrored = round.Pixels[4 * 128 + 6] == 0 && round.Pixels[5 * 128 + 6 + 18] != 0; // die Ecke selbst bleibt frei
+            for (int j = 0; j < 86 && mirrored; j++)
+                for (int i = 0; i < 114 && mirrored; i++)
+                    mirrored = round.Pixels[(4 + j) * 128 + 6 + i] == round.Pixels[(4 + 85 - j) * 128 + 6 + 113 - i]
+                        && round.Pixels[(4 + j) * 128 + 6 + i] == round.Pixels[(4 + j) * 128 + 6 + 113 - i];
+            for (int j = 0; j < 18 && mirrored; j++) // und jede Ecke in sich, entlang ihrer Schräge
+                for (int i = 0; i < j && mirrored; i++)
+                    mirrored = round.Pixels[(4 + j) * 128 + 6 + i] == round.Pixels[(4 + i) * 128 + 6 + j];
+            Check(mirrored, "Abgerundete Ecken und ihr Rahmen sind oben und unten, links und rechts gleich und in sich gespiegelt");
+            Surface twice = new Surface(64, 64, 2);
+            twice.Measure();
+            twice.Damage(r);
+            twice.Measure();
+            twice.FillRect(33, 1, 1, 1, a);
+            Check(twice.Damage(r) == 1 && r[0] == 32 && r[1] == 0 && r[2] == 32 && r[3] == 32, "Bei Retina sind Kacheln in Punkten gleich groß, die Bereiche kommen in Punkten");
+        }
+
+        // Stückweises Neuzeichnen in der Größe von Antonios Mac im Vollbild (1470x923 Punkte, doppelt gezeichnet):
+        // Tippen und Fensterziehen zeichnen nur ihre Umgebung neu. Am Ende die Zeiten, zum Vergleichen vor und nach einem Umbau.
+        private static void Pieces()
+        {
+            Check(Settings.Rows(new Resolution(2940, 1848), new Resolution(1470, 923), 2) == 1846
+                && Settings.Rows(new Resolution(2940, 1848), new Resolution(1470, 924), 2) == 1848
+                && Settings.Rows(new Resolution(2940, 1848), new Resolution(1470, 950), 2) == 1848
+                && Settings.Rows(new Resolution(1440, 900), new Resolution(1470, 923), 1) == 900
+                && Settings.Rows(new Resolution(2940, 1848), new Resolution(1400, 900), 2) == 1848
+                && Settings.Rows(new Resolution(2940, 1848), new Resolution(0, 0), 1) == 1848,
+                "Meldet QEMU mehr Zeilen, als sein Fenster hat, zeigt VibanOS nur die Zeilen des Fensters");
+            Check(!Settings.Stretched(2940, 1846, new Resolution(1470, 923), 2) && Settings.Stretched(2940, 1848, new Resolution(1470, 923), 2)
+                && Settings.Stretched(1440, 900, new Resolution(1470, 923), 1) && !Settings.Stretched(1440, 900, new Resolution(0, 0), 1),
+                "Nur wenn das Bild nicht genau auf den Bildschirm des Rechners passt, gilt es als gestreckt");
+
+            Surface.DefaultScale = 2;
+            desktop.Resize(1470, 923);
+            Surface front = new Surface(1470, 923);
+            desktop.Open(Icons.Terminal);
+            animTime += 1000;
+            Draw(front);
+            Window w = desktop.Active;
+            Check(w is TerminalWindow && compared > 40, "Nach jedem Schritt des Selbsttests ergab stückweises Neuzeichnen dasselbe Bild wie ein ganzes (" + compared + " Vergleiche)");
+
+            long all = (long)front.Width * front.Height;
+            Type("x");
+            Check(Draw(front) && dirtyArea * 20 < all, "Ein getippter Buchstabe zeichnet nur seine Umgebung neu (" + dirtyArea * 100 / all + " % des Bildes)");
+            int gripX = w.X + w.Width / 2, gripY = w.Y + T.Size.TitleBar / 2;
+            desktop.OnMouse(gripX, gripY, true);
+            Draw(front);
+            desktop.OnMouse(gripX + 12, gripY + 7, true);
+            Check(Draw(front) && dirtyArea >= (long)w.Width * w.Height && dirtyArea < (long)(w.Width + 200) * (w.Height + 200),
+                "Ein gezogenes Fenster zeichnet nur sich und seinen Schatten neu (" + dirtyArea * 100 / all + " % des Bildes)");
+            int[] three = { 10, 20, 30, 40, 5, 50, 10, 10, 100, 0, 20, 30 };
+            Array.Copy(three, desktop.Dirty, three.Length);
+            desktop.DirtyCount = 3;
+            int bx, by, bw, bh;
+            desktop.DirtyBounds(out bx, out by, out bw, out bh);
+            Check(bx == 5 && by == 0 && bw == 115 && bh == 60, "Das Rechteck um alle geänderten Ausschnitte umfasst genau sie");
+
+            // Zeiten: je 20 Bilder
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            for (int i = 0; i < 20; i++) { desktop.Redraw(); desktop.Frame(front); }
+            double whole = watch.Elapsed.TotalMilliseconds / 20;
+            watch.Restart();
+            for (int i = 0; i < 20; i++) { desktop.OnMouse(gripX + 12 + 5 * (i + 1), gripY + 7 + 3 * (i + 1), true); desktop.Frame(front); }
+            double drag = watch.Elapsed.TotalMilliseconds / 20;
+            desktop.OnMouse(gripX, gripY, false);
+            desktop.Frame(front);
+            watch.Restart();
+            for (int i = 0; i < 20; i++) { Type("x"); desktop.Frame(front); }
+            double type = watch.Elapsed.TotalMilliseconds / 20;
+            watch.Restart();
+            for (int i = 0; i < 20; i++) { desktop.OnMouse(300 + 7 * i, 200 + 5 * i, false); desktop.Frame(front); }
+            double mouse = watch.Elapsed.TotalMilliseconds / 20;
+            Console.WriteLine("Zeit je Bild bei " + front.PixelWidth + "x" + front.PixelHeight + ": alles neu " + whole.ToString("0.0") + " ms, Fenster ziehen "
+                + drag.ToString("0.0") + " ms, Buchstabe tippen " + type.ToString("0.00") + " ms, nur Maus " + mouse.ToString("0.000") + " ms");
+            Surface.DefaultScale = 1;
         }
 
         private static void Check(bool ok, string what)
@@ -1196,7 +1425,7 @@ namespace VibanOS.Preview
             if (point == null) throw new Exception("Prüfung fehlgeschlagen: Klickfläche nicht gefunden");
             Click(point[0], point[1]);
             OS.Changed = true;
-            desktop.Frame(screen); // neu zeichnen, damit die Klickflächen zum neuen Stand passen
+            Draw(); // neu zeichnen, damit die Klickflächen zum neuen Stand passen
         }
 
         // Was Kernel.cs tut, wenn der Canvas eine neue Größe hat.
@@ -1205,7 +1434,7 @@ namespace VibanOS.Preview
             if (screen.Width == Platform.Hardware.ScreenWidth && screen.Height == Platform.Hardware.ScreenHeight) return;
             screen = new Surface(Platform.Hardware.ScreenWidth, Platform.Hardware.ScreenHeight);
             desktop.Resize(screen.Width, screen.Height);
-            desktop.Frame(screen);
+            Draw();
         }
 
         // Der erste Eintrag, den die Liste von Dateien gerade zeigt, oder -1.
@@ -1235,7 +1464,7 @@ namespace VibanOS.Preview
         private static void Settle()
         {
             animTime += 1000;
-            desktop.Frame(screen);
+            Draw();
         }
 
         // Mitte eines Fensterknopfs, waagerecht.
@@ -1267,7 +1496,7 @@ namespace VibanOS.Preview
             desktop.OnMouse(2, 300, false);
             animTime += 1000;
             OS.Changed = true;
-            desktop.Frame(screen);
+            Draw();
             long sum = 17;
             for (int y = r[1]; y < r[3]; y++)
                 for (int x = r[0]; x < r[2]; x++) sum = sum * 31 + screen.Pixels[y * screen.Width + x];
@@ -1288,7 +1517,7 @@ namespace VibanOS.Preview
         {
             animTime += 1000;
             OS.Changed = true;
-            desktop.Frame(screen);
+            Draw();
             long sum = 17;
             for (int y = w.Y + T.Size.TitleBar; y < w.Y + w.Height; y++)
                 for (int x = w.X; x < w.X + w.Width; x++) sum = sum * 31 + screen.Pixels[y * screen.Width + x];
@@ -1299,7 +1528,7 @@ namespace VibanOS.Preview
         {
             animTime += 1000;
             OS.Changed = true;
-            desktop.Frame(screen);
+            Draw();
             SavePng(screen, Path.Combine(dir, name + ".png"));
         }
 

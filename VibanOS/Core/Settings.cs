@@ -107,6 +107,27 @@ namespace VibanOS.Core
             return twice && screen.Width / 2 >= MinWidth && screen.Height / 2 >= MinHeight ? 2 : 1;
         }
 
+        /// <summary>
+        /// So viele Pixelzeilen von screen zeigt VibanOS. Im Vollbild auf einem Mac mit Kamera-Aussparung meldet QEMU der
+        /// Grafik einen Punkt mehr Höhe, als sein Fenster hat (gemessen: 1470x924 gemeldet, 1470x923 Fenster), und staucht
+        /// das Bild dann um diese Zeilen. Die Werkstatt gibt die Größe des Fensters mit. Stimmt die Breite und ist nur die
+        /// Höhe zu groß, endet das Bild nach den Zeilen, die ins Fenster passen (Hardware.CropScreen).
+        /// </summary>
+        public static int Rows(Resolution screen, Resolution host, int scale)
+        {
+            bool tooTall = host.Width * scale == screen.Width && host.Height * scale < screen.Height && host.Height >= MinHeight;
+            return tooTall ? host.Height * scale : screen.Height;
+        }
+
+        /// <summary>
+        /// true: QEMU zeigt das Bild nicht Pixel für Pixel, sondern streckt es auf den Bildschirm des Rechners, weil
+        /// width x rows nicht genau dessen Größe ist. Dann muss jedes Mal das ganze Bild angezeigt werden (Hardware.Present).
+        /// </summary>
+        public static bool Stretched(int width, int rows, Resolution host, int scale)
+        {
+            return host.Width > 0 && host.Height > 0 && (width != host.Width * scale || rows != host.Height * scale);
+        }
+
         /// <summary>Der Bildschirm des Rechners, wie ihn die Werkstatt QEMU mitgibt ("1512x945"). 0x0: unbekannt.</summary>
         public static Resolution HostScreen()
         {

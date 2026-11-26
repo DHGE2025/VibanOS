@@ -48,9 +48,34 @@ namespace VibanOS.Gui
         private long ms;
 
         private int mouseX, mouseY, drawnX = -1, drawnY = -1;
+        private bool drawnLarge; // so groß steht der Mauszeiger gerade auf dem Bildschirm
 
-        /// <summary>Nach Frame() mit true: Nur dieser Ausschnitt hat sich geändert und muss an den Bildschirm.</summary>
-        public int DirtyX, DirtyY, DirtyWidth, DirtyHeight;
+        /// <summary>
+        /// Nach Frame() mit true: Nur diese Ausschnitte haben sich geändert und müssen an den Bildschirm.
+        /// Je Ausschnitt vier Werte: x, y, Breite, Höhe in Punkten. Der letzte gehört dem Mauszeiger.
+        /// </summary>
+        public readonly int[] Dirty = new int[4 * (Surface.MaxDamage + 1)];
+        public int DirtyCount;
+
+        /// <summary>Das kleinste Rechteck um alle Ausschnitte in Dirty. Nur nach Frame() mit true.</summary>
+        public void DirtyBounds(out int x, out int y, out int width, out int height)
+        {
+            int right = Dirty[0] + Dirty[2], bottom = Dirty[1] + Dirty[3];
+            x = Dirty[0];
+            y = Dirty[1];
+            for (int i = 4; i < 4 * DirtyCount; i += 4)
+            {
+                x = Math.Min(x, Dirty[i]);
+                y = Math.Min(y, Dirty[i + 1]);
+                right = Math.Max(right, Dirty[i] + Dirty[i + 2]);
+                bottom = Math.Max(bottom, Dirty[i + 1] + Dirty[i + 3]);
+            }
+            width = right - x;
+            height = bottom - y;
+        }
+
+        /// <summary>So lange hat Frame bisher vermessen und gezeichnet, in Einheiten von Stopwatch. Der Kernel schreibt das ins Protokoll.</summary>
+        public long Measured, Painted;
         private bool mouseDown;
         private Window dragging;
         private int dragX, dragY;
@@ -62,6 +87,13 @@ namespace VibanOS.Gui
             wallpaper = new Surface(width, height);
             scene = new Surface(width, height);
             Wallpaper.Render(wallpaper);
+        }
+
+        /// <summary>Das nächste Frame zeichnet alles neu. Der Selbsttest prüft damit, ob das stückweise Neuzeichnen dasselbe Bild ergibt.</summary>
+        public void Redraw()
+        {
+            scene.Invalidate();
+            OS.Changed = true;
         }
 
         /// <summary>true, solange eine Fenster-Animation läuft.</summary>
@@ -146,8 +178,10 @@ namespace VibanOS.Gui
             mouseDown = down;
             if (Locked) return;
 
-            if (!down) dragging = null;
+            // Erst an die Stelle der Maus, dann loslassen: Bewegung und Loslassen können im selben Durchlauf ankommen,
+            // das Fenster bliebe sonst einen Schritt hinter der Maus zurück.
             if (dragging != null) Place(dragging, x - dragX, y - dragY);
+            if (!down) dragging = null;
             if (!pressed) return;
 
             int icon = DockIconAt(x, y);
@@ -327,35 +361,61 @@ namespace VibanOS.Gui
                 OS.Changed = true;
             }
 
-            if (!OS.Changed && mouseX == drawnX && mouseY == drawnY) return false;
+            // Als bewegt gilt auch ein Zeiger, der anders aussehen soll, als er auf dem Bildschirm steht (Größe umgeschaltet):
+            // Er liegt nur auf front und geht in keine Kachel ein, sein Ausschnitt muss also eigens an den Bildschirm.
+            bool moved = mouseX != drawnX || mouseY != drawnY || Settings.LargeCursor != drawnLarge;
+            if (!OS.Changed && !moved) return false;
+            DirtyCount = 0;
             if (OS.Changed)
             {
                 OS.Changed = false;
-                Render(now);
-                front.CopyFrom(scene);
-                DirtyX = DirtyY = 0;
-                DirtyWidth = front.Width;
-                DirtyHeight = front.Height;
+                // Erst vermessen, was sich gegenüber dem letzten Bild geändert hat, dann nur diese Bereiche neu zeichnen.
+                // Ein getippter Buchstabe oder ein gezogenes Fenster kostet so einen Bruchteil des ganzen Bildes.
+                long start = System.Diagnostics.Stopwatch.GetTimestamp();
+                scene.Measure();
+                Draw(now);
+                DirtyCount = scene.Damage(Dirty);
+                long middle = System.Diagnostics.Stopwatch.GetTimestamp();
+                Measured += middle - start;
+                for (int i = 0; i < 4 * DirtyCount; i += 4)
+                {
+                    scene.CopyRect(wallpaper, Dirty[i], Dirty[i + 1], Dirty[i + 2], Dirty[i + 3]);
+                    scene.Limit(Dirty[i], Dirty[i + 1], Dirty[i + 2], Dirty[i + 3]);
+                    Draw(now);
+                    front.CopyRect(scene, Dirty[i], Dirty[i + 1], Dirty[i + 2], Dirty[i + 3]);
+                }
+                scene.Unlimit();
+                Painted += System.Diagnostics.Stopwatch.GetTimestamp() - middle;
             }
-            else
+            // Der Mauszeiger liegt nur auf front. Ist er gewandert oder wurde unter ihm neu gezeichnet, verschwindet er
+            // an der alten Stelle und entsteht an der neuen.
+            int size = CursorSize * T.Size.CursorScale; // reicht für beide Größen, auch direkt nach dem Umschalten
+            bool hit = moved;
+            for (int i = 0; i < 4 * DirtyCount && !hit; i += 4)
+                hit = Dirty[i] < drawnX + size && Dirty[i] + Dirty[i + 2] > drawnX && Dirty[i + 1] < drawnY + size && Dirty[i + 1] + Dirty[i + 3] > drawnY;
+            if (hit)
             {
-                // Nur der Mauszeiger ist gewandert: alte und neue Stelle, nicht das ganze Bild.
-                int size = CursorSize * T.Size.CursorScale; // reicht für beide Größen, auch direkt nach dem Umschalten
-                front.CopyRect(scene, drawnX, drawnY, size, size); // alten Mauszeiger entfernen
-                DirtyX = Math.Min(drawnX, mouseX);
-                DirtyY = Math.Min(drawnY, mouseY);
-                DirtyWidth = Math.Max(drawnX, mouseX) + size - DirtyX;
-                DirtyHeight = Math.Max(drawnY, mouseY) + size - DirtyY;
+                front.CopyRect(scene, drawnX, drawnY, size, size);
+                DrawCursor(front, mouseX, mouseY);
             }
-            DrawCursor(front, mouseX, mouseY);
-            drawnX = mouseX;
-            drawnY = mouseY;
-            return true;
+            if (moved)
+            {
+                // Alte und neue Stelle in einem Ausschnitt. Steht er still, liegt alles Geänderte schon in den Bereichen oben.
+                int n = 4 * DirtyCount++;
+                Dirty[n] = Math.Min(drawnX, mouseX);
+                Dirty[n + 1] = Math.Min(drawnY, mouseY);
+                Dirty[n + 2] = Math.Max(drawnX, mouseX) + size - Dirty[n];
+                Dirty[n + 3] = Math.Max(drawnY, mouseY) + size - Dirty[n + 1];
+                drawnX = mouseX;
+                drawnY = mouseY;
+                drawnLarge = Settings.LargeCursor;
+            }
+            return DirtyCount > 0;
         }
 
-        private void Render(DateTime now)
+        // Zeichnet alles über dem Hintergrund auf scene. Beim Vermessen entsteht dabei kein Pixel.
+        private void Draw(DateTime now)
         {
-            scene.CopyFrom(wallpaper);
             if (Locked)
             {
                 login.Draw(scene);
