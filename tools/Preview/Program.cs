@@ -264,12 +264,14 @@ namespace VibanOS.Preview
             Check(File.Exists(Path.Combine(home, "notizen", "neu.txt")), "mv in einen Ordner legt die Datei hinein");
             // FAT unterscheidet Groß- und Kleinschreibung nicht. Dort wäre das Ziel die Quelle selbst.
             Type("mv notizen NOTIZEN\n");
-            Check(Last().Text.StartsWith("Auf der Platte ist das derselbe Name") && Directory.Exists(Path.Combine(home, "notizen")) && !Directory.Exists(Path.Combine(home, "NOTIZEN")),
+            Check(Last().Text.StartsWith("Auf der Platte ist das derselbe Name") && Listed(home, "notizen") && !Listed(home, "NOTIZEN"),
                 "mv auf denselben Namen in anderer Schreibweise fasst nichts an und sagt, warum");
             Type("mv notizen/neu.txt notizen\n");
             Check(Last().Text.StartsWith("Quelle und Ziel sind dasselbe") && File.Exists(Path.Combine(home, "notizen", "neu.txt")), "mv einer Datei in ihren eigenen Ordner fasst nichts an");
             Type("cp notizen/neu.txt notizen/NEU.TXT\n");
-            Check(Last().Text.StartsWith("Auf der Platte ist das derselbe Name") && !File.Exists(Path.Combine(home, "notizen", "NEU.TXT")), "cp kopiert eine Datei nicht auf sich selbst");
+            // Der Inhalt zählt mit: Wo die Schreibweise nicht zählt, schriebe ein Kopieren auf sich selbst die Quelle leer.
+            Check(Last().Text.StartsWith("Auf der Platte ist das derselbe Name") && !Listed(Path.Combine(home, "notizen"), "NEU.TXT")
+                && File.ReadAllText(Path.Combine(home, "notizen", "neu.txt")) == "Erster Eintrag", "cp kopiert eine Datei nicht auf sich selbst");
             // Unter dem FAT-Kurznamen erkennt mv denselben Ordner nicht wieder und schöbe ihn sonst in sich selbst.
             Type("mv notizen NOTIZE~1/innen\n");
             Check(Last().Text.StartsWith("Ordner verschiebt mv nicht über einen Pfad mit ~") && Directory.Exists(Path.Combine(home, "notizen")),
@@ -1399,6 +1401,17 @@ namespace VibanOS.Preview
         }
 
         private static ShellLine Last() { return OS.Shell.Lines[OS.Shell.Lines.Count - 1]; }
+
+        /// <summary>
+        /// Steht im Ordner ein Eintrag mit genau diesem Namen? Anders als File.Exists und Directory.Exists gilt die Antwort
+        /// auch auf einem Wirt, der Groß- und Kleinschreibung nicht unterscheidet (Mac, Windows): Dort fände "NOTIZEN" den Ordner "notizen".
+        /// </summary>
+        private static bool Listed(string folder, string name)
+        {
+            foreach (string entry in Directory.GetFileSystemEntries(folder))
+                if (Path.GetFileName(entry) == name) return true;
+            return false;
+        }
 
         // Steht der Text irgendwo im Terminal oder im Verlauf der Shell?
         private static bool Shown(string text)
