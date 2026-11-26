@@ -143,6 +143,8 @@ namespace VibanOS.Preview
 
         public static int Main(string[] args)
         {
+            // Windows schriebe die Umlaute sonst in der Codepage der Konsole, die Werkstatt liest UTF-8.
+            try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch (IOException) { }
             string output = Path.GetFullPath(args.Length > 0 ? args[0] : "preview");
             Directory.CreateDirectory(output);
 
@@ -610,11 +612,15 @@ namespace VibanOS.Preview
             Check(Settings.ParseSize("1512x945\n").Width == 1512 && Settings.ParseSize("x945").Width == 0 && Settings.ParseSize("-5x3").Width == 0
                 && Settings.ParseSize(null).Width == 0, "Nur eine Angabe wie 1512x945 gilt als Bildschirmgröße");
             Draw(); // die Maus steht jetzt, wo sie gezeichnet ist
+            int minute = DateTime.Now.Minute;
             desktop.Redraw();
             Check(desktop.Frame(screen) && desktop.DirtyCount == 1 && desktop.Dirty[0] == 0 && desktop.Dirty[1] == 0
                 && desktop.Dirty[2] >= screen.Width && desktop.Dirty[3] >= screen.Height, "Nach einem ganzen Neuzeichnen geht der ganze Bildschirm hinaus");
             OS.Changed = true;
-            Check(!desktop.Frame(screen), "Sieht das neue Bild aus wie das alte, geht nichts an den Bildschirm");
+            bool same = !desktop.Frame(screen);
+            // Springt genau zwischen den zwei Bildern die Minute um, zeichnet die Menüleiste die Uhr neu: dann zählt erst das nächste Bild.
+            if (!same && DateTime.Now.Minute != minute) { OS.Changed = true; same = !desktop.Frame(screen); }
+            Check(same, "Sieht das neue Bild aus wie das alte, geht nichts an den Bildschirm");
             Settle();
             Check(CursorOnly(screen), "Bewegt sich nur die Maus, geht nur ihr Ausschnitt an den Bildschirm");
 
@@ -1093,7 +1099,9 @@ namespace VibanOS.Preview
             Pieces();
 
             Directory.SetCurrentDirectory(output);
-            Directory.Delete(temp, true);
+            // Aufräumen kippt den bestandenen Test nicht: Unter Windows lässt sich ein Ordner nicht löschen, solange ein
+            // anderes Programm (Virenscanner) darin noch eine Datei offen hält.
+            try { Directory.Delete(temp, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
             Console.WriteLine(checks + " Prüfungen bestanden. Bilder liegen in " + output);
             return 0;
         }
