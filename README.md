@@ -175,6 +175,8 @@ Auch hier gilt: Der Klon muss in einem Pfad ohne Leerzeichen liegen, sonst melde
 
 ## Branch-Workflow
 
+Wer mit Claude, ChatGPT oder einer anderen KI arbeitet: Die Regeln für die KI stehen in [AGENTS.md](AGENTS.md), die Anleitung auf der Doku-Seite unter [Implementierung](https://vibanos.cxdex.de/implementierung.html#mit-claude-oder-chatgpt-arbeiten).
+
 1. Neue Branches immer von `development` abzweigen:
    ```sh
    git checkout development
