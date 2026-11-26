@@ -501,14 +501,17 @@ namespace VibanOS.Preview
             Check(desktop.Active is TerminalWindow, "Der rote Knopf schließt das Fenster");
             Window terminal = desktop.Active;
             int oldX = terminal.X;
-            desktop.OnMouse(terminal.X + 300, terminal.Y + 10, true);
-            desktop.OnMouse(terminal.X + 240, terminal.Y + 10, true);
-            desktop.OnMouse(0, 0, false);
-            Check(terminal.X == oldX - 60, "Fenster lassen sich an der Titelleiste ziehen");
+            int gripX = terminal.X + 300, gripY = terminal.Y + 10;
+            desktop.OnMouse(gripX, gripY, true);
+            desktop.OnMouse(gripX - 50, gripY, true);
+            desktop.OnMouse(gripX - 60, gripY, false); // Bewegung und Loslassen kommen im selben Durchlauf an
+            Check(terminal.X == oldX - 60, "Fenster lassen sich an der Titelleiste ziehen, auch der letzte Schritt beim Loslassen zählt");
+            desktop.OnMouse(gripX, gripY, false);
+            Check(terminal.X == oldX - 60, "Ein losgelassenes Fenster folgt der Maus nicht mehr");
             int dockRow = T.Size.ScreenHeight - T.Space.S - T.Space.M - T.Size.DockIcon / 2, dockTop = dockRow - T.Size.DockIcon / 2 - T.Space.S;
             desktop.OnMouse(terminal.X + terminal.Width - 5, terminal.Y + 10, true);
             desktop.OnMouse(0, T.Size.ScreenHeight - 1, true);
-            desktop.OnMouse(0, 0, false);
+            desktop.OnMouse(0, T.Size.ScreenHeight - 1, false);
             Check(terminal.X + terminal.Width >= T.Size.DockIcon && terminal.Y + T.Size.TitleBar <= dockTop,
                 "Ein Fenster lässt sich nicht ganz aus dem Bildschirm oder unter das Dock ziehen");
             Click(DockIconX(Icons.Activity), dockRow);

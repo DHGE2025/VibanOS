@@ -160,8 +160,10 @@ namespace VibanOS.Gui
             mouseDown = down;
             if (Locked) return;
 
-            if (!down) dragging = null;
+            // Erst an die Stelle der Maus, dann loslassen: Bewegung und Loslassen können im selben Durchlauf ankommen,
+            // das Fenster bliebe sonst einen Schritt hinter der Maus zurück.
             if (dragging != null) Place(dragging, x - dragX, y - dragY);
+            if (!down) dragging = null;
             if (!pressed) return;
 
             int icon = DockIconAt(x, y);

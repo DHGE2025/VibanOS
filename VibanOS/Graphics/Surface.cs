@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 
 namespace VibanOS.Graphics
 {
@@ -208,17 +209,21 @@ namespace VibanOS.Graphics
         }
 
         // Mischt die Farbe mit zusätzlicher Deckung (0–255) auf den Pixel i. Erwartet einen gültigen Index.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void Blend(int i, uint color, int coverage)
         {
             int a = (int)(color >> 24) * coverage / 255;
             if (a <= 0) return;
             if (a >= 255) { Pixels[i] = (int)(color | 0xFF000000); return; }
-            int dst = Pixels[i];
-            int u = 255 - a;
-            int r = (((int)(color >> 16) & 255) * a + ((dst >> 16) & 255) * u) / 255;
-            int g = (((int)(color >> 8) & 255) * a + ((dst >> 8) & 255) * u) / 255;
-            int b = (((int)color & 255) * a + (dst & 255) * u) / 255;
-            Pixels[i] = (255 << 24) | (r << 16) | (g << 8) | b;
+            // Je Farbanteil (Farbe * a + Untergrund * u) / 255. Rot und Blau rechnen zusammen in einem Wort, Grün im
+            // zweiten, und n / 255 ist für n bis 255 * 255 genau (n + 1 + (n >> 8)) >> 8. Das spart je Pixel die Hälfte
+            // der Rechenschritte, das Ergebnis ist dasselbe.
+            uint dst = (uint)Pixels[i], ua = (uint)a, u = 255 - ua;
+            uint rb = (color & 0xFF00FF) * ua + (dst & 0xFF00FF) * u;
+            uint g = (color & 0x00FF00) * ua + (dst & 0x00FF00) * u;
+            rb = ((rb + 0x10001 + ((rb >> 8) & 0xFF00FF)) >> 8) & 0xFF00FF;
+            g = ((g + 0x100 + ((g >> 8) & 0xFF00)) >> 8) & 0xFF00;
+            Pixels[i] = (int)(0xFF000000 | rb | g);
         }
 
         private void Plot(int x, int y, uint color, int coverage)
@@ -431,14 +436,18 @@ namespace VibanOS.Graphics
                     coverFrom = x + inset;
                     coverTo = x + w - inset;
                 }
-                // kx und ky zählen die Pixel vom geraden Teil der Form nach außen, unter 0 liegt man daneben.
+                // kx und ky zählen die Pixel vom geraden Teil der Form nach außen, unter 0 liegt man daneben. Für die
+                // ganze Zeile steht damit fest, aus welcher Tabelle die Deckung neben der Form kommt (strip ab at) und
+                // wie hoch sie über und unter ihr ist (middle).
                 int ky = Math.Max(sy + r - 1 - py, py - (sy + h - r));
+                byte[] strip = ky < 0 ? fall.One : fall.Two;
+                int at = ky < 0 ? 0 : ky * n, middle = ky < 0 ? alpha : fall.One[ky], line = py * PixelWidth;
                 for (int px = from; px < to; px++)
                 {
                     if (px >= coverFrom && px < coverTo) { px = coverTo - 1; continue; }
                     int kx = Math.Max(x + r - 1 - px, px - (x + w - r));
-                    int c = kx < 0 ? (ky < 0 ? alpha : fall.One[ky]) : ky < 0 ? fall.One[kx] : fall.Two[ky * n + kx];
-                    if (c != 0) Blend(py * PixelWidth + px, color, c);
+                    int c = kx < 0 ? middle : strip[at + kx];
+                    if (c != 0) Blend(line + px, color, c);
                 }
             }
         }
