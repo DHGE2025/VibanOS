@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VibanOS Werkstatt</title>
+<style>
+  /* Farben, Abstände und Radien aus docs/design/designsheet.md (Tokens.cs) */
+  :root {
+    --accent: #0A84FF; --success: #30D158; --warning: #FFD60A; --danger: #FF453A;
+    --window: #1E1E20; --titlebar: #2C2C2F; --sunken: #161618; --raised: #3A3A3D; --grouped: #2A2A2D;
+    --border: rgba(255,255,255,.14); --separator: rgba(255,255,255,.08);
+    --text: #F5F5F7; --text2: rgba(235,235,245,.65); --text3: rgba(235,235,245,.35);
+    --s: 8px; --m: 12px; --l: 16px; --xl: 24px; --r-s: 6px; --r-m: 10px; --field: 30px;
+    --font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--sunken); color: var(--text); font: 13px/1.45 var(--font); display: flex; flex-direction: column; font-feature-settings: "calt" 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { display: flex; align-items: center; gap: var(--m); padding: var(--m) var(--l); background: var(--titlebar); border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 13px; font-weight: 600; margin: 0; }
+  .grow { flex: 1; }
+  .pill { padding: 2px 10px; border-radius: 999px; background: var(--grouped); color: var(--text2); white-space: nowrap; }
+  .pill.busy { background: rgba(10,132,255,.18); color: var(--text); }
+  .pill.vm { background: rgba(48,209,88,.18); color: var(--text); }
+  button { height: var(--field); padding: 0 var(--m); border-radius: var(--r-s); border: 1px solid var(--border); background: var(--raised); color: var(--text); font: inherit; cursor: pointer; white-space: nowrap; }
+  button:hover:not(:disabled) { filter: brightness(1.15); }
+  button:disabled { color: var(--text3); cursor: default; }
+  button.primary { background: var(--accent); border-color: transparent; color: #fff; font-weight: 600; }
+  button.primary:disabled { background: var(--grouped); color: var(--text3); }
+  button.danger { background: var(--danger); border-color: transparent; color: #fff; font-weight: 600; }
+  button.quiet { background: transparent; }
+  main { flex: 1; display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); min-height: 0; }
+  aside { background: var(--window); border-right: 1px solid var(--border); overflow-y: auto; }
+  .caption { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; color: var(--text3); padding: var(--l) var(--l) var(--s); }
+  .item { padding: var(--s) var(--l); border-left: 3px solid transparent; cursor: pointer; }
+  .item:hover { background: var(--grouped); }
+  .item.sel { background: var(--grouped); border-left-color: var(--accent); }
+  .item .name { font-weight: 600; word-break: break-all; }
+  .item .sub { color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .meta { color: var(--text3); font-size: 11px; display: flex; gap: var(--s); flex-wrap: wrap; align-items: center; }
+  .tag { font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--raised); color: var(--text2); }
+  .tag.ok { background: rgba(48,209,88,.18); color: var(--success); }
+  .tag.old { background: rgba(255,214,10,.15); color: var(--warning); }
+  .tag.run { background: rgba(10,132,255,.2); color: var(--text); }
+  section { display: flex; flex-direction: column; min-height: 0; }
+  .detail { padding: var(--l) var(--xl); background: var(--window); border-bottom: 1px solid var(--border); }
+  .detail h2 { font-size: 15px; margin: 0 0 4px; word-break: break-all; }
+  .facts { color: var(--text2); display: flex; flex-wrap: wrap; gap: 4px var(--l); margin-bottom: var(--m); }
+  .actions { display: flex; flex-wrap: wrap; gap: var(--s); }
+  .shots { display: flex; gap: var(--s); overflow-x: auto; margin-top: var(--m); }
+  .shots img { height: 72px; border-radius: var(--r-s); border: 1px solid var(--border); }
+  .logbar { display: flex; align-items: center; gap: var(--s); padding: var(--s) var(--xl); color: var(--text3); border-bottom: 1px solid var(--separator); }
+  #log { flex: 1; overflow-y: auto; padding: var(--m) var(--xl); font: 12px/1.5 var(--mono); font-variant-ligatures: none; white-space: pre-wrap; word-break: break-word; }
+  #log .cmd { color: var(--text3); }
+  #log .head { color: var(--accent); }
+  #log .err { color: var(--danger); }
+  .tools { padding: var(--s) var(--l) var(--l); display: flex; flex-wrap: wrap; gap: var(--s); align-items: center; }
+  .settings { padding: 0 var(--l) var(--l); display: grid; gap: var(--s); }
+  .settings input[type=text] { height: var(--field); border-radius: calc(var(--field) / 2); border: 1px solid var(--border); background: var(--sunken); color: var(--text); padding: 0 var(--m); font: 12px var(--mono); width: 100%; }
+  .hint { color: var(--text3); font-size: 11px; }
+  #toast { position: fixed; bottom: var(--l); left: 50%; transform: translateX(-50%); background: var(--danger); color: #fff; padding: var(--s) var(--l); border-radius: var(--r-m); display: none; max-width: 80vw; }
+</style>
+</head>
+<body>
+<header>
+  <h1>VibanOS Werkstatt</h1>
+  <span id="status" class="pill">Verbinde …</span>
+  <span class="grow"></span>
+  <button id="stop" class="danger" hidden>Stoppen</button>
+  <button id="refresh" title="Branches und Pull Requests neu von GitHub holen">Aktualisieren</button>
+</header>
+<main>
+  <aside>
+    <div class="caption">Dein Klon</div>
+    <div id="own"></div>
+    <div class="caption">Branches auf GitHub</div>
+    <div class="settings"><input type="text" id="filter" placeholder="Suchen: Name, VIB-Kennung, Commit" spellcheck="false"></div>
+    <div id="branches"></div>
+    <div class="caption">Werkzeuge</div>
+    <div class="tools" id="tools"></div>
+    <div class="caption">Einstellungen</div>
+    <div class="settings">
+      <label>Zusätzliche QEMU-Argumente
+        <input type="text" id="qemuArgs" placeholder="z. B. -m 1G oder -accel whpx (Windows)" spellcheck="false">
+      </label>
+      <label><input type="checkbox" id="verbose"> Ausführlich bauen (cosmos build -v)</label>
+      <div class="hint" id="where"></div>
+    </div>
+  </aside>
+  <section>
+    <div class="detail" id="detail"></div>
+    <div class="logbar"><span class="grow">Ausgabe</span><label><input type="checkbox" id="follow" checked> mitlaufen</label><button class="quiet" id="clear">Leeren</button></div>
+    <div id="log"></div>
+  </section>
+</main>
+<div id="toast"></div>
+<script>
+const $ = id => document.getElementById(id);
+let info = null, state = { busy: null }, from = 0, stamp = -1, sel = '.';
+try { sel = localStorage.getItem('sel') || '.'; } catch { }
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function link(href, text) {
+  const a = el('a', null, text);
+  if (/^https:\/\//.test(href || '')) { a.href = href; a.target = '_blank'; a.rel = 'noopener'; }
+  a.onclick = ev => ev.stopPropagation();
+  return a;
+}
+function button(text, cls, onclick, disabled) {
+  const b = el('button', cls, text);
+  b.onclick = onclick;
+  b.disabled = !!disabled;
+  return b;
+}
+const rtf = new Intl.RelativeTimeFormat('de', { numeric: 'auto' });
+function ago(iso) {
+  const s = (new Date(iso) - Date.now()) / 1000;
+  for (const [unit, n] of [['day', 86400], ['hour', 3600], ['minute', 60]])
+    if (Math.abs(s) >= n) return rtf.format(Math.round(s / n), unit);
+  return 'gerade eben';
+}
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.style.display = 'none', 6000);
+}
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} :
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+async function act(action, target = sel) {
+  try { await api('/api/action', { target, action }); poll(); } catch (e) { toast(e.message); }
+}
+
+function targets() { return info ? [info.own, ...info.branches] : []; }
+function current() { return targets().find(t => t.id === sel) || info?.own; }
+function isOld(t) { return t.local && t.sha && t.local.sha !== t.sha; }
+
+function renderItem(t) {
+  const own = t.id === '.';
+  const d = el('div', 'item' + (t.id === sel ? ' sel' : ''));
+  d.onclick = () => { sel = t.id; try { localStorage.setItem('sel', sel); } catch { } render(); };
+  d.append(el('div', 'name', own ? (t.branch || '(kein Branch)') : t.id));
+  if (own) d.append(el('div', 'sub', t.changes ? `${t.changes} geänderte Dateien, wird so gebaut, wie es ist` : 'Wird so gebaut, wie es ist'));
+  else d.append(el('div', 'sub', t.subject));
+  const m = el('div', 'meta');
+  if (!own) m.append(el('span', null, `${t.author} · ${ago(t.date)}`));
+  if (state.busy && state.target === t.id) m.append(el('span', 'tag run', state.busy));
+  if (t.pr) m.append(el('span', 'tag', `PR #${t.pr.number}${t.pr.draft ? ' Entwurf' : ''}`));
+  if (t.local?.built) m.append(el('span', isOld(t) ? 'tag old' : 'tag ok', isOld(t) ? 'neuer Stand da' : 'gebaut'));
+  if (m.childNodes.length) d.append(m);
+  return d;
+}
+
+function renderDetail() {
+  const t = current(), box = $('detail');
+  box.replaceChildren();
+  if (!t) return;
+  const own = t.id === '.', busy = !!state.busy, mine = state.target === t.id;
+  box.append(el('h2', null, own ? `Dein Klon (${t.branch || 'kein Branch'})` : t.id));
+
+  const f = el('div', 'facts');
+  if (!own) f.append(el('span', null, `${t.sha.slice(0, 7)} · ${t.subject}`));
+  if (t.pr) f.append(link(t.pr.url, `PR #${t.pr.number}: ${t.pr.title}`));
+  else if (!own && info.web) f.append(link(`${info.web}/compare/development...${encodeURIComponent(t.id)}?expand=1`, 'PR anlegen'));
+  if (t.linear) f.append(link(t.linear, t.linear.split('/').pop() + ' in Linear'));
+  if (!own && info.web) f.append(link(`${info.web}/commits/${encodeURIComponent(t.id)}`, 'Commits'));
+  f.append(el('span', null, t.local?.built ? `gebaut ${ago(t.local.built)}` : 'noch nicht gebaut'));
+  if (isOld(t)) f.append(el('span', null, 'Auf GitHub gibt es einen neueren Stand'));
+  if (t.local) f.append(el('span', null, t.local.disk ? 'mit Festplatte (disk.img)' : 'ohne Festplatte'));
+  box.append(f);
+
+  const a = el('div', 'actions');
+  a.append(button(own ? 'Bauen und starten' : 'Holen, bauen und starten', 'primary', () => act('start'), busy));
+  a.append(button('Nur starten', null, () => act('run'), busy || !t.local?.built));
+  a.append(button(own ? 'Bauen' : 'Holen und bauen', null, () => act('build'), busy));
+  a.append(button('Selbsttest', null, () => act('test'), busy));
+  if (t.local) a.append(button('Ordner öffnen', 'quiet', () => act('open')));
+  if (t.local?.disk) a.append(button('Festplatte leeren', 'quiet', () => {
+    if (confirm('disk.img löschen? Dateien und Nutzer dieses Ordners sind dann weg.')) act('disk');
+  }, mine));
+  if (!own && t.local) a.append(button('Ordner entfernen', 'quiet', () => {
+    if (confirm(`${t.local.dir} mit Bau und Festplatte löschen?`)) act('remove');
+  }, mine));
+  box.append(a);
+
+  if (t.local?.shots?.length) {
+    const s = el('div', 'shots');
+    for (const name of t.local.shots) {
+      const src = `/api/shot?target=${encodeURIComponent(t.id)}&file=${encodeURIComponent(name)}&v=${stamp}`;
+      const l = link(null, null); l.href = src; l.target = '_blank'; l.title = name;
+      const img = el('img'); img.src = src; img.alt = name; l.append(img);
+      s.append(l);
+    }
+    box.append(s);
+  }
+}
+
+function renderTools() {
+  const box = $('tools');
+  box.replaceChildren();
+  for (const [name, path] of Object.entries(info.tools)) {
+    if (path === null) continue;
+    const ok = !!path, s = el('span', ok ? 'tag ok' : 'tag old', `${name} ${ok ? '✓' : 'fehlt'}`);
+    s.title = path || (name === 'qemu' ? 'brew install qemu' : `${name} ist nicht im PATH`);
+    box.append(s);
+  }
+  box.append(button('cosmos check', 'quiet', () => act('check', '.'), !!state.busy));
+}
+
+function render() {
+  if (!info) return;
+  $('own').replaceChildren(renderItem(info.own));
+  const q = $('filter').value.trim().toLowerCase();
+  $('branches').replaceChildren(...info.branches
+    .filter(b => !q || `${b.id} ${b.subject} ${b.author} ${b.pr?.title || ''}`.toLowerCase().includes(q))
+    .map(renderItem));
+  if (info.prError) $('branches').append(el('div', 'item sub', 'Pull Requests nicht abrufbar: ' + info.prError));
+  renderDetail();
+  renderTools();
+  if (document.activeElement !== $('qemuArgs')) $('qemuArgs').value = info.settings.qemuArgs;
+  $('verbose').checked = info.settings.verbose;
+  $('where').textContent = `Branches liegen in ${info.branchesDir}. Diese Ordner gehören der Werkstatt: Jeder Start setzt sie auf den Stand von GitHub zurück. Eigene Änderungen gehören in deinen Klon.`;
+  const st = $('status');
+  st.textContent = state.busy ? `${state.busy}: ${state.target === '.' ? 'dein Klon' : state.target}` : 'Bereit';
+  st.className = 'pill' + (state.busy === 'VM läuft' ? ' vm' : state.busy ? ' busy' : '');
+  $('stop').hidden = !state.busy;
+  $('stop').textContent = state.busy === 'VM läuft' ? 'VM stoppen' : 'Abbrechen';
+}
+
+function addLines(lines) {
+  const log = $('log');
+  for (const line of lines) {
+    const cls = line.startsWith('!!') ? 'err' : line.startsWith('==>') ? 'head' : line.startsWith('$ ') ? 'cmd' : null;
+    log.append(el('div', cls, line || ' '));
+  }
+  while (log.childNodes.length > 5000) log.firstChild.remove();
+  if ($('follow').checked) log.scrollTop = log.scrollHeight;
+}
+
+let inflight = false;
+async function poll() {
+  if (inflight) return;
+  inflight = true;
+  try {
+    const s = await api('/api/state?from=' + from);
+    if (s.reset) $('log').replaceChildren();
+    addLines(s.lines);
+    from = s.next;
+    const changed = s.busy !== state.busy || s.target !== state.target || s.stamp !== stamp;
+    state = s;
+    if (s.stamp !== stamp) { info = await api('/api/info'); stamp = s.stamp; }
+    if (changed) render(); // nur bei Änderungen neu zeichnen, sonst gehen Klicks und Markierungen verloren
+  } catch {
+    $('status').textContent = 'Werkstatt nicht erreichbar. Läuft das Terminal noch?';
+    $('status').className = 'pill';
+    stamp = -1;
+  } finally {
+    inflight = false;
+  }
+}
+
+$('stop').onclick = () => api('/api/stop', {}).catch(e => toast(e.message));
+$('refresh').onclick = async () => {
+  $('refresh').disabled = true;
+  try { info = await api('/api/refresh', {}); render(); } catch (e) { toast(e.message); }
+  $('refresh').disabled = false;
+};
+$('clear').onclick = () => $('log').replaceChildren();
+$('filter').oninput = render;
+const saveSettings = () => api('/api/settings', { qemuArgs: $('qemuArgs').value, verbose: $('verbose').checked })
+  .then(() => { info.settings = { qemuArgs: $('qemuArgs').value, verbose: $('verbose').checked }; }).catch(e => toast(e.message));
+$('qemuArgs').onchange = saveSettings;
+$('verbose').onchange = saveSettings;
+setInterval(poll, 700);
+poll();
+</script>
+</body>
+</html>

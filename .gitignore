@@ -16,3 +16,6 @@ output-arm64/
 
 # Ausgabe von tools/Preview
 preview/
+
+# Einstellungen der Werkstatt (tools/Werkstatt), je Rechner
+tools/Werkstatt/einstellungen.json
