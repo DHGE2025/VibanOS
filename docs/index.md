@@ -14,7 +14,7 @@ VibanOS ist ein eigenes Betriebssystem, geschrieben in C# mit [COSMOS](https://g
 | -- | -- |
 | Oberfläche | Schreibtisch, Fenster zum Ziehen und Schließen, Dock, Menüleiste mit Uhr |
 | Apps | Terminal, Dateien, Aktivitätsanzeige, Systemeinstellungen, „Über VibanOS“ |
-| Shell | Befehle wie `help`, `ls`, `cp`, `mv`, `rm`, `df`, `useradd`, `passwd`, `shutdown` |
+| Shell | Befehle wie `help`, `ls`, `cp`, `mv`, `rm`, `df`, `useradd`, `passwd`, `sudo`, `shutdown` |
 | Nutzer | Anmeldung mit Passwort, Nutzer und Gruppen, Rechte |
 | Festplatte | FAT-Dateisystem auf `disk.img`, eigener Ordner je Nutzer |
 | Kern | Prozesse und Scheduler, Speicherverwaltung, Systemaufrufe, Mailbox, Mutex, Semaphore |
