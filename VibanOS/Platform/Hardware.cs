@@ -187,6 +187,8 @@ namespace VibanOS.Platform
         /// Bringt den Ausschnitt (x, y, width, height) von screen auf den Bildschirm. screen ist die Zeichenfläche über dem
         /// Puffer des Canvas. Canvas.Display() kopiert dagegen immer das ganze Bild und meldet der Grafikkarte den ganzen
         /// Bildschirm als geändert. Bei einer Mausbewegung wären das Megabytes für ein paar hundert geänderte Pixel.
+        /// whole: kopiert wird auch nur der Ausschnitt, die Grafikkarte soll aber das ganze Bild neu anzeigen. Nötig, wenn
+        /// QEMU das Bild streckt (Settings.Stretched).
         /// </summary>
         // COSMOS kennzeichnet die Schnittstelle der Grafiktreiber als Vorabversion (COSMOS0003). Bricht sie mit einer neuen
         // COSMOS-Version, hier wieder canvas.Display() nehmen: Das ist langsamer, zeigt aber dasselbe Bild.

@@ -55,6 +55,9 @@ namespace VibanOS.Gui
         /// </summary>
         public readonly int[] Dirty = new int[4 * (Surface.MaxDamage + 1)];
         public int DirtyCount;
+
+        /// <summary>So lange hat Frame bisher vermessen und gezeichnet, in Einheiten von Stopwatch. Der Kernel schreibt das ins Protokoll.</summary>
+        public long Measured, Painted;
         private bool mouseDown;
         private Window dragging;
         private int dragX, dragY;
@@ -346,9 +349,12 @@ namespace VibanOS.Gui
                 OS.Changed = false;
                 // Erst vermessen, was sich gegenüber dem letzten Bild geändert hat, dann nur diese Bereiche neu zeichnen.
                 // Ein getippter Buchstabe oder ein gezogenes Fenster kostet so einen Bruchteil des ganzen Bildes.
+                long start = System.Diagnostics.Stopwatch.GetTimestamp();
                 scene.Measure();
                 Draw(now);
                 DirtyCount = scene.Damage(Dirty);
+                long middle = System.Diagnostics.Stopwatch.GetTimestamp();
+                Measured += middle - start;
                 for (int i = 0; i < 4 * DirtyCount; i += 4)
                 {
                     scene.CopyRect(wallpaper, Dirty[i], Dirty[i + 1], Dirty[i + 2], Dirty[i + 3]);
@@ -357,6 +363,7 @@ namespace VibanOS.Gui
                     front.CopyRect(scene, Dirty[i], Dirty[i + 1], Dirty[i + 2], Dirty[i + 3]);
                 }
                 scene.Unlimit();
+                Painted += System.Diagnostics.Stopwatch.GetTimestamp() - middle;
             }
             // Der Mauszeiger liegt nur auf front. Ist er gewandert oder wurde unter ihm neu gezeichnet, verschwindet er
             // an der alten Stelle und entsteht an der neuen.

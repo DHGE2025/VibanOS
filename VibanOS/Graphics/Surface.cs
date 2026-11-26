@@ -260,6 +260,29 @@ namespace VibanOS.Graphics
             return (int)(c * 255);
         }
 
+        // Deckung in einer Ecke mit Radius r, einmal ausgerechnet statt für jedes Pixel (wie beim Schatten: Kommazahlen
+        // kosten in QEMU ein Vielfaches). Eintrag [j * r + i]: Pixel i von links und j von oben in der linken oberen Ecke.
+        // ring: der ein Pixel breite Rahmen statt der gefüllten Fläche. Ab MaxTabled wird jedes Mal neu gerechnet.
+        private const int MaxTabled = 128;
+        private static readonly byte[][] fills = new byte[MaxTabled][], rings = new byte[MaxTabled][];
+
+        private static byte[] Corners(int r, bool ring)
+        {
+            byte[][] known = ring ? rings : fills;
+            if (r < MaxTabled && known[r] != null) return known[r];
+            byte[] made = new byte[r * r];
+            for (int j = 0; j < r; j++)
+                for (int i = 0; i < r; i++)
+                {
+                    float dx = r - i - 0.5f, dy = r - j - 0.5f;
+                    int c = Corner(dx, dy, r);
+                    if (ring) c -= Corner(dx, dy, r - 1);
+                    made[j * r + i] = (byte)(c < 0 ? 0 : c);
+                }
+            if (r < MaxTabled) known[r] = made;
+            return made;
+        }
+
         public void FillRoundRect(int x, int y, int w, int h, int r, uint color)
         {
             FillRoundRect(x, y, w, h, r, color, color);
@@ -273,6 +296,7 @@ namespace VibanOS.Graphics
             if (r * 2 > w) r = w / 2;
             if (r * 2 > h) r = h / 2;
             if (Skip(x, y, w, h, Mixed(Mixed(Mixed(2, r), top), bottom))) return;
+            byte[] corner = Corners(r, false);
             for (int j = 0; j < h; j++)
             {
                 if (y + j < clipY0 || y + j >= clipY1) continue;
@@ -280,10 +304,10 @@ namespace VibanOS.Graphics
                 int inset = 0;
                 if (j < r || j >= h - r)
                 {
-                    float dy = j < r ? r - j - 0.5f : j - (h - r) + 0.5f;
+                    int row = (j < r ? j : h - 1 - j) * r; // unten gespiegelt
                     for (int i = 0; i < r; i++)
                     {
-                        int c = Corner(r - i - 0.5f, dy, r);
+                        int c = corner[row + i];
                         Plot(x + i, y + j, color, c);
                         Plot(x + w - 1 - i, y + j, color, c);
                     }
@@ -314,13 +338,13 @@ namespace VibanOS.Graphics
                 Plot(x, y + j, color, 255);
                 Plot(x + w - 1, y + j, color, 255);
             }
+            byte[] ring = Corners(r, true);
             for (int j = 0; j < r; j++)
             {
                 for (int i = 0; i < r; i++)
                 {
-                    float dx = r - i - 0.5f, dy = r - j - 0.5f;
-                    int c = Corner(dx, dy, r) - Corner(dx, dy, r - 1);
-                    if (c <= 0) continue;
+                    int c = ring[j * r + i];
+                    if (c == 0) continue;
                     Plot(x + i, y + j, color, c);
                     Plot(x + w - 1 - i, y + j, color, c);
                     Plot(x + i, y + h - 1 - j, color, c);

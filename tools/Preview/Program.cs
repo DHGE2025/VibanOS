@@ -560,6 +560,12 @@ namespace VibanOS.Preview
             plain.Shadow(50, 30, 100, 60, T.Radius.L, T.Shadow.DockBlur, T.Shadow.DockOffset, T.Shadow.DockAlpha, T.Color.Shadow);
             Check(plain.Pixels[32 * 200 + 100] == plain.Pixels[0] && plain.Pixels[60 * 200 + 100] == plain.Pixels[0] && plain.Pixels[95 * 200 + 100] != plain.Pixels[0],
                 "Der Schatten liegt nur außerhalb der Form, auch in den Zeilen der Ecken");
+            Check(ShadowMatches(1, 20, 20, 100, 60, T.Radius.L, T.Shadow.DockBlur, T.Shadow.DockOffset, T.Shadow.DockAlpha)
+                && ShadowMatches(2, 30, 30, 81, 45, T.Radius.M, T.Shadow.WindowBlur, T.Shadow.WindowOffset, T.Shadow.WindowAlpha)
+                && ShadowMatches(2, 40, 50, 60, 20, 0, 12, 0, 255) && ShadowMatches(1, 50, 50, 40, 20, 18, 9, 4, 70)
+                && ShadowMatches(2, -15, 100, 70, 60, 12, 25, 10, 130),
+                "Der Schatten aus der Tabelle gleicht Pixel für Pixel dem mit Kommazahlen gerechneten");
+            Tiles();
 
             // Auflösung passend zum Bildschirm des Rechners, nur geänderte Ausschnitte an den Bildschirm (VIB-37)
             Platform.Hardware.FwCfgFiles = null;
@@ -1190,6 +1196,86 @@ namespace VibanOS.Preview
             return shown;
         }
 
+        // Surface.Shadow liest die Deckung je Abstand aus einer Tabelle. Hier dieselbe Rechnung für jedes Pixel einzeln mit
+        // Kommazahlen, so wie Shadow sie früher machte.
+        private static bool ShadowMatches(int scale, int x, int y, int w, int h, int r, int blur, int offsetY, int alpha)
+        {
+            Surface s = new Surface(160, 140, scale);
+            uint color = T.Color.Shadow;
+            s.FillRect(0, 0, s.Width, s.Height, T.Color.TextOnAccent);
+            int paper = s.Pixels[0];
+            s.Shadow(x, y, w, h, r, blur, offsetY, alpha, color);
+            x *= scale; y *= scale; w *= scale; h *= scale; r *= scale; blur *= scale; offsetY *= scale;
+            int sy = y + offsetY;
+            float halfW = w / 2f - r, halfH = h / 2f - r, cx = x + w / 2f, cy = sy + h / 2f;
+            for (int py = 0; py < s.PixelHeight; py++)
+                for (int px = 0; px < s.PixelWidth; px++)
+                {
+                    int expected = paper, j = py - y;
+                    bool covered = false; // unter der Form selbst bleibt alles stehen
+                    if (j >= 0 && j < h)
+                    {
+                        int inset = 0;
+                        if (j < r || j >= h - r)
+                        {
+                            float dy = j < r ? r - j - 0.5f : j - (h - r) + 0.5f;
+                            float reach = (r - 0.5f) * (r - 0.5f) - dy * dy;
+                            inset = reach <= 0 ? r : r - (int)((float)Math.Sqrt(reach) + 0.5f);
+                        }
+                        covered = px >= x + inset && px < x + w - inset;
+                    }
+                    float qx = Math.Abs(px + 0.5f - cx) - halfW, qy = Math.Abs(py + 0.5f - cy) - halfH;
+                    float d = qx > 0 && qy > 0 ? (float)Math.Sqrt(qx * qx + qy * qy) - r : Math.Max(qx, qy) - r;
+                    if (!covered && d < blur)
+                    {
+                        float t = d <= 0 ? 1 : 1 - d / blur;
+                        int a = (int)(color >> 24) * (int)(alpha * t * t) / 255, u = 255 - a;
+                        if (a > 0)
+                            expected = (255 << 24) | ((((int)(color >> 16) & 255) * a + ((paper >> 16) & 255) * u) / 255 << 16)
+                                | ((((int)(color >> 8) & 255) * a + ((paper >> 8) & 255) * u) / 255 << 8)
+                                | (((int)color & 255) * a + (paper & 255) * u) / 255;
+                    }
+                    if (s.Pixels[py * s.PixelWidth + px] != expected) return false;
+                }
+            return true;
+        }
+
+        // Was sich geändert hat, merkt sich die Zeichenfläche je Kachel (Surface.Measure, Surface.Damage). Hier an einer
+        // kleinen Fläche durchgespielt: 10 x 8 Kacheln.
+        private static void Tiles()
+        {
+            int[] r = new int[4 * Surface.MaxDamage];
+            Surface s = new Surface(320, 256, 1);
+            Func<Action, int> damage = draw => { s.Measure(); draw(); return s.Damage(r); };
+            uint a = T.Color.Accent, b = T.Color.Danger;
+            Check(damage(() => { }) == 1 && r[0] == 0 && r[1] == 0 && r[2] == 320 && r[3] == 256 && damage(() => { }) == 0,
+                "Das erste Bild gilt ganz als geändert, ein gleiches danach gar nicht");
+            Check(damage(() => s.FillRect(40, 40, 100, 100, a)) == 1 && r[0] == 32 && r[1] == 32 && r[2] == 128 && r[3] == 128
+                && damage(() => s.FillRect(40, 40, 100, 100, a)) == 0 && s.Pixels[50 * 320 + 50] == 0,
+                "Geändert sind genau die Kacheln unter einer neuen Form, und beim Vermessen entsteht kein Pixel");
+            Check(damage(() => s.FillRect(40, 40, 100, 100, b)) == 1 && damage(() => s.FillRect(41, 40, 100, 100, b)) == 1
+                && damage(() => { s.DrawText(Fonts.Body, "ab", 8, 8, a); }) == 2 && damage(() => { s.DrawText(Fonts.Body, "ad", 8, 8, a); }) == 1 && r[1] == 0 && r[3] == 32,
+                "Eine andere Farbe, eine andere Lage oder ein anderer Buchstabe gelten als Änderung");
+            damage(() => { s.FillRect(0, 0, 64, 64, a); s.FillRect(32, 32, 64, 64, b); });
+            Check(damage(() => { s.FillRect(32, 32, 64, 64, b); s.FillRect(0, 0, 64, 64, a); }) == 1 && r[0] == 32 && r[1] == 32 && r[2] == 32 && r[3] == 32,
+                "Liegen zwei Formen in anderer Reihenfolge übereinander, ist nur ihre Überschneidung geändert");
+            damage(() => { s.SetClip(0, 0, 64, 40); s.FillRect(0, 0, 64, 64, a); s.ResetClip(); });
+            Check(damage(() => { s.SetClip(0, 0, 64, 48); s.FillRect(0, 0, 64, 64, a); s.ResetClip(); }) == 1,
+                "Dieselbe Form anders beschnitten gilt als Änderung");
+            damage(() => { });
+            Check(damage(() => { for (int i = 0; i < 6; i++) s.FillRect(i * 32, i * 32, 8, 8, a); }) == 6 && r[20] == 160 && r[21] == 160 && r[22] == 32,
+                "Bis zu sechs getrennte Bereiche werden einzeln gemeldet");
+            damage(() => { });
+            Check(damage(() => { for (int i = 0; i < 7; i++) s.FillRect(i * 32, i * 32, 8, 8, a); }) == 1 && r[0] == 0 && r[1] == 0 && r[2] == 224 && r[3] == 224,
+                "Mehr als sechs Bereiche werden zu einem, der alle umfasst");
+            Surface twice = new Surface(64, 64, 2);
+            twice.Measure();
+            twice.Damage(r);
+            twice.Measure();
+            twice.FillRect(33, 1, 1, 1, a);
+            Check(twice.Damage(r) == 1 && r[0] == 32 && r[1] == 0 && r[2] == 32 && r[3] == 32, "Bei Retina sind Kacheln in Punkten gleich groß, die Bereiche kommen in Punkten");
+        }
+
         // Stückweises Neuzeichnen in der Größe von Antonios Mac im Vollbild (1470x923 Punkte, doppelt gezeichnet):
         // Tippen und Fensterziehen zeichnen nur ihre Umgebung neu. Am Ende die Zeiten, zum Vergleichen vor und nach einem Umbau.
         private static void Pieces()
@@ -1198,6 +1284,7 @@ namespace VibanOS.Preview
                 && Settings.Rows(new Resolution(2940, 1848), new Resolution(1470, 924), 2) == 1848
                 && Settings.Rows(new Resolution(2940, 1848), new Resolution(1470, 950), 2) == 1848
                 && Settings.Rows(new Resolution(1440, 900), new Resolution(1470, 923), 1) == 900
+                && Settings.Rows(new Resolution(2940, 1848), new Resolution(1400, 900), 2) == 1848
                 && Settings.Rows(new Resolution(2940, 1848), new Resolution(0, 0), 1) == 1848,
                 "Meldet QEMU mehr Zeilen, als sein Fenster hat, zeigt VibanOS nur die Zeilen des Fensters");
             Check(!Settings.Stretched(2940, 1846, new Resolution(1470, 923), 2) && Settings.Stretched(2940, 1848, new Resolution(1470, 923), 2)

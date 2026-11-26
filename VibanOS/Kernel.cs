@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using Cosmos.Kernel.System.Diagnostics;
 using Cosmos.Kernel.System.Graphics;
@@ -34,7 +35,8 @@ namespace VibanOS
         private Resolution host;      // Bildschirm des Rechners laut Werkstatt, 0x0: unbekannt
         private int canvasHeight;     // Höhe des Canvas, zu der front gehört
         private bool stretched;       // QEMU streckt das Bild: immer das ganze anzeigen
-        private long second, slowest; // für die Zeile im Protokoll: laufende Sekunde und ihr langsamstes Bild
+        // Für die Zeile im Protokoll: laufende Sekunde, ihre Bilder und wie lange sie brauchten (Einheiten von Stopwatch).
+        private long second, slowest, busy, shown;
         private int drawn;
 
         protected override void BeforeRun()
@@ -88,6 +90,7 @@ namespace VibanOS
             int failures = 0;
             while (!Stopped)
             {
+                long began = Transition.Milliseconds();
                 try
                 {
                     Frame();
@@ -101,7 +104,9 @@ namespace VibanOS
                     if (++failures >= MaxFailures) throw;
                     OS.Shell.Error("Interner Fehler: " + e.Message);
                 }
-                Thread.Sleep(FramePause);
+                // Nach einem Durchlauf, der selbst schon so lange gebraucht hat (ein großes Stück neu gezeichnet), sofort
+                // weiter: Die Pause käme sonst zu jedem Bild dazu, und ein gezogenes Fenster ruckelt.
+                if (Transition.Milliseconds() - began < FramePause || Stopwatch.Frequency <= 0) Thread.Sleep(FramePause);
             }
         }
 
@@ -123,21 +128,29 @@ namespace VibanOS
                 desktop.Resize(front.Width, front.Height);
             }
             // Nur wenn sich etwas geändert hat, geht ein neues Bild an den Bildschirm, und nur die geänderten Teile.
-            long before = Transition.Milliseconds();
+            long before = Stopwatch.GetTimestamp();
             if (desktop.Frame(front))
             {
+                long drawnAt = Stopwatch.GetTimestamp();
                 for (int i = 0; i < 4 * desktop.DirtyCount; i += 4)
                     Hardware.Present(front, desktop.Dirty[i], desktop.Dirty[i + 1], desktop.Dirty[i + 2], desktop.Dirty[i + 3], stretched);
+                long took = Stopwatch.GetTimestamp() - before;
+                shown += Stopwatch.GetTimestamp() - drawnAt;
+                busy += took;
+                if (took > slowest) slowest = took;
                 drawn++;
             }
-            // Einmal je Sekunde ins Protokoll, wie viele Bilder es gab und wie lange das langsamste brauchte. Daran sieht
-            // man in der Werkstatt, ob das Zeichnen auf diesem Rechner flüssig ist. Ohne neues Bild keine Zeile.
-            long after = Transition.Milliseconds();
-            if (after - before > slowest) slowest = after - before;
-            if (after / 1000 == second) return;
-            if (drawn > 0) Log.WriteString("[VibanOS] " + drawn + " Bilder, das langsamste " + slowest + " ms\n");
-            second = after / 1000;
-            slowest = 0;
+            // Einmal je Sekunde ins Protokoll, wie viele Bilder es gab und wie lange sie brauchten: das langsamste, alle
+            // zusammen, und davon Vermessen, Zeichnen und Anzeigen. Daran sieht man in der Werkstatt, ob das Zeichnen auf
+            // diesem Rechner flüssig ist und woran es hängt. Ohne neues Bild keine Zeile.
+            long now = Transition.Milliseconds() / 1000;
+            if (now == second) return;
+            long f = Stopwatch.Frequency;
+            if (drawn > 0 && f > 0)
+                Log.WriteString("[VibanOS] " + drawn + " Bilder, das langsamste " + slowest * 1000 / f + " ms, zusammen " + busy * 1000 / f + " ms (vermessen "
+                    + desktop.Measured * 1000 / f + ", zeichnen " + desktop.Painted * 1000 / f + ", anzeigen " + shown * 1000 / f + ")\n");
+            second = now;
+            slowest = busy = shown = desktop.Measured = desktop.Painted = 0;
             drawn = 0;
         }
 
