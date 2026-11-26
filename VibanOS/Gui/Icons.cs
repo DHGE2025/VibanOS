@@ -6,11 +6,12 @@ namespace VibanOS.Gui
     /// <summary>App-Symbole, aus Formen gezeichnet statt aus Bilddateien. So bleiben sie in jeder Größe scharf.</summary>
     public static class Icons
     {
-        public const int Terminal = 0;
-        public const int Activity = 1;
-        public const int Settings = 2;
-        public const int About = 3;
-        public const int Count = 4;
+        public const int Files = 0;
+        public const int Terminal = 1;
+        public const int Activity = 2;
+        public const int Settings = 3;
+        public const int About = 4;
+        public const int Count = 5;
 
         // Richtungen der acht Zähne des Zahnrads, mal 100 (Kosinus und Sinus in 45°-Schritten).
         private static readonly int[] ToothX = { 100, 71, 0, -71, -100, -71, 0, 71 };
@@ -19,7 +20,12 @@ namespace VibanOS.Gui
         public static void Draw(Surface s, int icon, int x, int y, int size)
         {
             int r = size * T.Radius.Icon / T.Size.DockIcon;
-            if (icon == Terminal)
+            if (icon == Files)
+            {
+                s.FillRoundRect(x, y, size, size, r, T.Color.Raised, T.Color.Sunken);
+                Folder(s, x + size / 6, y + size / 5, size * 2 / 3);
+            }
+            else if (icon == Terminal)
             {
                 s.FillRoundRect(x, y, size, size, r, T.Color.Raised, T.Color.Sunken);
                 s.DrawText(Fonts.Mono, ">_", x + size / 5, y + size / 5, T.Color.TextPrimary);
@@ -55,6 +61,33 @@ namespace VibanOS.Gui
                 s.DrawTextCentered(font, "V", x + size / 2, y + (size - font.LineHeight) / 2, T.Color.TextOnAccent);
             }
             s.StrokeRoundRect(x, y, size, size, r, T.Color.Border);
+        }
+
+        /// <summary>Ordner: Reiter hinten in dunklerem Blau, vorn die Mappe.</summary>
+        public static void Folder(Surface s, int x, int y, int size)
+        {
+            int r = size / 8 + 1;
+            s.FillRoundRect(x, y + size / 8, size * 2 / 5, size / 3, r, T.Color.FolderBack);
+            s.FillRoundRect(x, y + size / 4, size, size * 5 / 8, r, T.Color.FolderBack);
+            s.FillRoundRect(x, y + size / 3, size, size * 13 / 24, r, T.Color.Folder);
+        }
+
+        /// <summary>Datei: ein Blatt mit drei Textzeilen.</summary>
+        public static void Document(Surface s, int x, int y, int size)
+        {
+            int w = size * 3 / 4, left = x + (size - w) / 2, line = size / 8;
+            s.FillRoundRect(left, y, w, size, T.Radius.XS, T.Color.TextPrimary);
+            for (int i = 0; i < 3; i++)
+                s.FillRect(left + line, y + size / 4 + i * size / 5, w - 2 * line, 1, T.Color.Track);
+        }
+
+        /// <summary>Festplatte: flaches Gehäuse mit Leuchte.</summary>
+        public static void Disk(Surface s, int x, int y, int size)
+        {
+            int h = size * 5 / 8, top = y + (size - h) / 2;
+            s.FillRoundRect(x, top, size, h, T.Radius.XS, T.Color.TextSecondary);
+            s.FillRect(x + size / 8, top + h - h / 3, size * 3 / 4, 1, T.Color.Track);
+            s.FillCircle(x + size - size / 5, top + h / 3, size / 8 + 1, T.Color.Success);
         }
     }
 }

@@ -97,6 +97,7 @@ namespace VibanOS.Cli
             question = prompt;
             Masked = masked;
             answer = handler;
+            Settings.ApplyKeyboard(); // Passwörter tippt man deutsch
             OS.Changed = true;
         }
 
@@ -110,6 +111,7 @@ namespace VibanOS.Cli
                 question = null;
                 answer = null;
                 Masked = false;
+                Settings.ApplyKeyboard();
                 // Wie bei Befehlen: Ein Fehler in der Antwort-Behandlung landet als Meldung im Terminal.
                 try { handler(input); }
                 catch (Exception e) { Error(e.Message); }

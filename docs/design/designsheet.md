@@ -13,6 +13,8 @@ So sieht es zusammengesetzt aus:
 
 ![Systemeinstellungen](einstellungen.png)
 
+![Dateien](dateien.png)
+
 ## Regeln
 
 1. **Nur Tokens.** In `VibanOS/Gui/` stehen keine rohen Farbwerte. Abstände, Radien und Maße kommen aus `T.Space.…`, `T.Radius.…` und `T.Size.…` (`using T = VibanOS.Design.Tokens;`). Maße, die nur ein einzelner Baustein kennt (etwa die Kästchengröße der Speicherkarte), stehen dort als benannte Konstante.
@@ -70,12 +72,13 @@ Alle Farben sind `0xAARRGGBB`. Werte mit Deckkraft unter `FF` scheinen durch.
 | `Zoom` | `#28C840` | Vergrößern |
 | `ControlInactive` | `#4E4E52` | alle drei Knöpfe in inaktiven Fenstern |
 
-### Hintergrundbild, Schatten, Mauszeiger
+### Hintergrundbild, Symbole, Schatten, Mauszeiger
 
 | Token | Wert | Einsatz |
 | -- | -- | -- |
 | `WallBase1`, `WallBase2` | `#140F3D`, `#2A1B6B` | Grundverlauf von oben nach unten |
 | `WallBlob1` bis `WallBlob4` | `#7B3FE4`, `#E4477E`, `#FF9552`, `#2A7BEA` | weiche Farbflecken. `WallBlob1` → `WallBlob2` ist auch der Verlauf des Logos |
+| `Folder`, `FolderBack` | `#5AB4F5`, `#3A8FDB` | Ordnersymbol in der App Dateien und im Dock: vorn die Mappe, dahinter Reiter und Rückseite |
 | `Shadow` | `#000000` | Schattenfarbe, die Deckkraft kommt aus `T.Shadow` |
 | `CursorFill`, `CursorEdge` | `#111113`, `#FFFFFF` | Mauszeiger |
 
@@ -117,7 +120,7 @@ Eingabefelder sind Pillen: Der Radius ist die halbe Höhe.
 | `Size.Field` | 30 | Höhe von Eingabefeldern und Knöpfen |
 | `Size.Row` | 24 | Zeilenhöhe in Listen und Tabellen |
 | `Size.Avatar` | 88 | Nutzerbild auf dem Anmeldebildschirm |
-| `Size.Sidebar` | 180 | Seitenleiste der Systemeinstellungen |
+| `Size.Sidebar` | 180 | Seitenleiste der Systemeinstellungen und der App Dateien |
 | `Size.ToggleWidth`, `Size.ToggleHeight` | 38, 22 | Schalter an/aus, die Höhe gilt auch für die Auswahl Deutsch/US |
 | `Size.Swatch` | 20 | Farbpunkt der Akzentfarbe und Symbol in der Seitenleiste |
 | `Size.CursorScale` | 2 | Vergrößerung des großen Mauszeigers |
@@ -159,7 +162,8 @@ Fenster bewegen sich kurz und ruhig, nie verspielt. Die Werte stehen in `T.Motio
 - **Tabelle**: Kopfzeile in `Fonts.Caption` und `TextSecondary`, darunter eine Linie in `Separator`. Zeilen in `Size.Row`. Ein farbiger Punkt vor dem Zustand.
 - **Terminal**: Fläche `Sunken`, Schrift `Fonts.Mono`, Rand `M`. Ausgaben in `TextPrimary`, frühere Eingaben und Hinweise in `TextSecondary`, Fehler in `Danger`, Einfügemarke in `Accent`.
 - **Eingabefeld**: Höhe `Size.Field`, Pillenform, 1-px-Rahmen. Platzhalter in `TextSecondary`.
-- **Systemeinstellungen** (`Gui/SettingsWindow.cs`): links eine Seitenleiste in `TitleBar`, Breite `Size.Sidebar`, die gewählte Seite als Fläche in `Accent` mit Radius `S`. Rechts der Seitentitel in `Fonts.Display`, darunter Gruppen in `Grouped` mit Radius `M` und Rahmen, Zeilen von `Size.Field` + `Space.M`, getrennt durch `Separator`. Beschriftung links in `Fonts.Body`, das Bedienelement rechtsbündig mit Abstand `L`.
+- **Systemeinstellungen** (`Gui/SettingsWindow.cs`): links eine Seitenleiste in `TitleBar`, Breite `Size.Sidebar`, die gewählte Seite als Fläche in `Accent` mit Radius `S`. Rechts der Seitentitel in `Fonts.Display`, darunter Gruppen in `Grouped` mit Radius `M` und Rahmen, Zeilen von `Size.Field` + `Space.M`, getrennt durch `Separator`. Beschriftung links in `Fonts.Body`, das Bedienelement rechtsbündig mit Abstand `L`. Eine Meldung steht unter dem Inhalt der Seite: ein Fehler in `Danger`, ein Hinweis in `Warning`.
+- **Dateien** (`Gui/FilesWindow.cs`): dieselbe Seitenleiste mit den Orten. Rechts oben eine Leiste von `Size.Field` + 2 × `Space.S` mit Zurück-Knopf und „Neuer Ordner“ in `Raised`, Radius `S`. Darunter die Liste in Zeilen von `Size.Row`, jede zweite in `Grouped`, die gewählte in `Accent`. Die Vorschau einer Datei steht in `Fonts.Mono` auf `Sunken` wie im Terminal und bricht lange Zeilen genauso um. Die Spalte „Art“ nennt nur Endungen bis vier Zeichen, damit sie in ihre Breite passt. Unten eine Statuszeile in `TextSecondary`, Meldungen dort in `Danger`. Ein leerer Ordner und eine leere Datei sagen das mittig in `TextTertiary`.
 - **Schalter**: Pille `Size.ToggleWidth` × `Size.ToggleHeight`, an in `Accent`, aus in `Track`, weißer Knopf (`TextOnAccent`).
 - **Auswahl** (zwei Felder, z. B. Deutsch/US): Pille in `Sunken`, das gewählte Feld in `Raised` und `Fonts.Strong`, das andere in `TextSecondary`.
 - **Auflösungen**: Felder in drei Spalten, Höhe `Size.Field`, Radius `S`. Die aktuelle Auflösung in `Accent`, die übrigen in `Grouped` mit Rahmen.

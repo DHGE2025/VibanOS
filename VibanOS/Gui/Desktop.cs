@@ -124,8 +124,14 @@ namespace VibanOS.Gui
 
         public void OnKey(Key key, char c)
         {
+            bool was = Locked;
             if (Locked) login.OnKey(key, c);
             else if (Active != null) Active.OnKey(key, c);
+            // Gerade an- oder abgemeldet: Akzentfarbe, Uhr, Tastatur und Auflösung des Nutzers übernehmen, nach der
+            // Abmeldung die Grundwerte. Sonst tippte der Nächste sein Passwort mit der Tastaturbelegung des Vorgängers.
+            // Hier und nicht erst beim Zeichnen: So ist eine andere Auflösung da, bevor das nächste Bild entsteht, wie
+            // nach einem Klick in den Einstellungen. Mitten im Zeichnen bekäme der Bildschirm einen neuen Puffer.
+            if (was != Locked) Settings.Load(OS.Users.Current);
             OS.Changed = true;
         }
 
@@ -178,17 +184,24 @@ namespace VibanOS.Gui
             }
             Window w;
             string name;
-            if (icon == Icons.Terminal) { w = new TerminalWindow(); name = "terminal"; }
+            if (icon == Icons.Files) { w = new FilesWindow(); name = "dateien"; }
+            else if (icon == Icons.Terminal) { w = new TerminalWindow(); name = "terminal"; }
             else if (icon == Icons.Activity) { w = new ActivityWindow(); name = "aktivität"; }
             else if (icon == Icons.Settings) { w = new SettingsWindow(); name = "optionen"; } // ps zeigt Namen bis 10 Zeichen
             else { w = new AboutWindow(); name = "info"; }
             // Jede offene App ist ein Prozess, sonst fehlt sie in ps und in der Aktivitätsanzeige.
             w.Process = OS.Processes.Start(new AppProcess(name));
-            // Neue Fenster leicht versetzt, damit sie sich nicht genau überdecken
-            w.X = (scene.Width - w.Width) / 2 + (icon - 1) * T.Space.XXL * 3;
-            w.Y = T.Size.MenuBar + T.Space.XL + icon * T.Space.XXL;
+            // Neue Fenster leicht versetzt, damit sie sich nicht genau überdecken. Das Terminal steht vorn,
+            // Dateien (ganz links im Dock) bekommt den letzten Platz.
+            int slot = icon == Icons.Files ? Icons.Count - 1 : icon - Icons.Terminal;
+            w.X = (scene.Width - w.Width) / 2 + (slot - 1) * T.Space.XXL * 3;
+            w.Y = T.Size.MenuBar + T.Space.XL + slot * T.Space.XXL;
             // Auf einem kleinen Bildschirm bleiben Fensterknöpfe und Zeilenanfänge sichtbar.
+            if (w.X + w.Width > scene.Width - T.Space.M) w.X = scene.Width - T.Space.M - w.Width;
             if (w.X < T.Space.M) w.X = T.Space.M;
+            // Und nach unten: Ein hohes Fenster reichte sonst unter das Dock, sein Fuß wäre verdeckt.
+            if (w.Y + w.Height > DockY - T.Space.S) w.Y = DockY - T.Space.S - w.Height;
+            if (w.Y < T.Size.MenuBar + T.Space.S) w.Y = T.Size.MenuBar + T.Space.S;
             apps[icon] = w;
             windows.Add(w);
             Animate(w, Motion.Open, icon);

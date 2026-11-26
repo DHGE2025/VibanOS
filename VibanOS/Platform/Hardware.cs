@@ -117,6 +117,21 @@ namespace VibanOS.Platform
             }
         }
 
+        /// <summary>Größe und freier Platz der eingebundenen Platte in Bytes. false: keine Platte oder der Treiber weiß es nicht.</summary>
+        public static bool DiskSpace(out ulong total, out ulong free)
+        {
+            total = free = 0;
+            try
+            {
+                VfsStatFs stats;
+                if (!VfsManager.TryStatFs(MountPoint, out stats)) return false;
+                total = stats.Blocks * stats.BlockSize;
+                free = stats.AvailableBlocks * stats.BlockSize;
+                return true;
+            }
+            catch (Exception) { return false; }
+        }
+
         // Vor dem Ausschalten aushängen: Dabei leert COSMOS den Schreibpuffer der Platte, erst dann ist alles sicher gespeichert.
         private static void UnmountDisk()
         {
