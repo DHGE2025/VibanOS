@@ -53,11 +53,11 @@ jobs:
       - name: Werkzeuge installieren
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q xorriso
+          sudo apt-get install -y -q xorriso lld
           dotnet tool install -g Cosmos.Tools --version 3.0.99
           dotnet tool install -g Cosmos.Patcher --version 3.0.99
           echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
-      # Kein "cosmos install": Das fragt nach und bricht ohne Eingabe ab. Zum Bauen reichen die beiden Werkzeuge und xorriso.
+      # Kein "cosmos install": Das fragt nach und bricht ohne Eingabe ab. Zum Bauen reichen die beiden Werkzeuge, xorriso (ISO-Abbild) und lld (Linker).
       - name: cosmos build
         working-directory: VibanOS
         run: cosmos build < /dev/null
