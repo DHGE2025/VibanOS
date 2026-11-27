@@ -323,6 +323,104 @@ namespace VibanOS.Preview
             }
             Check(allRefuse && !File.Exists(Path.Combine(home, "eins")) && !Directory.Exists(Path.Combine(home, "eins")),
                 "Auch ls, cd, mkdir, touch und cat nehmen keinen Namen zu viel");
+
+            // Ordner samt Inhalt kopieren und löschen (VIB-26). Beides arbeitet in Schritten, je Durchlauf der Kernel-Schleife einer (OS.Tick).
+            Type("mkdir baum\nmkdir baum/ast\nmkdir baum/ast/zweig\nmkdir baum/leer\nwrite baum/wurzel.txt Wurzel\nwrite baum/ast/zweig/spitze.txt Spitze\n");
+            byte[] big = new byte[200 * 1024]; // größer als ein Schritt von cp -r
+            new Random(26).NextBytes(big);
+            File.WriteAllBytes(Path.Combine(home, "baum", "ast", "gross.bin"), big);
+            Type("cp -r baum kopie\n");
+            bool stepwise = OS.Shell.Busy && OS.Shell.Prompt.StartsWith("cp -r: ") && !Directory.Exists(Path.Combine(home, "kopie"));
+            Type("ls\n");
+            Check(stepwise && OS.Shell.History[OS.Shell.History.Count - 1] == "cp -r baum kopie",
+                "cp -r kehrt sofort zurück und arbeitet in Schritten, bis dahin nimmt die Shell keine Befehle an");
+            Finish();
+            Check(!OS.Shell.Busy && File.ReadAllText(Path.Combine(home, "kopie", "wurzel.txt")) == "Wurzel"
+                && File.ReadAllText(Path.Combine(home, "kopie", "ast", "zweig", "spitze.txt")) == "Spitze" && Directory.Exists(Path.Combine(home, "kopie", "leer"))
+                && File.ReadAllBytes(Path.Combine(home, "kopie", "ast", "gross.bin")).AsSpan().SequenceEqual(big)
+                && Last().Text == "Kopiert nach " + Vfs.Combine(OS.Users.Current.HomeDirectory, "kopie") + " mit 3 Dateien und 3 Unterordnern.",
+                "cp -r kopiert verschachtelte Ordner samt Inhalt, auch leere Ordner und große Dateien");
+            Type("cp -r baum kopie\n");
+            Finish();
+            Check(File.Exists(Path.Combine(home, "kopie", "baum", "ast", "zweig", "spitze.txt")), "cp -r in einen vorhandenen Ordner legt die Kopie hinein");
+            Type("cp -r baum kopie\n");
+            Check(Last().Text.StartsWith("Gibt es schon") && !OS.Shell.Busy, "cp -r überschreibt nichts");
+            Type("cp -r baum baum/ast/innen\n");
+            Check(Last().Text == "Ein Ordner passt nicht in sich selbst." && !OS.Shell.Busy && !Directory.Exists(Path.Combine(home, "baum", "ast", "innen")),
+                "cp -r kopiert keinen Ordner in sich selbst");
+            Type("cp -r baum BAUM/innen\n");
+            Check(Last().Text == "Ein Ordner passt nicht in sich selbst." && !OS.Shell.Busy, "cp -r erkennt sich selbst auch in anderer Schreibweise, die auf FAT nicht zählt");
+            Type("cp -r baum BAUM~1/innen\n");
+            Check(Last().Text.StartsWith("Ordner kopiert cp -r nicht über einen Pfad mit ~") && !OS.Shell.Busy, "cp -r nimmt keinen Pfad mit ~");
+            Type("cp -r /system /home/root/sicherung\n");
+            Check(Last().Text.StartsWith("Das braucht das System") && !OS.Shell.Busy && !Directory.Exists(Path.Combine(home, "sicherung")),
+                "cp -r kopiert den Systemordner mit der Nutzerdatei nicht, auch nicht für root");
+            Type("cp -r /home/root /sicherung\n");
+            Check(Last().Text.StartsWith("Das braucht das System") && !OS.Shell.Busy && !Directory.Exists(Path.Combine(disk, "sicherung")), "cp -r fasst keinen Home-Ordner an");
+            Type("cp -r baum teil\n");
+            Until(() => Directory.Exists(Path.Combine(home, "teil", "ast")));
+            Press(Key.Escape);
+            Finish();
+            Check(!Directory.Exists(Path.Combine(home, "teil")) && Last().Text == "Die angefangene Kopie ist wieder entfernt, nichts kopiert.",
+                "Escape bricht cp -r ab und entfernt die angefangene Kopie");
+            // Verschwindet eine Datei, bevor sie dran ist (etwa in der App Dateien gelöscht), bleibt keine halbe Kopie zurück.
+            Type("cp -r kopie fehl\n");
+            Until(() => Directory.Exists(Path.Combine(home, "fehl")));
+            File.Delete(Path.Combine(home, "kopie", "ast", "zweig", "spitze.txt"));
+            Finish();
+            ShellLine failed = OS.Shell.Lines[OS.Shell.Lines.Count - 2];
+            Check(!Directory.Exists(Path.Combine(home, "fehl")) && failed.Style == LineStyle.Error && failed.Text.StartsWith("cp: ")
+                && Last().Text == "Die angefangene Kopie ist wieder entfernt, nichts kopiert.", "Scheitert cp -r mittendrin, entfernt es wieder, was es angelegt hat");
+            Type("rm kopie\n");
+            Check(Last().Text.EndsWith("Mit 'rm -r' samt Inhalt löschen.") && Directory.Exists(Path.Combine(home, "kopie")), "rm ohne -r sagt bei einem vollen Ordner, wie es geht");
+            Type("rm -r kopie\n");
+            Finish();
+            Check(OS.Shell.Asking && OS.Shell.Prompt == "Ordner " + Vfs.Combine(OS.Users.Current.HomeDirectory, "kopie")
+                + " mit 5 Dateien und 7 Unterordnern löschen? Zum Bestätigen 'ja' eingeben: " && Directory.Exists(Path.Combine(home, "kopie")),
+                "rm -r liest erst alles ein und fragt dann nach, wie viel es löscht");
+            Type("nein\n");
+            Check(!OS.Shell.Busy && Directory.Exists(Path.Combine(home, "kopie")) && Last().Text == "Abgebrochen, nichts gelöscht.", "rm -r lässt sich bei der Rückfrage abbrechen");
+            Type("rm -r kopie\n");
+            Finish();
+            Type("ja\n");
+            OS.Tick();
+            OS.Tick();
+            Press(Key.Escape);
+            Check(!OS.Shell.Busy && Directory.Exists(Path.Combine(home, "kopie")) && Last().Text == "Abgebrochen. 2 von 13 Einträgen sind schon gelöscht.",
+                "Escape hält rm -r an und sagt, wie weit es gekommen ist");
+            Type("rm -r kopie\n");
+            Finish();
+            Type("ja\n");
+            Finish();
+            Check(!Directory.Exists(Path.Combine(home, "kopie")) && Last().Text == "Gelöscht: " + Vfs.Combine(OS.Users.Current.HomeDirectory, "kopie") + " mit 3 Dateien und 7 Unterordnern.",
+                "rm -r löscht verschachtelte Ordner samt Inhalt");
+            Type("cd baum/ast\nrm -r /home/root/baum\n");
+            Check(Last().Text.StartsWith("Darin steht gerade die Shell") && !OS.Shell.Busy && Directory.Exists(Path.Combine(home, "baum")),
+                "rm -r löscht nicht den Ordner, in dem die Shell steht, auch nicht von weiter innen");
+            Type("cd /home/root\nrm -r BAUM~1\n");
+            Check(Last().Text.StartsWith("rm -r nimmt keinen Pfad mit ~") && !OS.Shell.Busy, "rm -r nimmt keinen Pfad mit ~, darunter erkennt es feste Ordner nicht");
+            Type("rm -r " + Vfs.Root + "home\n");
+            Check(Last().Text.StartsWith("Das braucht das System") && !OS.Shell.Busy && Directory.Exists(home), "rm -r /mnt/home wird abgelehnt");
+            Type("rm -r /home/root\n");
+            Check(Last().Text.StartsWith("Das braucht das System") && !OS.Shell.Busy && Directory.Exists(home), "rm -r löscht keinen Home-Ordner");
+            Type("rm -r /system\n");
+            Check(Last().Text.StartsWith("Das braucht das System") && !OS.Shell.Busy && File.Exists(userFile), "rm -r löscht den Systemordner nicht, auch nicht für root");
+            Type("rm -r /\n");
+            Check(Last().Text.StartsWith("Das braucht das System") && !OS.Shell.Busy, "rm -r fasst die Wurzel nicht an");
+            Type("rm -r baum\n");
+            Finish();
+            Type("ja\n");
+            Finish();
+            Check(!Directory.Exists(Path.Combine(home, "baum")), "rm -r räumt auf");
+            // Wie in der App Dateien: Die Einstellungen eines Nutzers gehen erst nach einer Warnung.
+            Check(!File.Exists(Path.Combine(home, Settings.FileName)), "Vor der Prüfung gibt es noch keine Einstellungen von root");
+            Type("write settings.txt x=y\nrm settings.txt\n");
+            Check(OS.Shell.Asking && Shown("Achtung, Systemdatei: Darin stehen die Einstellungen von root") && File.Exists(Path.Combine(home, Settings.FileName)),
+                "rm warnt vor dem Löschen der Einstellungen und fragt nach");
+            Type("nein\n");
+            Check(Last().Text == "Abgebrochen." && File.Exists(Path.Combine(home, Settings.FileName)), "Ohne 'ja' bleiben die Einstellungen");
+            Type("rm -r settings.txt\nja\n");
+            Check(!File.Exists(Path.Combine(home, Settings.FileName)), "Nach der Warnung löscht rm die Einstellungen, auch mit -r");
             Type("df\n");
             Check(Last().Text.Contains("64 MB gesamt") && Last().Text.Contains("60 MB frei"), "df zeigt Größe und freien Platz der Platte");
             Platform.Hardware.DiskSpaceFails = true;
@@ -343,10 +441,11 @@ namespace VibanOS.Preview
             Check(Vfs.Resolve(Vfs.Root, "system./users.txt") == Vfs.SystemDirectory + Vfs.Separator + "users.txt", "Punkte am Namensende ergeben keinen zweiten Namen");
 
             // Prozesse und Scheduler (VIB-3)
-            // PID 1 ist das Terminal: Jede offene App ist ein Prozess und bekommt ihren Anteil.
+            // PID 1 ist das Terminal: Jede offene App ist ein Prozess und bekommt ihren Anteil. Allein war es schon bei rm -r und cp -r dran.
+            int terminalSteps = OS.Processes.Get(1).Steps;
             Type("start counter\nstart counter\nstart clock\n");
             for (int i = 0; i < 40; i++) OS.Tick();
-            Check(OS.Processes.Get(1).Name == "terminal" && OS.Processes.Get(1).Steps == 10 && OS.Processes.Get(2).Steps == 10
+            Check(OS.Processes.Get(1).Name == "terminal" && OS.Processes.Get(1).Steps == terminalSteps + 10 && OS.Processes.Get(2).Steps == 10
                 && OS.Processes.Get(3).Steps == 10 && OS.Processes.Get(4).Steps == 10,
                 "Round Robin verteilt die Schritte gleichmäßig");
             Type("ps\n");
@@ -582,6 +681,21 @@ namespace VibanOS.Preview
             Check(Last().Text.StartsWith("Keine Berechtigung") && OS.Users.Find("fritz") == null, "sudo gilt nur für den einen Befehl");
             Type("sudo cat \"/system/users.txt\"\ntopsecret\n");
             Check(Last().Style != LineStyle.Error, "Mit sudo kommt ein Admin in den Systemordner");
+            // rm -r arbeitet in Schritten (VIB-26). Namen mit ~ sind Administratoren vorbehalten, und sudo gilt für alle Schritte.
+            string kram = Path.Combine(disk, "home", "anna", "kram");
+            Directory.CreateDirectory(kram);
+            File.WriteAllText(Path.Combine(kram, "ALT~1.TXT"), "x");
+            Type("rm -r /home/anna/kram\n");
+            Finish();
+            Check(!OS.Shell.Busy && Last().Text.StartsWith("Zugriff verweigert: ") && Last().Text.EndsWith("Nichts gelöscht.") && File.Exists(Path.Combine(kram, "ALT~1.TXT")),
+                "rm -r prüft jede Datei einzeln und löscht nichts, wenn eine nicht erlaubt ist");
+            Type("sudo rm -r /home/anna/kram\ntopsecret\n");
+            Finish();
+            bool askedElevated = OS.Shell.Asking && !OS.Users.Elevated;
+            Type("ja\n");
+            Finish();
+            Check(askedElevated && !Directory.Exists(kram) && !OS.Users.Elevated && Last().Text.StartsWith("Gelöscht: "),
+                "sudo gilt für alle Schritte von rm -r, dazwischen und danach nicht");
             Type("su eve\nevepw\nsudo useradd fritz\n");
             Check(OS.Users.Current.Name == "eve" && Last().Text.Contains("nicht in der Gruppe admin") && !OS.Shell.Asking, "Wer nicht in admin ist, darf sudo nicht benutzen");
             Type("groupadd bande\n");
@@ -2148,6 +2262,9 @@ namespace VibanOS.Preview
             for (int i = 0; i < 10000 && !done(); i++) OS.Tick();
             if (!done()) throw new Exception("Prüfung fehlgeschlagen: Darauf hat der Scheduler vergeblich gewartet");
         }
+
+        // Lässt einen Befehl, der in Schritten arbeitet (rm -r, cp -r), weiterlaufen, bis er fertig ist oder nachfragt.
+        private static void Finish() { Until(() => !OS.Shell.Busy || OS.Shell.Asking); }
 
         private static void Check(bool ok, string what)
         {

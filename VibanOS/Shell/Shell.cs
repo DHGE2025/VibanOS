@@ -17,6 +17,29 @@ namespace VibanOS.Cli
     public delegate void AnswerHandler(string answer);
 
     /// <summary>
+    /// Arbeit eines Befehls, die zu lange für einen Durchlauf der Kernel-Schleife dauern kann (rm -r, cp -r). Die Schleife
+    /// darf nie blockieren, deshalb macht Shell.Tick je Durchlauf nur einen kleinen Schritt. Solange die Arbeit läuft, nimmt
+    /// die Shell keine Befehle an, Escape im Terminal bricht ab (Shell.Cancel).
+    /// </summary>
+    public abstract class Job
+    {
+        /// <summary>Name des Befehls. Steht vor einer Fehlermeldung, wie bei Befehlen.</summary>
+        public abstract string Name { get; }
+
+        /// <summary>Steht statt des Prompts in der Eingabezeile, etwa "rm -r: 3 von 12 gelöscht".</summary>
+        public abstract string Status { get; }
+
+        /// <summary>Ein Schritt, höchstens eine Dateioperation. true: Die Arbeit ist fertig.</summary>
+        public abstract bool Step(Shell shell);
+
+        /// <summary>Abbrechen (Escape). true: Die Arbeit ist damit vorbei. false: Sie räumt in weiteren Schritten noch auf.</summary>
+        public virtual bool Stop(Shell shell) { return true; }
+
+        /// <summary>Gestartet unter sudo. Dann gelten die Rechte für alle Schritte, nicht nur für den Aufruf, der sie startet.</summary>
+        public bool Elevated;
+    }
+
+    /// <summary>
     /// Die Shell (VIB-1): kennt alle Befehle, zerlegt Eingaben und ruft den passenden Befehl auf.
     /// Sie hält nur Text. Angezeigt wird er vom Terminal-Fenster (Gui/TerminalWindow).
     /// </summary>
@@ -43,6 +66,12 @@ namespace VibanOS.Cli
         /// <summary>true: Ein Befehl wartet auf eine Antwort. Die nächste Eingabe ist dann kein Befehl.</summary>
         public bool Asking { get { return answer != null; } }
 
+        // Laufende Arbeit eines Befehls in Schritten (rm -r, cp -r), null ohne. Sie darf zwischendurch mit Ask nachfragen.
+        private Job job;
+
+        /// <summary>true: Ein Befehl arbeitet noch in Schritten. Bis er fertig ist, nimmt die Shell keine Befehle an.</summary>
+        public bool Busy { get { return job != null; } }
+
         public void Register(Command command) { Commands.Add(command); }
 
         public Command Find(string name)
@@ -57,6 +86,7 @@ namespace VibanOS.Cli
             get
             {
                 if (question != null) return question;
+                if (job != null) return job.Status;
                 string user = OS.Users.Current != null ? OS.Users.Current.Name : "?";
                 return user + "@" + OS.Name + " " + CurrentDirectory + "> ";
             }
@@ -102,6 +132,43 @@ namespace VibanOS.Cli
             OS.Changed = true;
         }
 
+        /// <summary>
+        /// Startet Arbeit in Schritten. Execute kehrt danach sofort zurück, OS.Tick macht die Schritte. Läuft der Befehl unter
+        /// sudo, bekommt jeder Schritt dieselben Rechte: Sie gelten für den ganzen Befehl, nicht nur für seinen Anfang.
+        /// </summary>
+        public void Start(Job work)
+        {
+            work.Elevated = OS.Users.Elevated;
+            job = work;
+            OS.Changed = true;
+        }
+
+        /// <summary>Ein Schritt der laufenden Arbeit. OS.Tick ruft das in jedem Durchlauf der Kernel-Schleife auf.</summary>
+        public void Tick()
+        {
+            // Während einer Rückfrage ruht die Arbeit, die Antwort entscheidet, wie es weitergeht.
+            if (job == null || answer != null) return;
+            Job current = job;
+            bool done, elevated = OS.Users.Elevated;
+            OS.Users.Elevated = current.Elevated;
+            try { done = current.Step(this); }
+            catch (Exception e)
+            {
+                Error(current.Name + ": " + e.Message);
+                done = true;
+            }
+            finally { OS.Users.Elevated = elevated; }
+            if (done) job = null;
+            OS.Changed = true;
+        }
+
+        /// <summary>Bricht die laufende Arbeit ab: Escape im Terminal, oder eine Antwort, die nicht bestätigt.</summary>
+        public void Cancel()
+        {
+            if (job != null && job.Stop(this)) job = null;
+            OS.Changed = true;
+        }
+
         /// <summary>Nimmt eine fertige Eingabezeile aus dem Terminal entgegen.</summary>
         public void Submit(string input)
         {
@@ -118,6 +185,8 @@ namespace VibanOS.Cli
                 catch (Exception e) { Error(e.Message); }
                 return;
             }
+            // Ein Befehl arbeitet noch: Die Eingabe ist kein neuer Befehl. Das Terminal nimmt dann ohnehin nur Escape an.
+            if (job != null) return;
             WriteLine(Prompt + input, LineStyle.Input);
             if (input.Trim() == "") return;
             if (History.Count >= MaxHistory) History.RemoveAt(0);
