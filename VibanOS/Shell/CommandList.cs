@@ -71,6 +71,11 @@ namespace VibanOS.Cli
             shell.Register(new SendCommand());
             shell.Register(new SyscallsCommand());
             shell.Register(new InterruptsCommand());
+
+            // Skripte (VIB-28)
+            shell.Register(new ShCommand());
+            shell.Register(new SleepCommand());
+            shell.Register(new SetCommand());
         }
     }
 }

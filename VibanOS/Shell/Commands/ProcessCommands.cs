@@ -70,6 +70,7 @@ namespace VibanOS.Cli.Commands
             }
             if (OS.Processes.Start(p) == null) { shell.Error("Speicher voll: Für den Prozess ist kein Rahmen frei."); return; }
             shell.WriteLine("Prozess " + p.Id + " (" + p.Name + ") gestartet.");
+            shell.SetVariable("!", p.Id.ToString()); // $! wie in anderen Shells, etwa für 'kill $!' in einem Skript (VIB-28)
         }
     }
 

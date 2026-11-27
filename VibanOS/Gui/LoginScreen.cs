@@ -423,6 +423,7 @@ namespace VibanOS.Gui
             error = "";
             bool home = Vfs.Available && Directory.Exists(user.HomeDirectory);
             OS.Shell.CurrentDirectory = home ? user.HomeDirectory : Vfs.Root;
+            VibanOS.Cli.Commands.ShCommand.RunAutostart(OS.Shell, user); // home/name/autostart.sh (VIB-28)
         }
 
         /// <summary>Mitte des großen Nutzerbilds. Für den Selbsttest, der dort hinklickt.</summary>
