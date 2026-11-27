@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using VibanOS.Core;
 using VibanOS.FileSystem;
@@ -41,6 +42,16 @@ namespace VibanOS.Cli.Commands
                 return null;
             }
             return path;
+        }
+
+        /// <summary>Nimmt ein vorangestelltes -r aus den Argumenten (rm -r, cp -r). true: Es war da.</summary>
+        protected static bool Recursive(ref string[] args)
+        {
+            if (args.Length == 0 || (args[0] != "-r" && args[0] != "-R")) return false;
+            string[] rest = new string[args.Length - 1];
+            for (int i = 0; i < rest.Length; i++) rest[i] = args[i + 1];
+            args = rest;
+            return true;
         }
     }
 
@@ -142,21 +153,51 @@ namespace VibanOS.Cli.Commands
     public class RmCommand : FileCommand
     {
         public override string Name { get { return "rm"; } }
-        public override string Usage { get { return "rm <name>"; } }
-        public override string Description { get { return "Datei oder leeren Ordner löschen"; } }
+        public override string Usage { get { return "rm [-r] <name>"; } }
+        public override string Description { get { return "Datei oder leeren Ordner löschen, mit -r einen Ordner samt Inhalt"; } }
 
         public override void Execute(string[] args, Shell shell)
         {
+            bool recursive = Recursive(ref args);
             string path = Target(args, shell, Access.Write);
             if (path == null) return;
             // Wie bei mv: Ohne die Nutzerdatei begänne der nächste Start mit der Ersteinrichtung.
             if (Vfs.IsFixed(path)) { shell.Error("Das braucht das System an seinem Platz: " + path); return; }
-            if (File.Exists(path)) File.Delete(path);
+            // Unter seinem FAT-Kurznamen erkennt Vfs.IsFixed einen Ordner nicht wieder: 'rm -r /SYSTEM~1' träfe sonst den Systemordner.
+            if (recursive && path.IndexOf('~') >= 0) { shell.Error("rm -r nimmt keinen Pfad mit ~. Bitte die langen Namen verwenden."); return; }
+            if (File.Exists(path)) DeleteFile(path, shell);
             else if (!Directory.Exists(path)) shell.Error("Nicht gefunden: " + path);
-            else if (Directory.GetFiles(path).Length + Directory.GetDirectories(path).Length > 0) shell.Error("Ordner ist nicht leer: " + path);
+            else if (recursive) DeleteFolder(path, shell);
+            else if (Directory.GetFiles(path).Length + Directory.GetDirectories(path).Length > 0) shell.Error("Ordner ist nicht leer: " + path + ". Mit 'rm -r' samt Inhalt löschen.");
             // Sonst stünde die Shell danach in einem Ordner, den es nicht mehr gibt.
             else if (string.Equals(path, shell.CurrentDirectory, StringComparison.OrdinalIgnoreCase)) shell.Error("Das ist der aktuelle Ordner. Erst mit 'cd ..' hinausgehen.");
             else Directory.Delete(path);
+        }
+
+        // rm -r: Die Arbeit läuft in Schritten (RemoveJob), Execute kehrt sofort zurück.
+        private static void DeleteFolder(string path, Shell shell)
+        {
+            // Die Shell stünde danach in einem Ordner, den es nicht mehr gibt, auch wenn sie in einem Unterordner steht.
+            if (Text.HasPrefix(shell.CurrentDirectory.ToLowerInvariant() + Vfs.Separator, path.ToLowerInvariant() + Vfs.Separator))
+            {
+                shell.Error("Darin steht gerade die Shell. Erst mit 'cd' hinausgehen.");
+                return;
+            }
+            shell.Start(new RemoveJob(path));
+        }
+
+        // Wie in der App Dateien: Eine Datei, die das System liest (bisher settings.txt), geht erst nach einer Warnung.
+        private static void DeleteFile(string path, Shell shell)
+        {
+            string warning = Vfs.SystemFile(path);
+            if (warning == null) { File.Delete(path); return; }
+            shell.WriteLine("Achtung, Systemdatei: " + warning);
+            shell.Ask(path + " trotzdem löschen? Zum Bestätigen 'ja' eingeben: ", false, answer =>
+            {
+                if (answer != "ja") { shell.WriteLine("Abgebrochen."); return; }
+                // Zwischen Frage und Antwort kann sie in der App Dateien schon gelöscht worden sein.
+                if (File.Exists(path)) File.Delete(path);
+            });
         }
     }
 
@@ -204,14 +245,27 @@ namespace VibanOS.Cli.Commands
     public class CpCommand : TransferCommand
     {
         public override string Name { get { return "cp"; } }
-        public override string Usage { get { return "cp <datei> <ziel>"; } }
-        public override string Description { get { return "Datei kopieren"; } }
+        public override string Usage { get { return "cp [-r] <quelle> <ziel>"; } }
+        public override string Description { get { return "Datei kopieren, mit -r einen Ordner samt Inhalt"; } }
 
         public override void Execute(string[] args, Shell shell)
         {
+            bool recursive = Recursive(ref args);
             string from, to;
             if (!Paths(args, shell, Access.Read, out from, out to)) return;
-            if (Directory.Exists(from)) { shell.Error("Ordner kopiert cp nicht, nur Dateien."); return; }
+            if (Directory.Exists(from))
+            {
+                if (!recursive) { shell.Error("Ordner kopiert cp nur mit -r: cp -r <ordner> <ziel>"); return; }
+                // Unter einem FAT-Kurznamen erkennen die Prüfungen denselben Ordner nicht wieder (wie bei mv), und
+                // 'cp -r daten DATEN~1/innen' kopierte ihn in sich selbst.
+                if (from.IndexOf('~') >= 0 || to.IndexOf('~') >= 0) { shell.Error("Ordner kopiert cp -r nicht über einen Pfad mit ~. Bitte die langen Namen verwenden."); return; }
+                if (Vfs.IsFixed(from)) { shell.Error(CopyJob.Fixed + from); return; }
+                if (Vfs.IsFixed(to)) { shell.Error(CopyJob.Fixed + to); return; }
+                // Die Kopie würde selbst wieder kopiert, ohne Ende.
+                if (Text.HasPrefix(to.ToLowerInvariant() + Vfs.Separator, from.ToLowerInvariant() + Vfs.Separator)) { shell.Error("Ein Ordner passt nicht in sich selbst."); return; }
+                shell.Start(new CopyJob(from, to));
+                return;
+            }
             try { File.Copy(from, to, false); }
             catch (Exception)
             {
@@ -285,6 +339,324 @@ namespace VibanOS.Cli.Commands
                 shell.WriteLine("Festplatte eingerichtet und unter " + Vfs.Root + " eingebunden.");
                 if (!OS.Users.Save()) shell.Error("Die Nutzerdatei ließ sich nicht schreiben. Nutzer gelten nur bis zum Neustart.");
             });
+        }
+    }
+
+    /// <summary>
+    /// Ein Ordner samt Unterordnern für rm -r und cp -r, eingelesen in Schritten: je Schritt ein Ordner. Der FAT-Treiber von
+    /// COSMOS merkt sich keine Ordner, jedes Lesen sucht den Pfad neu ab. Entry zählt erst die Ordner in der Reihenfolge, in
+    /// der sie gefunden wurden (der erste ist der Ordner selbst, jeder steht hinter dem, in dem er liegt), dann die Dateien.
+    /// Vorwärts gelesen kommt so jeder Ordner vor seinem Inhalt, rückwärts jeder Inhalt vor seinem Ordner.
+    /// </summary>
+    public class FolderTree
+    {
+        /// <summary>Mehr Einträge nimmt sich ein Befehl nicht auf einmal vor, damit die Listen den Arbeitsspeicher nicht füllen.</summary>
+        public const int MaxEntries = 2000;
+
+        public readonly List<string> Folders = new List<string>();
+        public readonly List<string> Files = new List<string>();
+        private int listed; // so viele aus Folders sind schon gelesen
+
+        public FolderTree(string root) { Folders.Add(root); }
+
+        public string Root { get { return Folders[0]; } }
+
+        public int Count { get { return Folders.Count + Files.Count; } }
+
+        /// <summary>true: Alle Ordner sind gelesen.</summary>
+        public bool Complete { get { return listed == Folders.Count; } }
+
+        public string Entry(int i) { return i < Folders.Count ? Folders[i] : Files[i - Folders.Count]; }
+
+        /// <summary>Liest den nächsten Ordner. Gibt eine Meldung zurück, wenn es zu viele Einträge werden, sonst null.</summary>
+        public string Step()
+        {
+            string folder = Folders[listed++];
+            // Die Namen hängen an folder statt an dem, was GetFiles liefert: je nach System Namen oder ganze Pfade (Vfs.NameOf).
+            string[] dirs = Directory.GetDirectories(folder);
+            for (int i = 0; i < dirs.Length; i++) Folders.Add(Vfs.Combine(folder, Vfs.NameOf(dirs[i])));
+            string[] files = Directory.GetFiles(folder);
+            for (int i = 0; i < files.Length; i++) Files.Add(Vfs.Combine(folder, Vfs.NameOf(files[i])));
+            if (Count > MaxEntries) return "Mehr als " + MaxEntries + " Einträge, so viel auf einmal geht nicht. Bitte in Teilen.";
+            return null;
+        }
+
+        /// <summary>Was im Ordner liegt, für Rückfrage und Meldungen: " mit 3 Dateien und 1 Unterordner", leer bei leerem Ordner.</summary>
+        public string Content
+        {
+            get
+            {
+                string files = Files.Count > 0 ? Plural(Files.Count, "Datei", "Dateien") : "";
+                string folders = Folders.Count > 1 ? Plural(Folders.Count - 1, "Unterordner", "Unterordnern") : "";
+                if (files == "" && folders == "") return "";
+                return " mit " + files + (files != "" && folders != "" ? " und " : "") + folders;
+            }
+        }
+
+        public static string Plural(int n, string one, string many) { return n + " " + (n == 1 ? one : many); }
+    }
+
+    /// <summary>
+    /// rm -r auf einen Ordner: einlesen und alles prüfen, nachfragen, dann je Schritt eine Datei oder einen leeren Ordner
+    /// löschen, die Dateien zuerst, die Ordner von innen nach außen. Gelöscht wird nur, wenn alles erlaubt ist: nichts ohne
+    /// Schreibrecht und nichts, worauf sich das System verlässt (Vfs.IsFixed), auch nicht tief im Ordner.
+    /// </summary>
+    public class RemoveJob : Job
+    {
+        private readonly FolderTree tree;
+        private bool confirmed;
+        private int removed;
+
+        public RemoveJob(string folder) { tree = new FolderTree(folder); }
+
+        public override string Name { get { return "rm"; } }
+
+        public override string Status
+        {
+            get
+            {
+                if (!confirmed) return "rm -r: lese " + FolderTree.Plural(tree.Count, "Eintrag", "Einträge") + ", Escape bricht ab";
+                return "rm -r: " + removed + " von " + tree.Count + " gelöscht, Escape bricht ab";
+            }
+        }
+
+        public override bool Step(Shell shell)
+        {
+            if (!tree.Complete)
+            {
+                string error = tree.Step();
+                if (error == null && tree.Complete) error = Check();
+                if (error != null) { shell.Error(error + " Nichts gelöscht."); return true; }
+                if (tree.Complete) Ask(shell);
+                return false;
+            }
+            string path = tree.Entry(tree.Count - 1 - removed);
+            bool folder = tree.Count - 1 - removed < tree.Folders.Count;
+            // Zwischen Frage und Schritt kann in der App Dateien etwas passiert sein: Jeder Schritt prüft neu.
+            if (!Vfs.CanAccess(OS.Users.Current, path, Access.Write) || Vfs.IsFixed(path))
+            {
+                shell.Error("Abgebrochen, das darf rm -r nicht löschen: " + path + ". " + Progress);
+                return true;
+            }
+            if (!folder) { if (File.Exists(path)) File.Delete(path); }
+            else if (Directory.Exists(path))
+            {
+                // Directory.Delete bekommt nur leere Ordner, wie bei rm: Was inzwischen hinzukam, ist nicht gefragt worden.
+                if (Directory.GetFiles(path).Length + Directory.GetDirectories(path).Length > 0)
+                {
+                    shell.Error("Abgebrochen, in " + path + " liegt inzwischen etwas Neues. " + Progress);
+                    return true;
+                }
+                Directory.Delete(path);
+            }
+            removed++;
+            if (removed < tree.Count) return false;
+            shell.WriteLine("Gelöscht: " + tree.Root + tree.Content + ".");
+            return true;
+        }
+
+        public override bool Stop(Shell shell)
+        {
+            shell.WriteLine(confirmed ? "Abgebrochen. " + Progress : "Abgebrochen, nichts gelöscht.");
+            return true;
+        }
+
+        private string Progress { get { return removed + " von " + tree.Count + " Einträgen sind schon gelöscht."; } }
+
+        // Nach dem Einlesen, bevor gefragt wird: Darf der Nutzer alles löschen, und ist nichts Festes dabei?
+        private string Check()
+        {
+            for (int i = 0; i < tree.Count; i++)
+            {
+                string path = tree.Entry(i);
+                if (!Vfs.CanAccess(OS.Users.Current, path, Access.Write)) return "Zugriff verweigert: " + path + ".";
+                if (Vfs.IsFixed(path)) return "Darin liegt etwas, das das System an seinem Platz braucht: " + path + ".";
+            }
+            return null;
+        }
+
+        private void Ask(Shell shell)
+        {
+            // Wie in der App Dateien: Eine Datei, die das System liest (settings.txt), geht erst nach einer Warnung.
+            for (int i = tree.Folders.Count; i < tree.Count; i++)
+            {
+                string warning = Vfs.SystemFile(tree.Entry(i));
+                if (warning != null) shell.WriteLine("Achtung, Systemdatei " + tree.Entry(i) + ": " + warning);
+            }
+            string content = tree.Content;
+            shell.Ask((content == "" ? "Leeren Ordner " : "Ordner ") + tree.Root + content + " löschen? Zum Bestätigen 'ja' eingeben: ", false, answer =>
+            {
+                if (answer == "ja") confirmed = true;
+                else shell.Cancel();
+            });
+        }
+    }
+
+    /// <summary>
+    /// cp -r auf einen Ordner: die Quelle einlesen und prüfen, dann je Schritt einen Ordner anlegen oder ein Stück einer Datei
+    /// kopieren, die Ordner vor ihrem Inhalt. Wie cp überschreibt sie nichts und lässt keine halbe Kopie zurück: Scheitert ein
+    /// Schritt oder bricht Escape ab, entfernt sie in weiteren Schritten wieder, was sie angelegt hat, und nur das.
+    /// </summary>
+    public class CopyJob : Job
+    {
+        public const string Fixed = "Das braucht das System, cp -r fasst es nicht an: ";
+
+        // So viel einer Datei je Schritt. Eine große Datei in einem Stück hielte die Kernel-Schleife zu lange an.
+        private const int Chunk = 64 * 1024;
+
+        private readonly FolderTree tree;
+        private readonly string target;
+        private readonly List<string> created = new List<string>(); // in der Reihenfolge des Anlegens
+        private int copied;                     // fertige Einträge in der Reihenfolge von FolderTree.Entry
+        private FileStream input, output;       // Datei, die gerade kopiert wird
+        private byte[] buffer;
+        private bool cleaning;                  // räumt die angefangene Kopie weg
+
+        public CopyJob(string from, string to)
+        {
+            tree = new FolderTree(from);
+            target = to;
+        }
+
+        public override string Name { get { return "cp"; } }
+
+        public override string Status
+        {
+            get
+            {
+                if (cleaning) return "cp -r: entferne die angefangene Kopie, noch " + created.Count;
+                if (!tree.Complete) return "cp -r: lese " + FolderTree.Plural(tree.Count, "Eintrag", "Einträge") + ", Escape bricht ab";
+                return "cp -r: " + copied + " von " + tree.Count + " kopiert, Escape bricht ab";
+            }
+        }
+
+        public override bool Step(Shell shell)
+        {
+            if (cleaning) return Clean(shell);
+            string error;
+            try
+            {
+                if (!tree.Complete)
+                {
+                    error = tree.Step();
+                    if (error == null && tree.Complete) error = Check();
+                    if (error == null) return false;
+                    shell.Error(error + " Nichts kopiert.");
+                    return true;
+                }
+                error = Copy();
+            }
+            catch (Exception e) { error = e.Message; }
+            if (error != null)
+            {
+                shell.Error("cp: " + error);
+                return Abort(shell);
+            }
+            if (copied < tree.Count) return false;
+            shell.WriteLine("Kopiert nach " + target + tree.Content + ".");
+            return true;
+        }
+
+        public override bool Stop(Shell shell)
+        {
+            if (cleaning) return false; // Das Aufräumen läuft zu Ende, sonst bliebe die halbe Kopie doch liegen.
+            shell.WriteLine("Abgebrochen.");
+            return Abort(shell);
+        }
+
+        // Nach dem Einlesen: Darf der Nutzer alles lesen, und ist nichts dabei, worauf sich das System verlässt?
+        private string Check()
+        {
+            for (int i = 0; i < tree.Count; i++)
+            {
+                string path = tree.Entry(i);
+                if (!Vfs.CanAccess(OS.Users.Current, path, Access.Read)) return "Zugriff verweigert: " + path + ".";
+                if (Vfs.IsFixed(path)) return Fixed + path + ".";
+            }
+            return null;
+        }
+
+        // Ein Schritt: einen Ordner anlegen, eine Datei öffnen oder ein Stück davon kopieren. Gibt eine Fehlermeldung zurück, sonst null.
+        private string Copy()
+        {
+            if (input != null)
+            {
+                int n = input.Read(buffer, 0, buffer.Length);
+                if (n > 0) { output.Write(buffer, 0, n); return null; }
+                Close();
+                copied++;
+                return null;
+            }
+            string from = tree.Entry(copied), to = target + from.Substring(tree.Root.Length);
+            // Seit dem Einlesen kann sich in der App Dateien etwas geändert haben: Jeder Schritt prüft neu.
+            if (!Vfs.CanAccess(OS.Users.Current, from, Access.Read)) return "Zugriff verweigert: " + from;
+            if (!Vfs.CanAccess(OS.Users.Current, to, Access.Write)) return "Zugriff verweigert: " + to;
+            if (Vfs.IsFixed(from)) return Fixed + from;
+            if (Vfs.IsFixed(to)) return Fixed + to;
+            if (File.Exists(to) || Directory.Exists(to)) return "Gibt es schon: " + to;
+            if (copied < tree.Folders.Count)
+            {
+                Directory.CreateDirectory(to);
+                created.Add(to);
+                copied++;
+                return null;
+            }
+            if (buffer == null) buffer = new byte[Chunk];
+            input = File.OpenRead(from);
+            output = File.Create(to);
+            created.Add(to);
+            return null;
+        }
+
+        // Nach einem Fehler oder Escape: aufräumen, was angelegt wurde. true: Es gibt nichts aufzuräumen, die Arbeit ist vorbei.
+        private bool Abort(Shell shell)
+        {
+            // Eine Datei, die sich nicht schließen lässt, räumt Clean trotzdem weg, so gut es geht.
+            try { Close(); } catch (Exception) { }
+            if (created.Count == 0)
+            {
+                shell.WriteLine("Nichts kopiert.");
+                return true;
+            }
+            cleaning = true;
+            return false;
+        }
+
+        // Je Schritt eines der angelegten Dinge entfernen, das zuletzt angelegte zuerst: Dateien vor ihren Ordnern. Nur leere
+        // Ordner, wie bei rm. Was in der Zwischenzeit jemand anderes hineingelegt hat, bleibt mit seinem Ordner stehen.
+        private bool Clean(Shell shell)
+        {
+            string path = created[created.Count - 1];
+            created.RemoveAt(created.Count - 1);
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+                else if (Directory.Exists(path))
+                {
+                    if (Directory.GetFiles(path).Length + Directory.GetDirectories(path).Length > 0)
+                    {
+                        shell.Error("Die angefangene Kopie ließ sich nicht ganz entfernen, in " + path + " liegt etwas Neues.");
+                        return true;
+                    }
+                    Directory.Delete(path);
+                }
+            }
+            catch (Exception e)
+            {
+                shell.Error("Die angefangene Kopie ließ sich nicht ganz entfernen: " + path + " (" + e.Message + ")");
+                return true;
+            }
+            if (created.Count > 0) return false;
+            shell.WriteLine("Die angefangene Kopie ist wieder entfernt, nichts kopiert.");
+            return true;
+        }
+
+        private void Close()
+        {
+            FileStream a = input, b = output;
+            input = output = null;
+            try { if (a != null) a.Dispose(); }
+            finally { if (b != null) b.Dispose(); }
         }
     }
 }

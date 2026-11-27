@@ -44,6 +44,14 @@ namespace VibanOS.Gui
             }
             scroll = 0; // Jede andere Taste springt zurück zur Eingabezeile.
 
+            // Ein Befehl arbeitet noch in Schritten (rm -r, cp -r): Getippt wird erst danach wieder, Escape bricht ab.
+            // Fragt er zwischendurch nach, geht die Antwort ganz normal hinein.
+            if (shell.Busy && !shell.Asking)
+            {
+                if (key == Key.Escape) shell.Cancel();
+                return;
+            }
+
             if (key == Key.Enter)
             {
                 string line = input;
@@ -113,8 +121,9 @@ namespace VibanOS.Gui
                 endX = s.DrawText(font, rowText[i], x + pad, ty, color);
                 ty += font.LineHeight;
             }
-            // Einfügemarke hinter dem letzten Zeichen der Eingabe. Beim Zurückblättern ist die Eingabezeile nicht zu sehen.
-            if (scroll == 0) s.FillRect(endX + 1, ty - font.LineHeight + 2, charWidth, font.LineHeight - 4, T.Color.Accent);
+            // Einfügemarke hinter dem letzten Zeichen der Eingabe. Beim Zurückblättern ist die Eingabezeile nicht zu sehen,
+            // und solange ein Befehl noch arbeitet, gibt es nichts zu tippen.
+            if (scroll == 0 && (!shell.Busy || shell.Asking)) s.FillRect(endX + 1, ty - font.LineHeight + 2, charWidth, font.LineHeight - 4, T.Color.Accent);
         }
 
         private void Wrap(string text, LineStyle style, int columns)

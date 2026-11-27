@@ -51,13 +51,15 @@ namespace VibanOS.Core
         }
 
         /// <summary>
-        /// Ein Durchlauf der Kernel-Schleife: Timer-Tick, dann bekommt ein bereiter Prozess die CPU, bis er sie abgibt.
+        /// Ein Durchlauf der Kernel-Schleife: Timer-Tick, ein Schritt eines Shell-Befehls, der in Schritten arbeitet (rm -r,
+        /// cp -r), dann bekommt ein bereiter Prozess die CPU, bis er sie abgibt.
         /// false: Kein Prozess hatte die CPU, weil keiner bereit war oder der gewählte kein Programm hat (ein Fenster).
         /// </summary>
         public static bool Tick()
         {
             Ticks++;
             Interrupts.Raise(InterruptManager.Timer);
+            Shell.Tick();
             return Processes.Tick();
         }
     }
