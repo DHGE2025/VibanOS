@@ -80,6 +80,9 @@ namespace VibanOS.Gui
 
         public override bool CanZoom { get { return true; } }
 
+        // Neben der Seitenleiste bleibt Platz für Name, Größe und Art.
+        public override int MinWidth { get { return T.Size.Sidebar + 2 * SizeColumn; } }
+
         private static string Home { get { return OS.Users.Current != null ? OS.Users.Current.HomeDirectory : Vfs.Root; } }
 
         // Die Wurzel ist der einzige Ordner, dessen Pfad mit dem Trenner endet (so liefert Resolve sie).

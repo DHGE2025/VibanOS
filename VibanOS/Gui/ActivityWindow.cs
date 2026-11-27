@@ -9,11 +9,13 @@ namespace VibanOS.Gui
     /// <summary>Aktivitätsanzeige: Prozesse, Scheduler und die Rahmentabelle des Speichers auf einen Blick.</summary>
     public class ActivityWindow : Window
     {
-        private const int Columns = 64;     // Rahmen pro Zeile in der Speicherkarte
+        private const int Columns = 64;     // Rahmen pro Zeile in der Speicherkarte, in der Startgröße
         private const int CellSize = 8;
         private const int CellGap = 2;
         private const int TileHeight = 68;
-        private const int MaxRows = 6;
+        private const int MaxRows = 6;      // Zeilen der Prozesstabelle in der Startgröße
+        private const int MinRows = 2;      // so wenige zeigt sie mindestens
+        private readonly int startWidth, startHeight;
 
         // Farben, mit denen Prozesse in der Speicherkarte unterschieden werden.
         private static readonly uint[] OwnerColors =
@@ -27,14 +29,28 @@ namespace VibanOS.Gui
             Width = Columns * (CellSize + CellGap) - CellGap + 2 * T.Space.L;
             Height = T.Size.TitleBar + TileHeight + (MaxRows + 1) * T.Size.Row
                 + (PhysicalMemory.FrameCount / Columns) * (CellSize + CellGap) + Fonts.Caption.LineHeight + 5 * T.Space.L;
+            startWidth = Width;
+            startHeight = Height;
         }
 
         public override bool Live { get { return true; } }
+
+        // Wächst das Fenster, zeigt die Tabelle mehr Prozesse und die Speicherkarte mehr Rahmen je Zeile.
+        // Schmaler als zu Beginn passen die Spalten der Tabelle nicht.
+        public override bool CanZoom { get { return true; } }
+        public override int MinWidth { get { return startWidth; } }
+        public override int MinHeight { get { return startHeight - (MaxRows - MinRows) * T.Size.Row; } }
 
         protected override void DrawContent(Surface s, int x, int y, int w, int h)
         {
             int left = x + T.Space.L, inner = w - 2 * T.Space.L;
             int ty = y + T.Space.L;
+            // Speicherkarte: so viele Kästchen je Zeile, wie in die Breite passen. Die Tabelle bekommt die Höhe, die übrig bleibt.
+            int columns = (inner + CellGap) / (CellSize + CellGap);
+            if (columns < 1) columns = 1;
+            int mapHeight = Fonts.Caption.LineHeight + T.Space.S + (PhysicalMemory.FrameCount + columns - 1) / columns * (CellSize + CellGap);
+            int rows = (h - TileHeight - T.Size.Row - mapHeight - 4 * T.Space.L) / T.Size.Row;
+            if (rows < 1) rows = 1;
 
             // Kennzahlen
             int used = PhysicalMemory.FrameCount - OS.Memory.Frames.FreeCount;
@@ -55,8 +71,8 @@ namespace VibanOS.Gui
 
             // Passen nicht alle Prozesse in die Tabelle, zeigt sie die zuletzt gestarteten.
             int count = OS.Processes.All.Count;
-            int first = count > MaxRows ? count - MaxRows : 0;
-            for (int i = 0; i < MaxRows; i++)
+            int first = count > rows ? count - rows : 0;
+            for (int i = 0; i < rows; i++)
             {
                 if (first + i < count)
                 {
@@ -86,7 +102,7 @@ namespace VibanOS.Gui
             for (int i = 0; i < owner.Length; i++)
             {
                 uint color = owner[i] == FrameTable.Free ? T.Color.Raised : OwnerColors[owner[i] % OwnerColors.Length];
-                s.FillRoundRect(left + i % Columns * (CellSize + CellGap), ty + i / Columns * (CellSize + CellGap), CellSize, CellSize, T.Radius.XS, color);
+                s.FillRoundRect(left + i % columns * (CellSize + CellGap), ty + i / columns * (CellSize + CellGap), CellSize, CellSize, T.Radius.XS, color);
             }
         }
 

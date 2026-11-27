@@ -62,7 +62,41 @@ namespace VibanOS.Gui
 
         /// <summary>Vergrößert durch den grünen Knopf. Normal* ist dann die Größe davor.</summary>
         public bool Zoomed;
+
+        /// <summary>
+        /// An Bildschirmränder angedockt (Edge*): ein Rand füllt diese Hälfte, zwei (Ecke) dieses Viertel. 0: nicht angedockt.
+        /// Normal* ist dann die Größe davor.
+        /// </summary>
+        public int Snapped;
         public int NormalX, NormalY, NormalWidth, NormalHeight;
+
+        /// <summary>true: Das Fenster lässt sich an Rändern und Ecken größer und kleiner ziehen. Wie beim Zoom nur, wenn der Inhalt mitwächst.</summary>
+        public virtual bool CanResize { get { return CanZoom; } }
+
+        /// <summary>Kleinste Größe beim Ziehen an den Rändern.</summary>
+        public virtual int MinWidth { get { return T.Size.WindowMinWidth; } }
+        public virtual int MinHeight { get { return T.Size.WindowMinHeight; } }
+
+        // Ränder für EdgeAt, an den Ecken zwei zusammen.
+        public const int EdgeLeft = 1, EdgeRight = 2, EdgeTop = 4, EdgeBottom = 8;
+
+        /// <summary>
+        /// Welcher Rand liegt unter dem Punkt (Edge*, an Ecken zwei verodert)? 0: keiner oder das Fenster lässt sich nicht ziehen.
+        /// Der Rand greift ResizeGrab weit nach innen und außen, eine Ecke ResizeCorner weit an beiden Rändern entlang,
+        /// sonst wären die abgerundeten Ecken kaum zu treffen.
+        /// </summary>
+        public int EdgeAt(int px, int py)
+        {
+            if (!CanResize) return 0;
+            int g = T.Size.ResizeGrab, c = T.Size.ResizeCorner;
+            if (px < X - g || py < Y - g || px >= X + Width + g || py >= Y + Height + g) return 0;
+            int horizontal = px < X + g ? EdgeLeft : px >= X + Width - g ? EdgeRight : 0;
+            int vertical = py < Y + g ? EdgeTop : py >= Y + Height - g ? EdgeBottom : 0;
+            if (horizontal == 0 && vertical == 0) return 0;
+            if (vertical == 0) vertical = py < Y + c ? EdgeTop : py >= Y + Height - c ? EdgeBottom : 0;
+            if (horizontal == 0) horizontal = px < X + c ? EdgeLeft : px >= X + Width - c ? EdgeRight : 0;
+            return horizontal | vertical;
+        }
 
         private int ControlX(int index)
         {
