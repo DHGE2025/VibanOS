@@ -388,6 +388,30 @@ namespace VibanOS.Preview
             Check(!Throws(() => OS.Memory.WriteByte(2, 0, 1)) && OS.Memory.ReadByte(2, 4096 + 7) == 0, "Eine neu vergebene Seite ist leer und beschreibbar");
             Type("alloc 2 0\n");
             Check(Last().Style == LineStyle.Error, "alloc verlangt mindestens eine Seite");
+            int frame1 = OS.Memory.TableOf(2).Pages[1].Frame;
+            Type("translate 2 4103\n");
+            Check(Last().Text.Contains("= " + (frame1 * 4096 + 7)) && Last().Style != LineStyle.Error, "translate rechnet Seite, Offset und Rahmen zur physischen Adresse");
+            Type("translate 2 0x1007\n");
+            Check(Last().Text.Contains("= " + (frame1 * 4096 + 7)), "translate versteht Adressen mit 0x");
+            int logBefore = OS.Memory.Log.Count;
+            Type("translate 2 " + (40 * 4096) + "\n");
+            Check(Last().Style == LineStyle.Error && Last().Text.Contains("Page Fault") && OS.Memory.Log.Count == logBefore,
+                "translate meldet einen Page Fault, ohne ihn als Zugriff zu protokollieren");
+            Type("translate 2 -5\n");
+            Check(Last().Style == LineStyle.Error, "translate lehnt negative Adressen ab");
+            Type("pagetable 2\n");
+            Check(Last().Text.StartsWith(OS.Memory.TableOf(2).Pages.Count - 1 + " "), "pagetable listet alle Seiten des Prozesses");
+            int freeBefore = OS.Memory.Frames.FreeCount;
+            Type("free 2 1\n");
+            Check(!OS.Memory.TableOf(2).Pages[1].Present && OS.Memory.Frames.FreeCount == freeBefore + 1
+                && OS.Memory.Frames.Owner[frame1] == FrameTable.Free, "free gibt die Seite und ihren Rahmen frei");
+            Type("free 2 1\n");
+            Check(Last().Style == LineStyle.Error && OS.Memory.Frames.FreeCount == freeBefore + 1, "free meldet eine Seite, die es nicht gibt");
+            Type("pagetable 2\n");
+            Check(OS.Shell.Lines[OS.Shell.Lines.Count - OS.Memory.TableOf(2).Pages.Count + 1].Text.Contains("nein"),
+                "pagetable zeigt eine freigegebene Seite als nicht vorhanden");
+            Type("translate 2 4103\n");
+            Check(Last().Text.Contains("Page Fault"), "Nach free ist die Adresse ein Page Fault");
             Type("start counter\n");
             int hog = OS.Processes.All[OS.Processes.All.Count - 1].Id;
             Type("alloc " + hog + " 999\n");
