@@ -21,6 +21,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+      # Der Runner-Dienst hat Umgebungsvariablen von root geerbt (HOME, XDG_RUNTIME_DIR), läuft aber als eigener
+      # Nutzer. dotnet scheitert dann an /run/user/0. Hier auf Ordner umbiegen, in die der Runner schreiben darf.
+      - name: Umgebung des Runners richten
+        run: |
+          echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          if [ ! -w "$HOME" ]; then
+            mkdir -p "$RUNNER_TOOL_CACHE/home"
+            echo "HOME=$RUNNER_TOOL_CACHE/home" >> "$GITHUB_ENV"
+          fi
       - uses: actions/setup-dotnet@v5
         # Der eigene Runner läuft ohne root-Rechte: .NET kommt in den Werkzeug-Ordner des Runners statt nach
         # /usr/share/dotnet. Der Ordner bleibt zwischen den Läufen erhalten, .NET wird nur einmal geladen.
@@ -47,6 +56,15 @@ jobs:
       TERM: dumb
     steps:
       - uses: actions/checkout@v5
+      # Der Runner-Dienst hat Umgebungsvariablen von root geerbt (HOME, XDG_RUNTIME_DIR), läuft aber als eigener
+      # Nutzer. dotnet scheitert dann an /run/user/0. Hier auf Ordner umbiegen, in die der Runner schreiben darf.
+      - name: Umgebung des Runners richten
+        run: |
+          echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          if [ ! -w "$HOME" ]; then
+            mkdir -p "$RUNNER_TOOL_CACHE/home"
+            echo "HOME=$RUNNER_TOOL_CACHE/home" >> "$GITHUB_ENV"
+          fi
       - uses: actions/setup-dotnet@v5
         # Der eigene Runner läuft ohne root-Rechte: .NET kommt in den Werkzeug-Ordner des Runners statt nach
         # /usr/share/dotnet. Der Ordner bleibt zwischen den Läufen erhalten, .NET wird nur einmal geladen.
