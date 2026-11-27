@@ -21,13 +21,14 @@ namespace VibanOS.Gui
     {
         // Klickflächen, wie in den Einstellungen relativ zum Inhalt gemerkt.
         internal const int PlaceHome = 0, PlaceDisk = 1, Back = 10, NewFolder = 11, Rename = 12, Delete = 13,
-            ConfirmDelete = 14, CancelDelete = 15, NameField = 16, Item = 100;
+            ConfirmDelete = 14, Cancel = 15, NameField = 16, ConfirmRename = 17, Item = 100;
 
         private const int IconSize = 16;       // Symbol vor einem Eintrag
         private const int SizeColumn = 190;    // Abstand der Spalte "Größe" vom rechten Rand
         private const int KindColumn = 100;    // Abstand der Spalte "Art" vom rechten Rand
         private const int ButtonWidth = 110;   // Knopf "Neuer Ordner"
         private const int PreviewBytes = 8192; // so viel einer Datei zeigt die Vorschau
+        private const int SheetWidth = 340;    // Warnung vor dem Ändern einer Systemdatei, höchstens so breit
 
         private struct Hot { public int X, Y, W, H, Action; }
 
@@ -46,7 +47,10 @@ namespace VibanOS.Gui
         private string message = "";
         private string space = "";  // freier Platz für die Statuszeile, siehe ReadSpace
         private string editName;    // Umbenennen: neuer Name im Feld der gewählten Zeile, sonst null
-        private bool confirming;    // Löschen: Die Statuszeile fragt "Wirklich löschen?"
+        private int caret;          // Umbenennen: Stelle der Einfügemarke im Namen, 0 ist vor dem ersten Zeichen
+        private int fieldStart;     // Umbenennen: erstes Zeichen, das im Feld zu sehen ist, wenn der Name nicht ganz passt
+        private int pending;        // Rückfrage: ConfirmDelete oder ConfirmRename, 0 ohne
+        private string warning;     // Rückfrage bei einer Systemdatei (Vfs.SystemFile): was ohne sie passiert, sonst null
 
         public FilesWindow()
         {
@@ -72,7 +76,7 @@ namespace VibanOS.Gui
             file = null;
             message = space = "";
             editName = null;
-            confirming = false;
+            pending = 0;
             selected = -1;
             scroll = 0;
             Go(Home);
@@ -98,7 +102,9 @@ namespace VibanOS.Gui
         internal bool Editing { get { return editName != null; } }
         internal string EditName { get { return editName; } }
         internal int Selected { get { return selected; } }
-        internal bool Confirming { get { return confirming; } }
+        internal bool Confirming { get { return pending != 0; } }
+        internal int Caret { get { return caret; } }
+        internal string Warning { get { return pending != 0 ? warning : null; } }
 
         /// <summary>Text der Statusleiste: was das Fenster gerade zeigt.</summary>
         internal string Info
@@ -122,7 +128,7 @@ namespace VibanOS.Gui
             folder = path;
             file = null;
             editName = null;
-            confirming = false;
+            pending = 0;
             selected = -1;
             scroll = 0;
             Reload();
@@ -258,14 +264,21 @@ namespace VibanOS.Gui
             return null;
         }
 
-        /// <summary>Öffnet das Eingabefeld in der gewählten Zeile, mit dem bisherigen Namen darin.</summary>
-        private void StartRename()
+        /// <summary>
+        /// Öffnet das Eingabefeld in der gewählten Zeile, mit dem bisherigen Namen darin und der Einfügemarke am Ende.
+        /// Bei einer Systemdatei kommt vorher eine Warnung, die man bestätigen muss. warned: Sie ist schon bestätigt.
+        /// </summary>
+        private void StartRename(bool warned)
         {
-            confirming = false;
+            pending = 0;
             string refusal = Refusal();
             if (refusal != null) { message = refusal; return; }
             message = "";
+            warning = Vfs.SystemFile(PathOf(selected));
+            if (warning != null && !warned) { pending = ConfirmRename; return; }
             editName = entries[selected].Name;
+            caret = editName.Length;
+            fieldStart = 0;
         }
 
         /// <summary>
@@ -315,9 +328,11 @@ namespace VibanOS.Gui
             editName = null;
             string refusal = Refusal();
             if (refusal == null && entries[selected].Folder && !Empty(PathOf(selected))) refusal = "Ordner ist nicht leer: " + entries[selected].Name;
-            if (refusal != null) { message = refusal; confirming = false; return; }
+            if (refusal != null) { message = refusal; pending = 0; return; }
             message = "";
-            confirming = true;
+            // Eine Systemdatei bekommt statt der Frage in der Statuszeile eine Warnung mitten im Fenster.
+            warning = Vfs.SystemFile(PathOf(selected));
+            pending = ConfirmDelete;
         }
 
         private static bool Empty(string path)
@@ -328,7 +343,7 @@ namespace VibanOS.Gui
 
         private void DeleteSelected()
         {
-            confirming = false;
+            pending = 0;
             // Zwischen Frage und Antwort kann im Terminal etwas passiert sein: alles noch einmal prüfen.
             string refusal = Refusal();
             if (refusal != null) { message = refusal; Reload(); return; }
@@ -359,10 +374,12 @@ namespace VibanOS.Gui
                 OS.Changed = true;
                 return;
             }
-            // Während der Rückfrage zählen nur ihre beiden Knöpfe, jeder andere Klick bricht sie ab.
-            if (confirming && !Hits(px, py, ConfirmDelete) && !Hits(px, py, CancelDelete))
+            // Während der Rückfrage zählt nur ihr Knopf zum Bestätigen, Abbrechen und jeder andere Klick brechen sie ab.
+            // Hier und nicht in der Schleife unten: Die Warnung liegt über den Zeilen, und deren Klickflächen kämen zuerst.
+            if (pending != 0)
             {
-                confirming = false;
+                if (Hits(px, py, pending)) Do(pending);
+                else pending = 0;
                 OS.Changed = true;
                 return;
             }
@@ -404,10 +421,11 @@ namespace VibanOS.Gui
             else if (action == PlaceDisk) Go(Vfs.Root);
             else if (action == Back) GoBack();
             else if (action == NewFolder) MakeFolder();
-            else if (action == Rename) StartRename();
+            else if (action == Rename) StartRename(false);
             else if (action == Delete) AskDelete();
             else if (action == ConfirmDelete) DeleteSelected();
-            else if (action == CancelDelete) confirming = false;
+            else if (action == ConfirmRename) StartRename(true);
+            else if (action == Cancel) pending = 0;
             else if (action >= Item)
             {
                 int index = action - Item;
@@ -422,16 +440,22 @@ namespace VibanOS.Gui
             Sync();
             if (editName != null)
             {
+                // Wie in einem Textfeld unter macOS: Pfeil links und rechts gehen ein Zeichen weiter, hoch und runter an Anfang und Ende.
                 if (key == Key.Enter) FinishRename();
                 else if (key == Key.Escape) { editName = null; message = ""; }
-                else if (key == Key.Backspace) { if (editName.Length > 0) editName = editName.Substring(0, editName.Length - 1); }
-                else if (key == Key.None && c >= ' ' && c <= 255) editName += c;
+                else if (key == Key.Left) { if (caret > 0) caret--; }
+                else if (key == Key.Right) { if (caret < editName.Length) caret++; }
+                else if (key == Key.Up) caret = 0;
+                else if (key == Key.Down) caret = editName.Length;
+                else if (key == Key.Backspace) { if (caret > 0) { editName = editName.Remove(caret - 1, 1); caret--; } }
+                else if (key == Key.Delete) { if (caret < editName.Length) editName = editName.Remove(caret, 1); }
+                else if (key == Key.None && c >= ' ' && c <= 255) { editName = editName.Insert(caret, c.ToString()); caret++; }
                 return;
             }
-            if (confirming)
+            if (pending != 0)
             {
-                if (key == Key.Enter) DeleteSelected();
-                else if (key == Key.Escape) confirming = false;
+                if (key == Key.Enter) { if (pending == ConfirmDelete) DeleteSelected(); else StartRename(true); }
+                else if (key == Key.Escape) pending = 0;
                 return;
             }
             if (file != null)
@@ -452,7 +476,7 @@ namespace VibanOS.Gui
             else if (key == Key.PageDown) selected += step;
             else if (key == Key.Enter) { Open(selected); return; }
             else if (key == Key.Backspace) { GoBack(); return; }
-            else if (key == Key.F2) { if (selected >= 0) StartRename(); return; }
+            else if (key == Key.F2) { if (selected >= 0) StartRename(false); return; }
             else if (key == Key.Delete) { if (selected >= 0) AskDelete(); return; }
             else return;
             if (selected > entries.Count - 1) selected = entries.Count - 1;
@@ -493,7 +517,7 @@ namespace VibanOS.Gui
             DrawToolbar(s, left, y, inner, barH);
             int ty = y + barH;
             // Die Rückfrage braucht Platz für ihre Knöpfe, sonst ist die Statuszeile so hoch wie eine Zeile Text.
-            bool asking = confirming && file == null && Vfs.Available;
+            bool asking = pending == ConfirmDelete && warning == null && file == null && Vfs.Available;
             int status = asking ? T.Size.Row + 2 * T.Space.XS : Fonts.Body.LineHeight + 2 * T.Space.S;
             int bottom = y + h - status;
 
@@ -502,7 +526,11 @@ namespace VibanOS.Gui
                 Empty(s, left, inner, ty, bottom, "Keine Festplatte eingebunden.", "Im Terminal einmal 'format' ausführen (siehe README).");
             }
             else if (file != null) DrawPreview(s, left, ty, inner, bottom);
-            else DrawList(s, left, ty, inner, bottom);
+            else
+            {
+                DrawList(s, left, ty, inner, bottom);
+                if (pending != 0 && warning != null) DrawWarning(s, left, ty, inner, bottom);
+            }
 
             // Statusleiste wie im Finder: Anzahl und freier Platz, oder eine Meldung.
             s.FillRect(left, bottom, inner, 1, T.Color.Separator);
@@ -595,7 +623,7 @@ namespace VibanOS.Gui
             s.FillRoundRect(cx, by, cw, bh, T.Radius.S, T.Color.Raised);
             s.StrokeRoundRect(cx, by, cw, bh, T.Radius.S, T.Color.Border);
             s.DrawTextCentered(Fonts.Body, "Abbrechen", cx + cw / 2, textY, T.Color.TextPrimary);
-            AddHot(cx, by, cw, bh, CancelDelete);
+            AddHot(cx, by, cw, bh, Cancel);
             string name = selected >= 0 && selected < entries.Count ? entries[selected].Name : "";
             int room = cx - T.Space.M - (x + T.Space.L);
             if (room > 0)
@@ -649,17 +677,78 @@ namespace VibanOS.Gui
             }
         }
 
+        // Warnung vor dem Löschen oder Umbenennen einer Systemdatei, mitten über der Liste wie ein Hinweis unter macOS:
+        // oben gelb, worum es geht, darunter die Frage, was ohne die Datei passiert, und die beiden Knöpfe.
+        private void DrawWarning(Surface s, int x, int top, int w, int bottom)
+        {
+            s.FillRect(x, top, w, bottom - top, T.Color.Scrim);
+            int pad = T.Space.L, pw = Math.Min(w - 2 * T.Space.XL, SheetWidth), textW = pw - 2 * pad;
+            if (textW < 1) return;
+            List<string> body = Wrap(Fonts.Body, warning, textW);
+            int ph = pad + Fonts.Caption.LineHeight + T.Space.XS + Fonts.Strong.LineHeight + T.Space.S
+                + body.Count * Fonts.Body.LineHeight + T.Space.L + T.Size.Field + pad;
+            int px = x + (w - pw) / 2, py = top + (bottom - top - ph) / 2;
+            if (py < top + T.Space.S) py = top + T.Space.S;
+            s.Shadow(px, py, pw, ph, T.Radius.M, T.Shadow.WindowBlur, T.Shadow.WindowOffset, T.Shadow.WindowAlpha, T.Color.Shadow);
+            s.FillRoundRect(px, py, pw, ph, T.Radius.M, T.Color.TitleBar);
+            s.StrokeRoundRect(px, py, pw, ph, T.Radius.M, T.Color.Border);
+
+            int tx = px + pad, ty = py + pad;
+            s.DrawText(Fonts.Caption, "ACHTUNG: SYSTEMDATEI", tx, ty, T.Color.Warning);
+            ty += Fonts.Caption.LineHeight + T.Space.XS;
+            string name = selected >= 0 && selected < entries.Count ? entries[selected].Name : "";
+            string question = "\"" + name + "\" " + (pending == ConfirmDelete ? "löschen?" : "umbenennen?");
+            s.DrawText(Fonts.Strong, ActivityWindow.Fit(Fonts.Strong, question, textW), tx, ty, T.Color.TextPrimary);
+            ty += Fonts.Strong.LineHeight + T.Space.S;
+            for (int i = 0; i < body.Count; i++, ty += Fonts.Body.LineHeight) s.DrawText(Fonts.Body, body[i], tx, ty, T.Color.TextSecondary);
+
+            // Rechts der Knopf zum Bestätigen: rot fürs Löschen, das lässt sich nicht rückgängig machen.
+            string label = pending == ConfirmDelete ? "Löschen" : "Umbenennen";
+            int by = py + ph - pad - T.Size.Field, textY = by + (T.Size.Field - Fonts.Body.LineHeight) / 2;
+            int ow = Fonts.Body.Measure(label) + 2 * T.Space.M, cw = Fonts.Body.Measure("Abbrechen") + 2 * T.Space.M;
+            int ox = px + pw - pad - ow, cx = ox - T.Space.S - cw;
+            s.FillRoundRect(ox, by, ow, T.Size.Field, T.Radius.S, pending == ConfirmDelete ? T.Color.Danger : T.Color.Accent);
+            s.DrawTextCentered(Fonts.Body, label, ox + ow / 2, textY, T.Color.TextOnAccent);
+            AddHot(ox, by, ow, T.Size.Field, pending);
+            s.FillRoundRect(cx, by, cw, T.Size.Field, T.Radius.S, T.Color.Raised);
+            s.StrokeRoundRect(cx, by, cw, T.Size.Field, T.Radius.S, T.Color.Border);
+            s.DrawTextCentered(Fonts.Body, "Abbrechen", cx + cw / 2, textY, T.Color.TextPrimary);
+            AddHot(cx, by, cw, T.Size.Field, Cancel);
+        }
+
+        // Bricht Text an Leerzeichen in Zeilen um, die höchstens width breit sind. Ein zu langes Wort steht allein.
+        private static List<string> Wrap(Font font, string text, int width)
+        {
+            List<string> result = new List<string>();
+            string line = "";
+            string[] words = text.Split(' ');
+            for (int i = 0; i < words.Length; i++)
+            {
+                string longer = line == "" ? words[i] : line + " " + words[i];
+                if (line != "" && font.Measure(longer) > width) { result.Add(line); line = words[i]; }
+                else line = longer;
+            }
+            if (line != "") result.Add(line);
+            return result;
+        }
+
         // Eingabefeld zum Umbenennen, an der Stelle des Namens. Ist der Name zu lang, zeigt es sein Ende, wo getippt wird.
         private void DrawField(Surface s, int nameX, int ty, int width, int textY)
         {
             int fx = nameX - T.Space.XS, fw = width + T.Space.XS;
             s.FillRoundRect(fx, ty + T.Space.XS / 2, fw, T.Size.Row - T.Space.XS, T.Radius.S, T.Color.Sunken);
             s.StrokeRoundRect(fx, ty + T.Space.XS / 2, fw, T.Size.Row - T.Space.XS, T.Radius.S, T.Color.Border);
-            string shown = editName;
+            // Passt der Name nicht ganz hinein, zeigt das Feld einen Ausschnitt, und der folgt der Einfügemarke.
+            Font font = Fonts.Body;
             int room = width - T.Size.Caret - T.Space.XS;
-            while (shown.Length > 0 && Fonts.Body.Measure(shown) > room) shown = shown.Substring(1);
-            int end = s.DrawText(Fonts.Body, shown, nameX, ty + textY, T.Color.TextPrimary);
-            s.FillRect(end, ty + textY, T.Size.Caret, Fonts.Body.LineHeight, T.Color.Accent);
+            if (fieldStart > caret) fieldStart = caret;
+            while (fieldStart < caret && font.Measure(editName.Substring(fieldStart, caret - fieldStart)) > room) fieldStart++;
+            while (fieldStart > 0 && font.Measure(editName.Substring(fieldStart - 1)) <= room) fieldStart--; // nach dem Löschen wieder auffüllen
+            string shown = editName.Substring(fieldStart);
+            while (shown.Length > caret - fieldStart && font.Measure(shown) > room) shown = shown.Substring(0, shown.Length - 1);
+            s.DrawText(font, shown, nameX, ty + textY, T.Color.TextPrimary);
+            int at = nameX + font.Measure(editName.Substring(fieldStart, caret - fieldStart));
+            s.FillRect(caret > fieldStart ? at - T.Size.Caret / 2 : at, ty + textY, T.Size.Caret, font.LineHeight, T.Color.Accent);
             AddHot(fx, ty, fw, T.Size.Row, NameField);
         }
 

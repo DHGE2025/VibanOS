@@ -1407,6 +1407,31 @@ namespace VibanOS.Preview
             files.OnKey(Key.Escape, '\0');
             Check(caseOnly && !files.Editing && files.Message == "" && File.Exists(Path.Combine(home, "neu.txt")),
                 "Nur andere Schreibweise lehnt Dateien ab wie mv, Escape bricht ab");
+            files.OnKey(Key.F2, '\0');
+            bool atEnd = files.Caret == 7;
+            for (int i = 0; i < 4; i++) files.OnKey(Key.Left, '\0');
+            files.OnKey(Key.None, '2');
+            bool inserted = files.EditName == "neu2.txt" && files.Caret == 4;
+            files.OnKey(Key.Up, '\0');
+            files.OnKey(Key.Left, '\0');
+            files.OnKey(Key.Delete, '\0');
+            files.OnKey(Key.None, 'N');
+            bool front = files.EditName == "Neu2.txt" && files.Caret == 1;
+            files.OnKey(Key.Right, '\0');
+            files.OnKey(Key.Backspace, '\0');
+            bool back = files.EditName == "Nu2.txt" && files.Caret == 1;
+            files.OnKey(Key.Down, '\0');
+            files.OnKey(Key.Right, '\0');
+            files.OnKey(Key.Delete, '\0');
+            Check(atEnd && inserted && front && back && files.EditName == "Nu2.txt" && files.Caret == 7,
+                "Im Feld gehen Pfeil links und rechts zwischen den Buchstaben, hoch und runter an Anfang und Ende, Entf löscht rechts");
+            foreach (char ch in "-ein-sehr-langer-name-der-nicht-ins-feld-passt-und-blaettern-muss") files.OnKey(Key.None, ch);
+            long longEnd = Picture(files);
+            files.OnKey(Key.Up, '\0');
+            long longStart = Picture(files);
+            files.OnKey(Key.Escape, '\0');
+            Check(longEnd != longStart && !files.Editing && File.Exists(Path.Combine(home, "neu.txt")),
+                "Ein langer Name blättert im Feld mit der Einfügemarke, Escape lässt den alten stehen");
             string[] bad = { "a~1.txt", "a/b", "windows.txt", "  ..", "x:y" };
             string[] reason = { "Namen mit ~", "Diese Zeichen", "Gibt es schon", "Der Name darf nicht leer", "Diese Zeichen" };
             for (int k = 0; k < bad.Length; k++)
@@ -1430,6 +1455,9 @@ namespace VibanOS.Preview
             bool asked = files.Confirming;
             files.OnKey(Key.Escape, '\0');
             Check(asked && !files.Confirming && File.Exists(Path.Combine(home, "neu.txt")), "Entf fragt erst nach, Escape lässt die Datei stehen");
+            files.OnKey(Key.Delete, '\0');
+            Check(files.Confirming && files.Warning == null, "Gewöhnliche Dateien fragen nur in der Statuszeile, ohne Warnung");
+            files.OnKey(Key.Escape, '\0');
             int at = files.Selected;
             ClickAt(files.CenterOf(FilesWindow.Delete));
             Shot(output, "9-dateien-loeschen");
@@ -1439,7 +1467,7 @@ namespace VibanOS.Preview
             ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("leer2")));
             files.OnKey(Key.Delete, '\0');
             Picture(files); // erst das Zeichnen legt die Knöpfe der Rückfrage an
-            ClickAt(files.CenterOf(FilesWindow.CancelDelete));
+            ClickAt(files.CenterOf(FilesWindow.Cancel));
             bool stays = Directory.Exists(Path.Combine(home, "leer2")) && !files.Confirming;
             files.OnKey(Key.Delete, '\0');
             ClickAt(blank);
@@ -1451,6 +1479,45 @@ namespace VibanOS.Preview
             files.OnKey(Key.Delete, '\0');
             Check(!files.Confirming && files.Message.StartsWith("Ordner ist nicht leer") && Directory.Exists(Path.Combine(home, "notizen")),
                 "Volle Ordner löscht Dateien nicht, wie rm");
+            string rootSettings = Path.Combine(home, "settings.txt"), settingsText = File.ReadAllText(rootSettings);
+            string homeDir = OS.Users.Current.HomeDirectory;
+            Check(Vfs.SystemFile(Vfs.Combine(homeDir, "SETTINGS.TXT")) != null && Vfs.SystemFile(Vfs.Combine(Vfs.Combine(homeDir, "notizen"), "settings.txt")) == null
+                && Vfs.SystemFile(Vfs.Combine(homeDir, "neu.txt")) == null, "Systemdatei ist die settings.txt direkt im Home-Ordner, in jeder Schreibweise");
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("settings.txt")));
+            files.OnKey(Key.Delete, '\0');
+            bool warned = files.Confirming && files.Warning != null && files.Warning.Contains("Einstellungen von root");
+            Shot(output, "9-dateien-warnung");
+            ClickAt(files.CenterOf(FilesWindow.Cancel));
+            bool cancelled = !files.Confirming && File.Exists(rootSettings);
+            files.OnKey(Key.Delete, '\0');
+            Picture(files);
+            int sel = files.Selected;
+            ClickAt(files.CenterOf(FilesWindow.Item + files.IndexOf("notizen"))); // ein Klick neben die Warnung bricht ab
+            Check(warned && cancelled && !files.Confirming && files.Selected == sel && files.Folder == homeDir && File.Exists(rootSettings),
+                "Vor dem Löschen der Einstellungen kommt eine Warnung, Abbrechen und ein Klick daneben lassen die Datei stehen");
+            files.OnKey(Key.F2, '\0');
+            bool renameWarned = files.Confirming && !files.Editing && files.Warning != null;
+            files.OnKey(Key.Escape, '\0');
+            ClickAt(files.CenterOf(FilesWindow.Rename));
+            ClickAt(files.CenterOf(FilesWindow.ConfirmRename));
+            bool fieldOpen = files.Editing && files.EditName == "settings.txt" && !files.Confirming;
+            for (int i = 0; i < 3; i++) files.OnKey(Key.Backspace, '\0');
+            foreach (char ch in "alt") files.OnKey(Key.None, ch);
+            files.OnKey(Key.Enter, '\0');
+            bool settingsRenamed = !File.Exists(rootSettings) && File.Exists(Path.Combine(home, "settings.alt"));
+            files.OnKey(Key.F2, '\0'); // settings.alt ist keine Systemdatei mehr: gleich das Feld
+            bool direct = files.Editing && !files.Confirming;
+            for (int i = 0; i < 3; i++) files.OnKey(Key.Backspace, '\0');
+            foreach (char ch in "txt") files.OnKey(Key.None, ch);
+            files.OnKey(Key.Enter, '\0');
+            Check(renameWarned && fieldOpen && settingsRenamed && direct && File.Exists(rootSettings),
+                "Auch vor dem Umbenennen der Einstellungen kommt die Warnung, erst nach dem Bestätigen das Feld");
+            files.OnKey(Key.Delete, '\0');
+            files.OnKey(Key.Enter, '\0');
+            bool gone = !File.Exists(rootSettings) && !files.Confirming;
+            File.WriteAllText(rootSettings, settingsText);
+            Check(gone, "Nach dem Bestätigen der Warnung lassen sich die Einstellungen löschen");
+            ClickAt(files.CenterOf(FilesWindow.PlaceHome));
             Directory.CreateDirectory(Path.Combine(home, "hier"));
             OS.Shell.Submit("cd /home/root/hier");
             ClickAt(files.CenterOf(FilesWindow.PlaceHome));
