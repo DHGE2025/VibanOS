@@ -79,9 +79,12 @@ jobs:
       - name: Werkzeuge installieren
         run: |
           # Auf dem eigenen Runner bleibt alles vom letzten Lauf liegen: nur nachinstallieren, was fehlt.
+          # sudo -n fragt nicht nach einem Passwort: Ohne Rechte bricht der Schritt sofort ab, statt bis zum Timeout zu warten.
           if ! command -v xorriso >/dev/null || ! command -v ld.lld >/dev/null; then
-            sudo apt-get update -q
-            sudo apt-get install -y -q xorriso lld
+            if ! (sudo -n apt-get update -q && sudo -n apt-get install -y -q xorriso lld); then
+              echo "::error::Auf dem Runner fehlen xorriso und/oder lld. Bitte einmal als root installieren: apt-get install xorriso lld"
+              exit 1
+            fi
           fi
           # update installiert auch, wenn das Werkzeug noch fehlt, und bricht nicht ab, wenn es schon da ist.
           dotnet tool update -g Cosmos.Tools --version 3.0.99
