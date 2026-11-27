@@ -44,11 +44,11 @@ namespace VibanOS.Gui
             }
             scroll = 0; // Jede andere Taste springt zurück zur Eingabezeile.
 
-            // Ein Befehl arbeitet noch in Schritten (rm -r, cp -r): Getippt wird erst danach wieder, Escape bricht ab.
+            // Ein Befehl arbeitet noch in Schritten (rm -r, cp -r, sh): Getippt wird erst danach wieder, Escape bricht ab.
             // Fragt er zwischendurch nach, geht die Antwort ganz normal hinein.
             if (shell.Busy && !shell.Asking)
             {
-                if (key == Key.Escape) shell.Cancel();
+                if (key == Key.Escape) shell.CancelAll();
                 return;
             }
 

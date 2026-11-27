@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using VibanOS.Core;
 using VibanOS.FileSystem;
 using VibanOS.Users;
@@ -37,6 +38,12 @@ namespace VibanOS.Cli
 
         /// <summary>Gestartet unter sudo. Dann gelten die Rechte für alle Schritte, nicht nur für den Aufruf, der sie startet.</summary>
         public bool Elevated;
+
+        /// <summary>
+        /// Die Arbeit, die diese gestartet hat, oder null. Ein Skript (sh, VIB-28) startet etwa rm -r: Dann läuft erst rm -r
+        /// zu Ende, danach geht das Skript weiter.
+        /// </summary>
+        public Job Parent { get; internal set; }
     }
 
     /// <summary>
@@ -72,6 +79,31 @@ namespace VibanOS.Cli
         /// <summary>true: Ein Befehl arbeitet noch in Schritten. Bis er fertig ist, nimmt die Shell keine Befehle an.</summary>
         public bool Busy { get { return job != null; } }
 
+        /// <summary>Die Arbeit, die gerade ihre Schritte macht, null ohne. Ihre Vorgänger hängen an Job.Parent.</summary>
+        public Job Running { get { return job; } }
+
+        /// <summary>
+        /// Zählt alle Fehlermeldungen. Ein Skript (VIB-28) sieht daran, ob eine Zeile gescheitert ist, auch wenn der Fehler
+        /// erst in einem späteren Schritt oder in der Antwort auf eine Rückfrage kommt.
+        /// </summary>
+        public int Errors;
+
+        /// <summary>Uhr in Millisekunden für sleep. Der Selbsttest setzt eine eigene, damit er nicht wirklich warten muss.</summary>
+        public static Func<long> Clock = Milliseconds;
+
+        private static long Milliseconds()
+        {
+            long f = Stopwatch.Frequency, t = Stopwatch.GetTimestamp();
+            if (f <= 0) return OS.Ticks * 10; // ohne Uhr: ein Durchlauf der Kernel-Schleife dauert mindestens 10 ms
+            return t / f * 1000 + t % f * 1000 / f;
+        }
+
+        // Variablen der Shell (VIB-28): name=wert setzt, $name liest. Sie gehören dem Nutzer, der sie gesetzt hat.
+        private const int MaxVariables = 100;
+        private const int MaxValueLength = 1000;
+        private readonly Dictionary<string, string> variables = new Dictionary<string, string>();
+        private User variablesOf;
+
         public void Register(Command command) { Commands.Add(command); }
 
         public Command Find(string name)
@@ -87,6 +119,15 @@ namespace VibanOS.Cli
             {
                 if (question != null) return question;
                 if (job != null) return job.Status;
+                return CommandPrompt;
+            }
+        }
+
+        /// <summary>Der Prompt vor einem Befehl, auch während eine Arbeit läuft. sh -x zeigt damit jede Zeile wie getippt.</summary>
+        public string CommandPrompt
+        {
+            get
+            {
                 string user = OS.Users.Current != null ? OS.Users.Current.Name : "?";
                 return user + "@" + OS.Name + " " + CurrentDirectory + "> ";
             }
@@ -109,6 +150,7 @@ namespace VibanOS.Cli
                 line.Style = style;
                 Lines.Add(line);
             }
+            if (style == LineStyle.Error) Errors++;
             if (Lines.Count > MaxLines) Lines.RemoveRange(0, Lines.Count - MaxLines);
             OS.Changed = true;
         }
@@ -139,6 +181,7 @@ namespace VibanOS.Cli
         public void Start(Job work)
         {
             work.Elevated = OS.Users.Elevated;
+            work.Parent = job; // läuft schon eine (ein Skript), geht sie nach dieser weiter
             job = work;
             OS.Changed = true;
         }
@@ -158,14 +201,39 @@ namespace VibanOS.Cli
                 done = true;
             }
             finally { OS.Users.Elevated = elevated; }
-            if (done) job = null;
+            if (done) Remove(current);
             OS.Changed = true;
         }
 
-        /// <summary>Bricht die laufende Arbeit ab: Escape im Terminal, oder eine Antwort, die nicht bestätigt.</summary>
+        // Nimmt eine fertige Arbeit aus der Kette. Hat sie im letzten Schritt noch eine gestartet, bleibt die vorn.
+        private void Remove(Job done)
+        {
+            if (job == done) { job = done.Parent; return; }
+            for (Job j = job; j != null; j = j.Parent)
+                if (j.Parent == done) { j.Parent = done.Parent; return; }
+        }
+
+        /// <summary>
+        /// Bricht die vorderste Arbeit ab, etwa nach einer Antwort, die nicht bestätigt. Ein Skript, das sie gestartet hat,
+        /// läuft danach weiter.
+        /// </summary>
         public void Cancel()
         {
-            if (job != null && job.Stop(this)) job = null;
+            if (job != null && job.Stop(this)) job = job.Parent;
+            OS.Changed = true;
+        }
+
+        /// <summary>
+        /// Escape im Terminal: bricht alles ab, auch das Skript, das die vorderste Arbeit gestartet hat. Muss eine noch
+        /// aufräumen (cp -r), macht nur sie weiter, bis sie fertig ist.
+        /// </summary>
+        public void CancelAll()
+        {
+            Job keep = null;
+            for (Job j = job; j != null; j = j.Parent)
+                if (!j.Stop(this) && keep == null) keep = j;
+            if (keep != null) keep.Parent = null;
+            job = keep;
             OS.Changed = true;
         }
 
@@ -197,9 +265,131 @@ namespace VibanOS.Cli
         /// <summary>Führt eine Befehlszeile aus. Fehler eines Befehls landen als Meldung im Terminal.</summary>
         public void Execute(string input)
         {
-            List<string> words = Split(input);
+            string name, value;
+            if (Assignment(input, out name, out value))
+            {
+                SetVariable(name, value);
+                return;
+            }
+            List<string> words = Split(Expand(input));
             if (words.Count == 0) return;
             Run(words.ToArray());
+        }
+
+        /// <summary>Zerlegt eine Zeile in Wörter, nachdem $name ersetzt ist. Für sh, das so if und for liest.</summary>
+        public List<string> Words(string input) { return Split(Expand(input)); }
+
+        // Ist die Zeile eine Zuweisung "name=wert"? Der Wert wird wie Argumente gelesen: "Hallo Welt" in Anführungszeichen,
+        // $andere ersetzt.
+        private bool Assignment(string input, out string name, out string value)
+        {
+            name = value = null;
+            string line = input.Trim();
+            int equals = line.IndexOf('=');
+            if (equals <= 0 || !ValidName(line.Substring(0, equals))) return false;
+            name = line.Substring(0, equals);
+            value = Join(Split(Expand(line.Substring(equals + 1))).ToArray(), 0);
+            return true;
+        }
+
+        /// <summary>Gültiger Name einer Variablen: Buchstaben, Ziffern und _, vorn keine Ziffer.</summary>
+        public static bool ValidName(string name)
+        {
+            if (name.Length == 0 || name.Length > 32 || (name[0] >= '0' && name[0] <= '9')) return false;
+            for (int i = 0; i < name.Length; i++)
+                if (!NameChar(name[i])) return false;
+            return true;
+        }
+
+        private static bool NameChar(char c)
+        {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+        }
+
+        // Feste Variablen: Sie kommen aus dem System und lassen sich nicht setzen.
+        private string Fixed(string name)
+        {
+            User user = OS.Users.Current;
+            if (name == "USER") return user != null ? user.Name : "";
+            if (name == "HOME") return user != null ? user.HomeDirectory : "";
+            if (name == "PWD") return CurrentDirectory;
+            return null;
+        }
+
+        // Variablen gehören dem Nutzer, der sie gesetzt hat. Nach einem Wechsel (abmelden, su) sieht der nächste sie nicht.
+        private void Own()
+        {
+            if (variablesOf == OS.Users.Current) return;
+            variables.Clear();
+            variablesOf = OS.Users.Current;
+        }
+
+        /// <summary>Wert einer Variablen, "" wenn es sie nicht gibt (wie in anderen Shells).</summary>
+        public string Variable(string name)
+        {
+            string value = Fixed(name);
+            if (value != null) return value;
+            Own();
+            return variables.TryGetValue(name, out value) ? value : "";
+        }
+
+        /// <summary>Setzt eine Variable. Meldet im Terminal, warum es nicht geht.</summary>
+        public bool SetVariable(string name, string value)
+        {
+            if (Fixed(name) != null) { Error("$" + name + " kommt vom System und lässt sich nicht setzen."); return false; }
+            if (value.Length > MaxValueLength) { Error("Der Wert ist zu lang, höchstens " + MaxValueLength + " Zeichen."); return false; }
+            Own();
+            if (!variables.ContainsKey(name) && variables.Count >= MaxVariables) { Error("Zu viele Variablen, höchstens " + MaxVariables + "."); return false; }
+            variables[name] = value;
+            return true;
+        }
+
+        /// <summary>Alle gesetzten Variablen als "name=wert", sortiert. Für set.</summary>
+        public List<string> VariableList()
+        {
+            Own();
+            List<string> list = new List<string>();
+            foreach (KeyValuePair<string, string> pair in variables) list.Add(pair.Key + "=" + pair.Value);
+            list.Sort(string.CompareOrdinal);
+            return list;
+        }
+
+        /// <summary>
+        /// Ersetzt $name und ${name} durch den Wert der Variablen, $! durch die Nummer des zuletzt gestarteten Prozesses.
+        /// \$ steht für ein echtes Dollarzeichen, ein $ ohne Namen dahinter bleibt stehen.
+        /// </summary>
+        public string Expand(string input)
+        {
+            if (input.IndexOf('$') < 0) return input;
+            System.Text.StringBuilder result = new System.Text.StringBuilder();
+            for (int i = 0; i < input.Length; i++)
+            {
+                char c = input[i];
+                if (c == '\\' && i + 1 < input.Length && input[i + 1] == '$') { result.Append('$'); i++; continue; }
+                if (c != '$' || i + 1 >= input.Length) { result.Append(c); continue; }
+                char next = input[i + 1];
+                if (next == '!') { result.Append(Variable("!")); i++; continue; }
+                if (next == '{')
+                {
+                    int close = input.IndexOf('}', i + 2);
+                    if (close > 0 && ValidName(input.Substring(i + 2, close - i - 2)))
+                    {
+                        result.Append(Variable(input.Substring(i + 2, close - i - 2)));
+                        i = close;
+                        continue;
+                    }
+                }
+                else if (NameChar(next) && !(next >= '0' && next <= '9'))
+                {
+                    int end = i + 1;
+                    while (end < input.Length && NameChar(input[end])) end++;
+                    result.Append(Variable(input.Substring(i + 1, end - i - 1)));
+                    i = end - 1;
+                    continue;
+                }
+                result.Append(c);
+            }
+            return result.ToString();
         }
 
         /// <summary>

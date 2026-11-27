@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Reflection;
 using VibanOS.Cli;
+using VibanOS.Cli.Commands;
 using VibanOS.Core;
 using VibanOS.Drivers;
 using VibanOS.FileSystem;
@@ -594,6 +595,127 @@ namespace VibanOS.Preview
             Check(OS.Users.Save() && File.ReadAllText(userFile) == users, "Danach lässt sich die Nutzerdatei wieder schreiben");
             Check(Tail(UserManager.Hash("a", "salz")) != Tail(UserManager.Hash("b", "salz")) || Tail(UserManager.Hash("b", "salz")) != Tail(UserManager.Hash("c", "salz")),
                 "Auch die letzten Stellen des Passwort-Hashs hängen vom Passwort ab");
+
+            // Skripte (VIB-28): sh führt je Durchlauf der Kernel-Schleife eine Zeile aus, mit Variablen, if, for und sleep.
+            long fakeClock = 0;
+            Shell.Clock = () => fakeClock += 50; // jede Abfrage 50 ms später: sleep wartet ohne echte Zeit
+            Type("cd /home/root\n");
+            string rootHome = Path.Combine(disk, "home", "root");
+            File.WriteAllText(Path.Combine(rootHome, "probe.sh"), "#!/bin/sh\n# Kommentar\r\nname=Welt\n\necho \"Hallo $name\"\nfor x in a \"b c\"\n  echo Runde $x\ndone\n"
+                + "if $name == Welt\necho gleich\nelse\necho ungleich\nfi\nif ! exists gibtsnicht\nif \"\" != \"$leer\"\necho falsch\nfi\necho fehlt\nfi\nfor y in\necho LEER\ndone\n");
+            Type("sh probe.sh\n");
+            Check(OS.Shell.Busy && OS.Shell.Prompt == "sh probe.sh: Zeile 1 von 22, Escape bricht ab", "sh kehrt sofort zurück und zeigt, in welcher Zeile das Skript steht");
+            OS.Tick();
+            Check(!Shown("Hallo Welt") && OS.Shell.Variable("name") == "Welt" && OS.Shell.Prompt.StartsWith("sh probe.sh: Zeile 3 von"),
+                "sh überspringt Kommentare und leere Zeilen und führt je Durchlauf eine Zeile aus");
+            OS.Tick();
+            Check(Last().Text == "Hallo Welt", "Variablen werden in der nächsten Zeile ersetzt");
+            int linesBefore = OS.Shell.Lines.Count;
+            Finish();
+            List<string> printed = new List<string>();
+            for (int i = linesBefore; i < OS.Shell.Lines.Count; i++) printed.Add(OS.Shell.Lines[i].Text);
+            Check(string.Join("|", printed) == "Runde a|Runde b c|gleich|fehlt", "for, if, else, exists und ! laufen wie erwartet: " + string.Join("|", printed));
+
+            File.WriteAllText(Path.Combine(rootHome, "fehler.sh"), "echo eins\n\nunsinn\necho drei\n");
+            Type("sh fehler.sh\n");
+            Finish();
+            Check(Last().Text == "sh fehler.sh: abgebrochen nach dem Fehler in Zeile 3." && Last().Style == LineStyle.Error && OS.Shell.Lines[OS.Shell.Lines.Count - 3].Text == "eins" && !OS.Shell.Busy,
+                "Ein Fehler bricht das Skript mit der Nummer seiner Zeile ab");
+            File.WriteAllText(Path.Combine(rootHome, "kaputt.sh"), "echo x\nfor i in 1 2\nif a == a\ndone\n");
+            Type("sh kaputt.sh\n");
+            Check(Last().Text == "sh kaputt.sh, Zeile 4: done ohne passendes for." && !OS.Shell.Busy, "sh prüft vorher, ob if/fi und for/done zusammenpassen");
+            File.WriteAllText(Path.Combine(rootHome, "kaputt.sh"), "if a == a\necho x\n");
+            Type("sh kaputt.sh\n");
+            Check(Last().Text == "sh kaputt.sh, Zeile 1: Zu diesem if fehlt fi." && !OS.Shell.Busy, "Ein offenes if meldet sh mit seiner Zeile");
+            File.WriteAllText(Path.Combine(rootHome, "kaputt.sh"), "if a = a\necho UNERREICHT\nfi\n");
+            Type("sh kaputt.sh\n");
+            Finish();
+            Check(Last().Text == "sh kaputt.sh: abgebrochen nach dem Fehler in Zeile 1." && !Shown("UNERREICHT"), "Eine falsch geschriebene Bedingung ist ein Fehler");
+            Type("sh fehlt.sh\n");
+            Check(Last().Text.StartsWith("Skript nicht gefunden: ") && !OS.Shell.Busy, "sh sagt, wenn es das Skript nicht gibt");
+
+            // Rückfragen und Arbeit in Schritten mitten im Skript: Das Skript wartet, bis sie fertig sind.
+            Directory.CreateDirectory(Path.Combine(rootHome, "weg", "innen"));
+            File.WriteAllText(Path.Combine(rootHome, "frage.sh"), "write settings.txt x=y\nrm settings.txt\nrm -r weg\necho weiter\n");
+            Type("sh frage.sh\n");
+            Finish();
+            Check(OS.Shell.Asking && OS.Shell.Busy && Shown("Achtung, Systemdatei"), "sh wartet auf die Antwort einer Rückfrage");
+            Type("nein\n");
+            Finish();
+            Check(OS.Shell.Asking && OS.Shell.Prompt.Contains("weg") && File.Exists(Path.Combine(rootHome, Settings.FileName)),
+                "Eine abgelehnte Rückfrage ist kein Fehler, das Skript geht weiter bis zum nächsten Befehl mit Rückfrage");
+            Type("ja\n");
+            Finish();
+            Check(!OS.Shell.Busy && !Directory.Exists(Path.Combine(rootHome, "weg")) && Last().Text == "weiter",
+                "rm -r läuft im Skript in Schritten zu Ende, danach geht das Skript weiter");
+            File.Delete(Path.Combine(rootHome, Settings.FileName));
+
+            // sleep und Escape
+            Check(SleepCommand.Parse("2", out long ms2) && ms2 == 2000 && SleepCommand.Parse("0.5", out long ms3) && ms3 == 500 && SleepCommand.Parse(".25", out long ms4) && ms4 == 250
+                && !SleepCommand.Parse("x", out _) && !SleepCommand.Parse("601", out _) && !SleepCommand.Parse("-1", out _) && !SleepCommand.Parse("1,5", out _) && !SleepCommand.Parse(".", out _),
+                "sleep liest Sekunden mit Punkt, ohne Ländereinstellung");
+            File.WriteAllText(Path.Combine(rootHome, "warten.sh"), "sleep 5\necho NIEMALS\n");
+            Type("sh warten.sh\n");
+            OS.Tick();
+            OS.Tick();
+            Check(OS.Shell.Busy && OS.Shell.Prompt.StartsWith("sleep: noch "), "sleep wartet, ohne die Kernel-Schleife anzuhalten, und zeigt die Restzeit");
+            Press(Key.Escape);
+            Check(!OS.Shell.Busy && Last().Text == "sh warten.sh: abgebrochen in Zeile 1." && !Shown("NIEMALS"), "Escape bricht sleep und das Skript dahinter ab");
+            Type("sleep 1\n");
+            Check(OS.Shell.Busy, "sleep geht auch ohne Skript");
+            Finish();
+            Check(!OS.Shell.Busy, "sleep ist nach der Zeit fertig");
+
+            // Variablen in der Shell
+            Type("gruss=\"Hallo Welt\"\necho $gruss und ${gruss}! \\$gruss kostet 5$\n");
+            Check(Last().Text == "Hallo Welt und Hallo Welt! $gruss kostet 5$", "Variablen gelten auch im Terminal, \\$ ist ein echtes Dollarzeichen");
+            Type("echo [$unbekannt] $USER $HOME\n");
+            Check(Last().Text == "[] root " + OS.Users.Current.HomeDirectory, "Unbekannte Variablen sind leer, USER und HOME kommen vom System");
+            Type("USER=mallory\n");
+            Check(Last().Style == LineStyle.Error && OS.Shell.Variable("USER") == "root", "Feste Variablen lassen sich nicht setzen");
+            Type("set\n");
+            Check(Shown("gruss=Hallo Welt"), "set zeigt die Variablen");
+            Type("start counter\n");
+            int started = OS.Processes.All[OS.Processes.All.Count - 1].Id;
+            Type("echo $!\nkill $!\n");
+            Check(Shown(started + "") && Last().Text == "Prozess " + started + " beendet.", "$! ist der zuletzt gestartete Prozess");
+
+            // set -x, sh in sh, Grenze
+            File.WriteAllText(Path.Combine(rootHome, "innen.sh"), "set -x\necho x\nset +x\necho still\n");
+            File.WriteAllText(Path.Combine(rootHome, "aussen.sh"), "sh innen.sh\necho zurück\n");
+            Type("sh aussen.sh\n");
+            Finish();
+            Check(Shown(OS.Shell.CommandPrompt + "echo x") && !Shown(OS.Shell.CommandPrompt + "echo still") && Last().Text == "zurück",
+                "set -x zeigt Befehle wie getippt, ein Skript kann ein anderes starten");
+            File.WriteAllText(Path.Combine(rootHome, "selbst.sh"), "sh selbst.sh\n");
+            Type("sh selbst.sh\n");
+            Finish();
+            Check(!OS.Shell.Busy && Shown("Zu viele Skripte ineinander") && Last().Text == "sh selbst.sh: abgebrochen nach dem Fehler in Zeile 1.",
+                "Ein Skript, das sich selbst startet, endet nach " + ScriptJob.MaxDepth + " Ebenen");
+
+            // Nutzerwechsel mitten im Skript
+            Type("sh warten.sh\n");
+            OS.Tick();
+            VibanOS.Users.User me = OS.Users.Current;
+            OS.Users.Current = OS.Users.Find("anna");
+            fakeClock += 10000;
+            Finish();
+            OS.Users.Current = me;
+            Check(!OS.Shell.Busy && Shown("sh warten.sh beendet, weil der Nutzer gewechselt hat.") && !Shown("NIEMALS"), "Ein Skript läuft nicht als anderer Nutzer weiter");
+
+            // Die Vorführung (VIB-4)
+            int errors = OS.Shell.Errors;
+            Type("sh -p demo.sh\n");
+            Check(Shown("# demo.sh: Vorführung von VibanOS"), "sh -p zeigt das eingebaute Skript");
+            int processes = OS.Processes.All.Count;
+            Type("cd /\nsh demo.sh\n");
+            Finish();
+            Check(OS.Shell.Errors == errors && Last().Text.StartsWith("Fertig.") && !Directory.Exists(Path.Combine(rootHome, "vorfuehrung"))
+                && OS.Shell.CurrentDirectory == OS.Users.Current.HomeDirectory, "sh demo.sh läuft ohne Fehler durch und räumt auf");
+            Check(Shown(OS.Shell.CommandPrompt + "kill ") && Shown("== 5. Treiber"), "demo.sh zeigt die Befehle und alle Teile");
+            Shot(output, "9-skript-demo");
+            Type("geheimnis=42\n"); // sieht der nächste Nutzer nicht
+
             Type("logout\n");
             Check(OS.Users.Current == null, "logout sperrt den Schreibtisch");
             Check(OS.Shell.Lines.Count == 0 && OS.Shell.History.Count == 0, "logout räumt Ausgaben und Verlauf für den nächsten Nutzer weg");
@@ -609,8 +731,12 @@ namespace VibanOS.Preview
             Type("\tfalsch\n");
             Check(OS.Users.Current == null, "Falsches Passwort wird abgelehnt");
             Shot(output, "2-anmeldung-fehler");
+            File.WriteAllText(Path.Combine(disk, "home", "anna", ShCommand.Autostart), "gruss=Hallo\necho \"$gruss $USER [$geheimnis]\"\n");
             Type("topsecret\n");
             Check(OS.Users.Current.Name == "anna", "Tab wechselt den Nutzer, anna meldet sich an");
+            Finish();
+            Check(Last().Text == "Hallo anna []" && !OS.Shell.Busy, "Nach der Anmeldung läuft autostart.sh, Variablen des Vorgängers sind weg");
+            File.Delete(Path.Combine(disk, "home", "anna", ShCommand.Autostart));
             Type("shutdown\n");
             Check(Last().Style == LineStyle.Error && !Platform.Hardware.ShutdownCalled, "Normale Nutzer dürfen nicht herunterfahren");
             Type("useradd eve\n");
@@ -639,8 +765,12 @@ namespace VibanOS.Preview
             Type("touch system\ncp system /\n");
             Check(Last().Text == "Zugriff verweigert: " + Vfs.SystemDirectory, "Auch mit der Wurzel als Ziel landet nichts unter dem Namen des Systemordners");
             Type("rm system\n");
+            File.WriteAllText(Path.Combine(disk, "home", "root", ShCommand.Autostart), "write untergeschoben.txt x\n");
             Type("logout\n\tgeheim\n");
             Check(OS.Users.Current.Name == "root", "root meldet sich wieder an");
+            Check(!OS.Shell.Busy && Last().Text.StartsWith(ShCommand.Autostart + " übersprungen") && !File.Exists(Path.Combine(disk, "home", "root", "untergeschoben.txt")),
+                "autostart.sh läuft nicht für root, solange jeder in fremde Home-Ordner schreiben darf");
+            File.Delete(Path.Combine(disk, "home", "root", ShCommand.Autostart));
             Type("cat /system/users.txt\n");
             Check(Last().Style != LineStyle.Error, "Administratoren dürfen in den Systemordner");
 
