@@ -120,6 +120,23 @@ namespace VibanOS.FileSystem
         }
 
         /// <summary>
+        /// Dateien, die das System liest, die aber nicht fest sind (IsFixed): Ohne sie läuft es weiter, nur anders. Bisher die
+        /// Einstellungen eines Nutzers (home/name/settings.txt). Gibt zurück, was ohne die Datei passiert, sonst null.
+        /// Die App Dateien warnt damit, bevor sie eine solche Datei löscht oder umbenennt.
+        /// </summary>
+        public static string SystemFile(string path)
+        {
+            string p = path.ToLowerInvariant();
+            for (int i = 0; i < OS.Users.All.Count; i++)
+            {
+                User user = OS.Users.All[i];
+                if (p == Combine(user.HomeDirectory, Settings.FileName).ToLowerInvariant())
+                    return "Darin stehen die Einstellungen von " + user.Name + ". Ohne sie gelten ab der nächsten Anmeldung die Grundeinstellungen.";
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Liest höchstens max Bytes vom Anfang einer Datei als Text. Für Stellen, an denen nur der Anfang zählt und eine
         /// riesige Datei nicht den Arbeitsspeicher füllen darf. more: Die Datei geht danach noch weiter.
         /// </summary>
