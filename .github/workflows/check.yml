@@ -20,8 +20,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
       - name: Selbsttest
@@ -42,8 +42,8 @@ jobs:
     env:
       TERM: dumb
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
       - name: Werkzeuge installieren
@@ -53,8 +53,7 @@ jobs:
           dotnet tool install -g Cosmos.Tools --version 3.0.99
           dotnet tool install -g Cosmos.Patcher --version 3.0.99
           echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
-      - name: cosmos install
-        run: cosmos install < /dev/null
+      # Kein "cosmos install": Das fragt nach und bricht ohne Eingabe ab. Zum Bauen reichen die beiden Werkzeuge und xorriso.
       - name: cosmos build
         working-directory: VibanOS
         run: cosmos build < /dev/null
