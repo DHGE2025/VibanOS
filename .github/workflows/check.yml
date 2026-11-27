@@ -17,7 +17,7 @@ concurrency:
 jobs:
   selbsttest:
     name: Selbsttest (tools/Preview)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -37,7 +37,7 @@ jobs:
 
   cosmos:
     name: COSMOS-Bau
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 30
     env:
       TERM: dumb
@@ -52,10 +52,14 @@ jobs:
         run: dotnet new globaljson --sdk-version "$(dotnet --list-sdks | grep '^10\.' | tail -1 | cut -d' ' -f1)" --roll-forward latestFeature --force
       - name: Werkzeuge installieren
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q xorriso lld
-          dotnet tool install -g Cosmos.Tools --version 3.0.99
-          dotnet tool install -g Cosmos.Patcher --version 3.0.99
+          # Auf dem eigenen Runner bleibt alles vom letzten Lauf liegen: nur nachinstallieren, was fehlt.
+          if ! command -v xorriso >/dev/null || ! command -v ld.lld >/dev/null; then
+            sudo apt-get update -q
+            sudo apt-get install -y -q xorriso lld
+          fi
+          # update installiert auch, wenn das Werkzeug noch fehlt, und bricht nicht ab, wenn es schon da ist.
+          dotnet tool update -g Cosmos.Tools --version 3.0.99
+          dotnet tool update -g Cosmos.Patcher --version 3.0.99
           echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
       # Kein "cosmos install": Das fragt nach und bricht ohne Eingabe ab. Zum Bauen reichen die beiden Werkzeuge, xorriso (ISO-Abbild) und lld (Linker).
       - name: cosmos build
