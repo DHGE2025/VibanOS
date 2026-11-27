@@ -105,7 +105,8 @@ namespace VibanOS.Cli.Commands
             PageTable table = OS.Memory.TableOf(p.Id);
             int frame = table != null && page >= 0 && page < table.Pages.Count ? table.Pages[page].Frame : -1;
             if (!OS.Memory.FreePage(p.Id, page)) { shell.Error("Prozess " + p.Id + " hat keine Seite " + page + "."); return; }
-            shell.WriteLine("Seite " + page + " von Prozess " + p.Id + " freigegeben, Rahmen " + frame + " ist wieder frei.");
+            shell.WriteLine("Seite " + page + " von Prozess " + p.Id + " freigegeben, " + (OS.Memory.Frames.Owner[frame] == FrameTable.Free
+                ? "Rahmen " + frame + " ist wieder frei." : "Rahmen " + frame + " nutzt noch Prozess " + OS.Memory.Frames.Owner[frame] + " (gemeinsamer Speicher)."));
         }
     }
 

@@ -100,7 +100,7 @@ Eine neue, leere Platte hat weder Partitionstabelle noch Dateisystem. Der Befehl
 | VIB-4 Dokumentation | `docs/` | dieses Dokument, Designsheet | Themenseiten, `befehle.md`, Vorführ-Skript |
 | VIB-5 Rahmentabellen | `Memory/` | `PhysicalMemory`, `FrameTable`, `PageTable`, Übersetzung, Page Fault, `mem`, `frames`, `alloc`, `pagetable`, `free`, `translate` | Fertig |
 | VIB-6 Fragmentierung | `Memory/` | gemeinsamer simulierter RAM | Blockverwaltung, First/Best/Worst Fit, Kennzahlen, Befehle |
-| VIB-7 Speicherschutz | `Memory/` | Rechte pro Seite, geprüftes `ReadByte`/`WriteByte`, Protokoll, Prozess endet bei Verstoß | `protect`, `peek`, `poke`, `memlog`, `memdemo`, gemeinsamer Speicher |
+| VIB-7 Speicherschutz | `Memory/`, `Shell/Commands/ProtectionCommands.cs` | Rechte pro Seite, geprüftes `ReadByte`/`WriteByte`, Protokoll, Prozess endet bei Verstoß, gemeinsamer Speicher (`SharePage`, der Rahmen bleibt belegt, solange ihn ein Prozess eingeblendet hat); `protect`, `peek`, `poke`, `memlog`, `share`, `memdemo` | Fertig |
 | VIB-8 Deadlocks | `Sync/` | `Mutex`, `Semaphore` mit Warteschlange und Blockieren, beendete Prozesse werden übersprungen | Verzeichnis aller Sperren (Freigabe beim Beenden), Ressourcenverwaltung, Erkennung, Banker, Demos, Befehle |
 | VIB-9 Ports | `Drivers/`, `Platform/` | `Driver`, `DriverManager`, `Hardware.In`/`Out`, COM1-Treiber (115200 Baud wie das Protokoll von COSMOS), `drivers` | PC-Speaker, `driver start/stop`, `inb`, `outb`, `beep` |
 | VIB-10 Senden und Empfangen | `Drivers/SerialDriver.cs` | `SendMessage`, `ReadByte`, `send` | Empfangspuffer, `receive`, `chat`, Prüfsumme |

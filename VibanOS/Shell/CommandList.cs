@@ -48,6 +48,14 @@ namespace VibanOS.Cli
             shell.Register(new FreeCommand());
             shell.Register(new TranslateCommand());
 
+            // Speicherschutz (VIB-7)
+            shell.Register(new ProtectCommand());
+            shell.Register(new PeekCommand());
+            shell.Register(new PokeCommand());
+            shell.Register(new MemlogCommand());
+            shell.Register(new ShareCommand());
+            shell.Register(new MemdemoCommand());
+
             // Nutzer (VIB-16)
             shell.Register(new WhoamiCommand());
             shell.Register(new UsersCommand());
