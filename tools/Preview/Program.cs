@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Reflection;
 using VibanOS.Cli;
+using VibanOS.Cli.Commands;
 using VibanOS.Core;
 using VibanOS.Drivers;
 using VibanOS.FileSystem;
@@ -420,6 +421,44 @@ namespace VibanOS.Preview
             Check(Last().Style == LineStyle.Error && OS.Processes.All.Count == 3, "Ohne freien Rahmen startet kein Prozess");
             Type("kill " + hog + "\n");
             Check(OS.Memory.Frames.FreeCount > 0, "kill gibt alle Seiten des Prozesses frei");
+
+            // Fragmentierung (VIB-6)
+            int failFirst, failBest, failWorst;
+            BlockAllocator first = FragtestCommand.Run(FitStrategy.First, out failFirst);
+            BlockAllocator best = FragtestCommand.Run(FitStrategy.Best, out failBest);
+            BlockAllocator worst = FragtestCommand.Run(FitStrategy.Worst, out failWorst);
+            Check(first.ExternalPercent == 67 && best.ExternalPercent == 0 && worst.ExternalPercent == 34
+                && failFirst == 1 && failBest == 1 && failWorst == 1, "fragtest: Best Fit lässt die wenigsten kleinen Lücken");
+            int heapFree = OS.Memory.Frames.FreeCount;
+            Type("malloc 3000\n");
+            int heapAt = OS.Memory.HeapFrame;
+            Check(heapAt >= 0 && OS.Memory.Frames.Owner[heapAt] == FrameTable.Kernel && OS.Memory.Frames.FreeCount == heapFree - MemoryManager.HeapFrames
+                && OS.Memory.Heap.Get(1).Length == 3008, "malloc belegt Rahmen für den Blockbereich und rundet auf 16 Byte auf");
+            Type("malloc 1K\nmalloc 1K\nmalloc 1K\nmfree 2\nmfree 3\n");
+            Check(OS.Memory.Heap.Free.Count == 2 && OS.Memory.Heap.Free[0].Length == 2048, "Benachbarte freie Bereiche werden zusammengefasst");
+            Type("strategy best\nmalloc 2K\n");
+            Check(OS.Memory.Heap.Get(5).Start == 3008, "Best Fit nimmt die kleinste passende Lücke");
+            Type("strategy worst\nmalloc 1K\n");
+            Check(OS.Memory.Heap.Get(6).Start == 3008 + 2048 + 1024, "Worst Fit nimmt die größte Lücke");
+            Type("strategy egal\n");
+            Check(Last().Style == LineStyle.Error && OS.Memory.Heap.Strategy == FitStrategy.Worst, "strategy lehnt Unbekanntes ab");
+            Type("strategy first\nmfree 5\nmalloc 40K\n");
+            Check(Last().Style == LineStyle.Error && Last().Text.Contains("Frei sind nur"), "malloc meldet zu wenig freien Speicher");
+            Type("malloc 26K\n");
+            Check(Last().Style == LineStyle.Error && Last().Text.Contains("größte Lücke"), "malloc erklärt externe Fragmentierung");
+            Type("fragstat\n");
+            Check(OS.Shell.Lines[OS.Shell.Lines.Count - 2].Text.StartsWith("Externe Fragmentierung: ") && OS.Memory.Heap.ExternalPercent > 0,
+                "fragstat zeigt die Kennzahlen");
+            OS.Memory.Physical.Data[OS.Memory.HeapAddress(OS.Memory.Heap.Get(6))] = 77;
+            Type("compact\n");
+            Check(OS.Memory.Heap.Free.Count == 1 && OS.Memory.Heap.Get(4).Start == 3008 && OS.Memory.Heap.Get(6).Start == 4032 && OS.Memory.Physical.Data[OS.Memory.HeapAddress(OS.Memory.Heap.Get(6))] == 77,
+                "compact schiebt die Blöcke samt Inhalt zusammen");
+            Type("memmap\n");
+            Check(OS.Shell.Lines[OS.Shell.Lines.Count - 5].Text.StartsWith("[AAAAAADDFF") && Last().Text.StartsWith("F  Block 6"), "memmap zeigt die Blöcke");
+            Type("mfree 9\n");
+            Check(Last().Style == LineStyle.Error, "mfree meldet einen Block, den es nicht gibt");
+            Type("mfree 1\nmfree 4\nmfree 6\n");
+            Check(OS.Memory.HeapFrame < 0 && OS.Memory.Frames.FreeCount == heapFree, "Ohne Blöcke gibt der Bereich seine Rahmen zurück");
 
             // Sperren (VIB-8)
             Type("start counter\nstart counter\nstart counter\n");
