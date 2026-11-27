@@ -1,0 +1,96 @@
+# Prüft jeden Pull Request gegen development und jeden Push auf development (VIB-31).
+# Zwei Jobs: der schnelle Selbsttest ohne VM und der echte Bau mit COSMOS.
+name: Prüfen
+
+on:
+  pull_request:
+    branches: [development]
+  push:
+    branches: [development]
+  workflow_dispatch:
+
+# Ein neuer Push auf denselben PR bricht den alten Lauf ab, statt zu warten.
+concurrency:
+  group: pruefen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selbsttest:
+    name: Selbsttest (tools/Preview)
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      # Der Runner-Dienst hat Umgebungsvariablen von root geerbt (HOME, XDG_RUNTIME_DIR), läuft aber als eigener
+      # Nutzer. dotnet scheitert dann an /run/user/0. Hier auf Ordner umbiegen, in die der Runner schreiben darf.
+      - name: Umgebung des Runners richten
+        run: |
+          echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          if [ ! -w "$HOME" ]; then
+            mkdir -p "$RUNNER_TOOL_CACHE/home"
+            echo "HOME=$RUNNER_TOOL_CACHE/home" >> "$GITHUB_ENV"
+          fi
+      - uses: actions/setup-dotnet@v5
+        # Der eigene Runner läuft ohne root-Rechte: .NET kommt in den Werkzeug-Ordner des Runners statt nach
+        # /usr/share/dotnet. Der Ordner bleibt zwischen den Läufen erhalten, .NET wird nur einmal geladen.
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
+        with:
+          dotnet-version: 10.0.x
+      - name: Selbsttest
+        run: dotnet run --project tools/Preview
+      - name: Bildschirmfotos hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bildschirmfotos
+          path: preview/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  cosmos:
+    name: COSMOS-Bau
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 30
+    env:
+      TERM: dumb
+    steps:
+      - uses: actions/checkout@v5
+      # Der Runner-Dienst hat Umgebungsvariablen von root geerbt (HOME, XDG_RUNTIME_DIR), läuft aber als eigener
+      # Nutzer. dotnet scheitert dann an /run/user/0. Hier auf Ordner umbiegen, in die der Runner schreiben darf.
+      - name: Umgebung des Runners richten
+        run: |
+          echo "XDG_RUNTIME_DIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          if [ ! -w "$HOME" ]; then
+            mkdir -p "$RUNNER_TOOL_CACHE/home"
+            echo "HOME=$RUNNER_TOOL_CACHE/home" >> "$GITHUB_ENV"
+          fi
+      - uses: actions/setup-dotnet@v5
+        # Der eigene Runner läuft ohne root-Rechte: .NET kommt in den Werkzeug-Ordner des Runners statt nach
+        # /usr/share/dotnet. Der Ordner bleibt zwischen den Läufen erhalten, .NET wird nur einmal geladen.
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
+        with:
+          dotnet-version: 10.0.x
+      # Der Runner hat auch .NET 11. Damit zöge COSMOS den ILCompiler 11, der die Optionen von COSMOS 3.0.99
+      # nicht kennt. global.json hält den Bau auf dem SDK 10, wie auf unseren Rechnern.
+      - name: SDK 10 festlegen
+        run: dotnet new globaljson --sdk-version "$(dotnet --list-sdks | grep '^10\.' | tail -1 | cut -d' ' -f1)" --roll-forward latestFeature --force
+      - name: Werkzeuge installieren
+        run: |
+          # Auf dem eigenen Runner bleibt alles vom letzten Lauf liegen: nur nachinstallieren, was fehlt.
+          # sudo -n fragt nicht nach einem Passwort: Ohne Rechte bricht der Schritt sofort ab, statt bis zum Timeout zu warten.
+          if ! command -v xorriso >/dev/null || ! command -v ld.lld >/dev/null; then
+            if ! (sudo -n apt-get update -q && sudo -n apt-get install -y -q xorriso lld); then
+              echo "::error::Auf dem Runner fehlen xorriso und/oder lld. Bitte einmal als root installieren: apt-get install xorriso lld"
+              exit 1
+            fi
+          fi
+          # update installiert auch, wenn das Werkzeug noch fehlt, und bricht nicht ab, wenn es schon da ist.
+          dotnet tool update -g Cosmos.Tools --version 3.0.99
+          dotnet tool update -g Cosmos.Patcher --version 3.0.99
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+      # Kein "cosmos install": Das fragt nach und bricht ohne Eingabe ab. Zum Bauen reichen die beiden Werkzeuge, xorriso (ISO-Abbild) und lld (Linker).
+      - name: cosmos build
+        working-directory: VibanOS
+        run: cosmos build < /dev/null

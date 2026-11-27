@@ -1,5 +1,7 @@
 # VibanOS
 
+[![Prüfen](https://github.com/DHGE2025/VibanOS/actions/workflows/check.yml/badge.svg?branch=development)](https://github.com/DHGE2025/VibanOS/actions/workflows/check.yml)
+
 Ein Betriebssystem in C#, gebaut mit [COSMOS](https://github.com/CosmosOS/Cosmos) 3.0 (C# Open Source Managed Operating System, Generation 3).
 
 ## Voraussetzungen
@@ -143,7 +145,7 @@ Mehr dazu in [docs/architektur.md](docs/architektur.md). Für alles Sichtbare gi
 dotnet run --project tools/Preview
 ```
 
-Fährt den Kern und die Oberfläche ohne COSMOS hoch, prüft die Grundfunktionen und legt Bildschirmfotos in `preview/` ab. Das geht schnell und fängt Logikfehler ab. Vor einem Pull Request trotzdem mit `cosmos build` und `cosmos run` starten: Ob COSMOS den Code übersetzt und die Hardware mitspielt, zeigt nur die VM.
+Fährt den Kern und die Oberfläche ohne COSMOS hoch, prüft die Grundfunktionen und legt Bildschirmfotos in `preview/` ab. Das geht schnell und fängt Logikfehler ab. GitHub Actions führt den Selbsttest und `cosmos build` bei jedem Pull Request gegen `development` von selbst aus (`.github/workflows/check.yml`), die Bildschirmfotos liegen dann als Artefakt am Lauf. Vor einem Pull Request trotzdem mit `cosmos build` und `cosmos run` starten: Ob COSMOS den Code übersetzt und die Hardware mitspielt, zeigt nur die VM.
 
 ## Werkstatt: Branches per Klick bauen und starten
 
