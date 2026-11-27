@@ -46,6 +46,10 @@ jobs:
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
+      # Der Runner hat auch .NET 11. Damit zöge COSMOS den ILCompiler 11, der die Optionen von COSMOS 3.0.99
+      # nicht kennt. global.json hält den Bau auf dem SDK 10, wie auf unseren Rechnern.
+      - name: SDK 10 festlegen
+        run: dotnet new globaljson --sdk-version "$(dotnet --list-sdks | grep '^10\.' | tail -1 | cut -d' ' -f1)" --roll-forward latestFeature --force
       - name: Werkzeuge installieren
         run: |
           sudo apt-get update -q
