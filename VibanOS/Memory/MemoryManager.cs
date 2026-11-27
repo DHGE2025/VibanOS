@@ -63,10 +63,47 @@ namespace VibanOS.Memory
         {
             PageTable table = TableOf(pid);
             if (table == null || page < 0 || page >= table.Pages.Count || !table.Pages[page].Present) return false;
-            Frames.Release(table.Pages[page].Frame);
+            int frame = table.Pages[page].Frame;
             table.Pages[page].Present = false;
+            // Gemeinsamer Speicher: Solange noch ein anderer Prozess die Seite eingeblendet hat, bleibt der Rahmen
+            // belegt und geht an ihn über. Sonst läse er Speicher, den schon jemand anderes bekommen hat.
+            int other = UserOf(frame);
+            if (other < 0) Frames.Release(frame);
+            else Frames.Owner[frame] = other;
             OS.Changed = true;
             return true;
+        }
+
+        /// <summary>
+        /// Blendet die Seite page von Prozess from zusätzlich bei Prozess to ein, mit eigenen Rechten (VIB-7).
+        /// Beide sehen danach dieselben Bytes. Rückgabe: Seitennummer bei to, oder -1.
+        /// </summary>
+        public int SharePage(int from, int page, int to, int access)
+        {
+            PageTable source = TableOf(from);
+            if (from == to || source == null || page < 0 || page >= source.Pages.Count || !source.Pages[page].Present) return -1;
+            PageTable target = TableOf(to);
+            if (target == null)
+            {
+                target = new PageTable(to);
+                Tables.Add(target);
+            }
+            PageEntry entry = new PageEntry();
+            entry.Frame = source.Pages[page].Frame;
+            entry.Present = true;
+            entry.Access = access;
+            target.Pages.Add(entry);
+            OS.Changed = true;
+            return target.Pages.Count - 1;
+        }
+
+        /// <summary>Ein Prozess, der den Rahmen noch eingeblendet hat, oder -1.</summary>
+        private int UserOf(int frame)
+        {
+            for (int t = 0; t < Tables.Count; t++)
+                for (int i = 0; i < Tables[t].Pages.Count; i++)
+                    if (Tables[t].Pages[i].Present && Tables[t].Pages[i].Frame == frame) return Tables[t].ProcessId;
+            return -1;
         }
 
         public void FreeAll(int pid)

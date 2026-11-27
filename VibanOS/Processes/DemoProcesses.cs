@@ -51,4 +51,12 @@ namespace VibanOS.Processes
             }
         }
     }
+
+    /// <summary>Prozess ohne eigenes Programm für memdemo (VIB-7): Er hat nur Speicher, mit dem die Shell vorführt.</summary>
+    public class DemoProcess : Process
+    {
+        public DemoProcess(string name) { Name = name; }
+
+        public override bool Passive { get { return true; } }
+    }
 }

@@ -15,7 +15,7 @@ namespace VibanOS.Cli.Commands
             for (int i = 0; i < shell.Commands.Count; i++)
             {
                 Command c = shell.Commands[i];
-                shell.WriteLine(Text.Pad(c.Usage, 26) + c.Description);
+                shell.WriteLine(Text.Pad(c.Usage + " ", 26) + c.Description); // lange Aufrufe kleben sonst an der Beschreibung
             }
             shell.WriteLine("Bild auf und Bild ab blättern im Terminal, Pfeil auf holt frühere Eingaben zurück.", LineStyle.Muted);
         }

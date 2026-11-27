@@ -412,6 +412,41 @@ namespace VibanOS.Preview
                 "pagetable zeigt eine freigegebene Seite als nicht vorhanden");
             Type("translate 2 4103\n");
             Check(Last().Text.Contains("Page Fault"), "Nach free ist die Adresse ein Page Fault");
+
+            // Speicherschutz (VIB-7)
+            int logStart = OS.Memory.Log.Count;
+            Type("protect 2 0 r\npoke 2 5 1\n");
+            Check(Last().Style == LineStyle.Error && OS.Memory.TableOf(2).Pages[0].Access == PageAccess.Read && OS.Memory.Log.Count == logStart + 1,
+                "protect setzt nur lesen, poke wird abgelehnt und protokolliert");
+            Type("peek 2 5\n");
+            Check(Last().Style != LineStyle.Error, "Lesen bleibt erlaubt");
+            Type("protect 2 0 rw\npoke 2 5 0x2a\npeek 2 5\n");
+            Check(Last().Text.EndsWith(": 42 (0x2a)"), "Nach rw schreibt poke, peek liest den Wert");
+            Type("protect 2 0 rq\n");
+            Check(Last().Style == LineStyle.Error, "protect lehnt unbekannte Rechte ab");
+            Type("poke 2 5 300\n");
+            Check(Last().Style == LineStyle.Error && OS.Memory.ReadByte(2, 5) == 42, "poke nimmt nur Werte bis 255");
+            Type("memlog\n");
+            Check(Last().Text.Contains("Schutzverletzung"), "memlog zeigt die abgelehnten Zugriffe");
+            Type("start counter\n");
+            int reader = OS.Processes.All[OS.Processes.All.Count - 1].Id;
+            Type("share 2 0 " + reader + " r\n");
+            int sharedPage = OS.Memory.TableOf(reader).Pages.Count - 1;
+            Check(OS.Memory.TableOf(reader).Pages[sharedPage].Frame == OS.Memory.TableOf(2).Pages[0].Frame, "share blendet denselben Rahmen beim Ziel ein");
+            Type("peek " + reader + " " + (sharedPage * 4096 + 5) + "\n");
+            Check(Last().Text.EndsWith(": 42 (0x2a)"), "Das Ziel liest, was der Besitzer geschrieben hat");
+            Type("poke " + reader + " " + (sharedPage * 4096 + 5) + " 1\n");
+            Check(Last().Style == LineStyle.Error && OS.Memory.ReadByte(2, 5) == 42, "Mit nur lesen darf das Ziel nicht schreiben");
+            int sharedFrame = OS.Memory.TableOf(2).Pages[0].Frame;
+            Type("free 2 0\n");
+            Check(OS.Memory.Frames.Owner[sharedFrame] == reader && OS.Memory.ReadByte(reader, sharedPage * 4096 + 5) == 42,
+                "Gibt der Besitzer die Seite frei, bleibt der Rahmen beim anderen Prozess");
+            Type("kill " + reader + "\n");
+            Check(OS.Memory.Frames.Owner[sharedFrame] == FrameTable.Free, "Mit dem letzten Prozess wird der gemeinsame Rahmen frei");
+            int processCount = OS.Processes.All.Count, freeFrames = OS.Memory.Frames.FreeCount, logBeforeDemo = OS.Memory.Log.Count;
+            Type("memdemo\n");
+            Check(OS.Processes.All.Count == processCount && OS.Memory.Frames.FreeCount == freeFrames && OS.Memory.Log.Count == logBeforeDemo + 3
+                && OS.Shell.Lines[OS.Shell.Lines.Count - 2].Text.Contains("beendet"), "memdemo führt drei verbotene Zugriffe vor und räumt auf");
             Type("start counter\n");
             int hog = OS.Processes.All[OS.Processes.All.Count - 1].Id;
             Type("alloc " + hog + " 999\n");
