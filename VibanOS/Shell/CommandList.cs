@@ -48,6 +48,15 @@ namespace VibanOS.Cli
             shell.Register(new FreeCommand());
             shell.Register(new TranslateCommand());
 
+            // Fragmentierung (VIB-6)
+            shell.Register(new MallocCommand());
+            shell.Register(new MfreeCommand());
+            shell.Register(new MemmapCommand());
+            shell.Register(new StrategyCommand());
+            shell.Register(new FragstatCommand());
+            shell.Register(new CompactCommand());
+            shell.Register(new FragtestCommand());
+
             // Nutzer (VIB-16)
             shell.Register(new WhoamiCommand());
             shell.Register(new UsersCommand());

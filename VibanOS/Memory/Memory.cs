@@ -17,6 +17,9 @@ namespace VibanOS.Memory
     {
         public const int Free = -1;
 
+        /// <summary>Besitzer der Rahmen, in denen die Blöcke aus VIB-6 liegen. Prozess-IDs beginnen bei 1.</summary>
+        public const int Kernel = 0;
+
         public readonly int[] Owner = new int[PhysicalMemory.FrameCount];
         public int FreeCount = PhysicalMemory.FrameCount;
 
@@ -34,6 +37,25 @@ namespace VibanOS.Memory
                 Owner[i] = pid;
                 FreeCount--;
                 return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// Belegt count Rahmen am Stück, für Blöcke, die über Rahmengrenzen reichen. Gibt den ersten zurück,
+        /// oder -1, wenn kein so langer freier Abschnitt da ist.
+        /// </summary>
+        public int AllocateRange(int count, int owner)
+        {
+            int run = 0;
+            for (int i = 0; i < Owner.Length; i++)
+            {
+                run = Owner[i] == Free ? run + 1 : 0;
+                if (run < count) continue;
+                int first = i - count + 1;
+                for (int j = first; j <= i; j++) Owner[j] = owner;
+                FreeCount -= count;
+                return first;
             }
             return -1;
         }
