@@ -1,0 +1,60 @@
+# Prüft jeden Pull Request gegen development und jeden Push auf development (VIB-31).
+# Zwei Jobs: der schnelle Selbsttest ohne VM und der echte Bau mit COSMOS.
+name: Prüfen
+
+on:
+  pull_request:
+    branches: [development]
+  push:
+    branches: [development]
+  workflow_dispatch:
+
+# Ein neuer Push auf denselben PR bricht den alten Lauf ab, statt zu warten.
+concurrency:
+  group: pruefen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selbsttest:
+    name: Selbsttest (tools/Preview)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Selbsttest
+        run: dotnet run --project tools/Preview
+      - name: Bildschirmfotos hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bildschirmfotos
+          path: preview/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  cosmos:
+    name: COSMOS-Bau
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TERM: dumb
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Werkzeuge installieren
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q xorriso
+          dotnet tool install -g Cosmos.Tools --version 3.0.99
+          dotnet tool install -g Cosmos.Patcher --version 3.0.99
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+      - name: cosmos install
+        run: cosmos install < /dev/null
+      - name: cosmos build
+        working-directory: VibanOS
+        run: cosmos build < /dev/null
